@@ -11,6 +11,13 @@
 #            02 = beaten. Byte 1 holds per-run flags (star medals).
 #            1-3, the castle and the Toad House use a different block that
 #            isn't mapped yet.
+#   +0x34DF  lives, 2 bytes (only updates when the game saves, so
+#            LIVES_1000 uses the live copies below instead).
+#
+# Live player data (updates the moment lives change), one block per file,
+# 0x60 bytes apart, same addresses after a reboot:
+#   0x1618FAE2 / 0x1618FB42 / 0x1618FBA2  lives, 2 bytes (files A / B / C),
+#            followed by the star medal count. Found with Azahar's GDB stub.
 #   +0x2B7B  NOT usable: number of the last spot beaten (went 7 -> 6 when
 #            the Toad House was beaten after the castle).
 #
@@ -18,3 +25,6 @@
 BEAT_1_1    0x15913448  1    >=2       The Party Begins | Reach the Goal Pole in World 1-1.
 BEAT_1_1    0x15913DCB  1    >=2       The Party Begins | Reach the Goal Pole in World 1-1.
 BEAT_1_1    0x1591474E  1    >=2       The Party Begins | Reach the Goal Pole in World 1-1.
+LIVES_1000  0x1618FAE2  2    >=1000    Turtle Tormentor | Reach 1000 lives.
+LIVES_1000  0x1618FB42  2    >=1000    Turtle Tormentor | Reach 1000 lives.
+LIVES_1000  0x1618FBA2  2    >=1000    Turtle Tormentor | Reach 1000 lives.
