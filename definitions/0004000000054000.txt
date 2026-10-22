@@ -1,30 +1,30 @@
 # Super Mario 3D Land (USA) - title ID 0004000000054000
 #
-# The game keeps its whole save (GameData.bin, all three files) in memory at
-# 0x15910850, the same address every boot. Each save file is 0x983 bytes after
-# the previous one, so every achievement has one line per file (A, B, C) and
-# beating it in any file unlocks it.
+# Every achievement has one line per save file (A, B, C), so doing it in any
+# file unlocks it. All addresses were the same after a reboot.
 #
-# Save-file offsets (add 0x15910850 for the address in file A):
+# Live game data (updates the moment something happens), found with Azahar's
+# GDB stub. These are what the achievements below use:
+#   0x1618FD9C / 0x1619272C / 0x161950BC  1-1 status (files A / B / C):
+#            1 = not beaten, 2 = beaten. Part of a list of course records,
+#            0x2990 bytes per file; it changed as Mario grabbed the pole.
+#   0x1618FAE2 / 0x1618FB42 / 0x1618FBA2  lives, 2 bytes (files A / B / C),
+#            followed by the star medal count. One block per file, 0x60 apart.
+#
+# The save itself (GameData.bin, all three files) is also in memory, at
+# 0x15910850, but it only changes when the game saves. Each file is 0x983
+# bytes after the previous one. Save-file offsets (add 0x15910850 for file A):
 #   +0x2BF8  map-spot records, 12 bytes each: 1-1, 1-2, first Mystery Box.
 #            Byte 0 is the status: 01 = open (also in unused files),
 #            02 = beaten. Byte 1 holds per-run flags (star medals).
-#            1-3, the castle and the Toad House use a different block that
-#            isn't mapped yet.
-#   +0x34DF  lives, 2 bytes (only updates when the game saves, so
-#            LIVES_1000 uses the live copies below instead).
-#
-# Live player data (updates the moment lives change), one block per file,
-# 0x60 bytes apart, same addresses after a reboot:
-#   0x1618FAE2 / 0x1618FB42 / 0x1618FBA2  lives, 2 bytes (files A / B / C),
-#            followed by the star medal count. Found with Azahar's GDB stub.
+#   +0x34DF  lives, 2 bytes.
 #   +0x2B7B  NOT usable: number of the last spot beaten (went 7 -> 6 when
 #            the Toad House was beaten after the castle).
 #
 # id        address     size expected  name | description
-BEAT_1_1    0x15913448  1    >=2       The Party Begins | Reach the Goal Pole in World 1-1.
-BEAT_1_1    0x15913DCB  1    >=2       The Party Begins | Reach the Goal Pole in World 1-1.
-BEAT_1_1    0x1591474E  1    >=2       The Party Begins | Reach the Goal Pole in World 1-1.
+BEAT_1_1    0x1618FD9C  1    >=2       The Party Begins | Reach the Goal Pole in World 1-1.
+BEAT_1_1    0x1619272C  1    >=2       The Party Begins | Reach the Goal Pole in World 1-1.
+BEAT_1_1    0x161950BC  1    >=2       The Party Begins | Reach the Goal Pole in World 1-1.
 LIVES_1000  0x1618FAE2  2    >=1000    Turtle Tormentor | Reach 1000 lives.
 LIVES_1000  0x1618FB42  2    >=1000    Turtle Tormentor | Reach 1000 lives.
 LIVES_1000  0x1618FBA2  2    >=1000    Turtle Tormentor | Reach 1000 lives.
