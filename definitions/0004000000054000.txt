@@ -15,6 +15,6 @@
 #            the Toad House was beaten after the castle).
 #
 # id        address     size expected  name | description
-BEAT_1_1    0x15913448  1    >=2       Beat World 1-1 | Reach the Goal Pole in World 1-1.
-BEAT_1_1    0x15913DCB  1    >=2       Beat World 1-1 | Reach the Goal Pole in World 1-1.
-BEAT_1_1    0x1591474E  1    >=2       Beat World 1-1 | Reach the Goal Pole in World 1-1.
+BEAT_1_1    0x15913448  1    >=2       The Party Begins | Reach the Goal Pole in World 1-1.
+BEAT_1_1    0x15913DCB  1    >=2       The Party Begins | Reach the Goal Pole in World 1-1.
+BEAT_1_1    0x1591474E  1    >=2       The Party Begins | Reach the Goal Pole in World 1-1.

@@ -173,8 +173,6 @@ namespace AchievementsMenu
         }
     }
 
-    void (*OnXPressed)(void) = nullptr;
-
     bool Open(void)
     {
         static std::string gameTitle = ReadGameTitle();
@@ -201,12 +199,6 @@ namespace AchievementsMenu
                 closeArmed = true;
             if (closeArmed && (pressed & (Key::Select | Key::B)))
                 break;
-
-            if ((pressed & Key::X) && OnXPressed != nullptr)
-            {
-                OnXPressed();
-                redraw = 2;
-            }
 
             int move = 0;
             if (pressed & DIRECTION_KEYS)

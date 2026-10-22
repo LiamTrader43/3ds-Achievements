@@ -3,10 +3,6 @@
 #include "achievement.hpp"
 #include "achievements_menu.hpp"
 
-#ifdef DEBUG
-#include "devtools.hpp"
-#endif
-
 // This plugin runs only the achievement system. CTRPF's other features are
 // switched off here, not in the library, so plugins that copy
 // achievement.hpp/.cpp keep theirs.
@@ -40,11 +36,6 @@ namespace CTRPluginFramework
 
         // The menu hotkey shows our achievements list; CTRPF's menu never opens.
         menu->OnOpening = AchievementsMenu::Open;
-
-#ifdef DEBUG
-        // X in the achievements menu takes a memory snapshot for finding addresses.
-        AchievementsMenu::OnXPressed = DevTools::DumpSnapshot;
-#endif
 
         // Blocks until the game exits.
         menu->Run();
