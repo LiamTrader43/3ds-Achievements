@@ -1,0 +1,23 @@
+Author: LiamTrader43
+
+Version: # Plugin version
+    Major: 0
+    Minor: 1
+    Revision: 0
+
+Targets: # Low TitleId of games which are compatibles with this plugin (0 for all)
+
+Title: 3DS Achievements
+
+Summary: Achievement pop-ups for 3DS games
+
+Description: |
+  Watches game memory and unlocks achievements defined in
+  /achievements/<TitleID>.txt on the SD card. Unlocks are saved to
+  /achievements/<TitleID>_unlocked.txt.
+
+Compatibility: Any
+
+MemorySize: 5MiB
+
+UsePrivateMemory: false
