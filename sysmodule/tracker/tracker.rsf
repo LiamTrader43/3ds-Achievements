@@ -1,0 +1,90 @@
+# Background achievement tracker. Title ID 0004013000AC4102 (UniqueId 0xAC41, Version 2).
+# The last byte must be 02 (the system core version): Luma's PM panics when
+# launching a 00040130 title ending in anything else (those are SAFE_MODE copies).
+# Luma3DS loads it from /luma/sysmodules/0004013000AC4102.cxi when something
+# launches that title ID ("Enable loading external FIRMs and modules" must be on).
+# Modelled on Luma's sysmodules/rosalina/rosalina.rsf.
+
+BasicInfo:
+  Title                   : achtrack
+  CompanyCode             : "00"
+  ProductCode             : achtrack
+  ContentType             : Application
+  Logo                    : None
+
+TitleInfo:
+  UniqueId                : 0xAC41
+  Category                : Base
+  Version                 : 2     # becomes the title ID's last byte; must be 2
+
+Option:
+  UseOnSD                 : false
+  FreeProductCode         : true
+  MediaFootPadding        : false
+  EnableCrypt             : false
+  EnableCompress          : true
+
+AccessControlInfo:
+  IdealProcessor                : 1
+  AffinityMask                  : 3
+
+  # makerom adds 32 for ContentType Application (Luma's own modules: rosalina
+  # 25 -> 57, pm 20 -> 52), and thread priorities only go to 63. The first
+  # value here, 48, became 80: the main thread was started but never scheduled.
+  # 26 -> 58: just below Rosalina, above Flashback's writer/capture (59/60).
+  Priority                      : 26
+
+  DisableDebug                  : false
+  EnableForceDebug              : false
+  CanWriteSharedPage            : false
+  CanUsePrivilegedPriority      : false
+  CanUseNonAlphabetAndNumber    : false
+  PermitMainFunctionArgument    : false
+  CanShareDeviceMemory          : false
+  RunnableOnSleep               : false
+  SpecialMemoryArrange          : false # true only for modules Luma starts itself (loader, rosalina)
+  ResourceLimitCategory         : Other
+
+  CoreVersion                   : 2
+  DescVersion                   : 2
+
+  MemoryType                    : Base  # never the game's memory
+  HandleTableSize: 64
+
+  # Luma's kernel extension removes SVC permission checks (svcMapProcessMemoryEx,
+  # svcGetProcessList, ...); these entries keep makerom happy.
+  SystemCallAccess:
+    ControlMemory: 1
+    ExitProcess: 3
+    CreateThread: 8
+    ExitThread: 9
+    SleepThread: 10
+    CreateSemaphore: 21
+    ReleaseSemaphore: 22
+    CreateEvent: 23
+    SignalEvent: 24
+    ClearEvent: 25
+    CloseHandle: 35
+    WaitSynchronization1: 36
+    WaitSynchronizationN: 37
+    GetSystemTick: 40
+    GetProcessInfo: 43
+    ConnectToPort: 45
+    SendSyncRequest: 50
+    OpenProcess: 51
+    GetProcessId: 53
+    Break: 60
+    OutputDebugString: 61
+    GetProcessList: 101
+
+  ServiceAccessControl:
+    - fs:USER
+
+  FileSystemAccess:
+    - DirectSdmc
+    - DirectSdmcWrite
+
+SystemControlInfo:
+  SaveDataSize: 0KB
+  RemasterVersion: 0
+  StackSize: 0x2000

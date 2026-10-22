@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Find achievement addresses by comparing memory snapshots.
 
-Snapshots come from the debug plugin's "Dump memory snapshot" menu entry, which
-writes /achievements/dumps/snap<N>.txt (index) and snap<N>_<ADDR>.bin (regions).
+Each snapshot is an index snap<N>.txt plus one snap<N>_<ADDR>.bin per memory
+region (the format the old plugin's debug build wrote; any RAM dump saved this
+way works, e.g. from Azahar's GDB stub).
 
 A candidate byte has the same value in every --before snapshot, a different
 value that is the same in every --after snapshot. Use several snapshots on each
