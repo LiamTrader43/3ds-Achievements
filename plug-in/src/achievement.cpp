@@ -22,6 +22,7 @@ namespace Achievements
             Compare     compare;
             u32         expected;
             std::string name;
+            std::string description;
         };
 
         // A value must hold for this many consecutive Update() calls before it
@@ -168,8 +169,9 @@ namespace Achievements
             return end != str && *end == '\0';
         }
 
-        // Parses "<id> <address> <size> <expected> <name...>", where expected
-        // may start with ">=" to match that value or higher.
+        // Parses "<id> <address> <size> <expected> <name> | <description>",
+        // where expected may start with ">=" to match that value or higher and
+        // the "| <description>" part is optional.
         bool ParseDefinition(const std::string &line, Achievement &a)
         {
             std::string addrTok, sizeTok, expectedTok;
@@ -198,7 +200,12 @@ namespace Achievements
                 return false;
 
             a.size = size;
-            a.name = Trim(line.substr(pos));
+
+            // The first '|' separates the name from the description.
+            std::string text = line.substr(pos);
+            size_t      bar = text.find('|');
+            a.name = Trim(text.substr(0, bar));
+            a.description = bar == std::string::npos ? "" : Trim(text.substr(bar + 1));
             if (a.name.empty())
                 a.name = a.id;
             return true;
@@ -301,7 +308,7 @@ namespace Achievements
 
         for (u32 i = 0; i < g_ach.size(); i++)
             if (IsFirstWithId(i))
-                list.push_back({ g_ach[i].id, g_ach[i].name, g_unlocked[i] });
+                list.push_back({ g_ach[i].id, g_ach[i].name, g_ach[i].description, g_unlocked[i] });
         return list;
     }
 

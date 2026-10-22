@@ -14,7 +14,7 @@
 #   +0x2B7B  NOT usable: number of the last spot beaten (went 7 -> 6 when
 #            the Toad House was beaten after the castle).
 #
-# id        address     size expected  name
-BEAT_1_1    0x15913448  1    >=2       Beat World 1-1
-BEAT_1_1    0x15913DCB  1    >=2       Beat World 1-1
-BEAT_1_1    0x1591474E  1    >=2       Beat World 1-1
+# id        address     size expected  name | description
+BEAT_1_1    0x15913448  1    >=2       Beat World 1-1 | Reach the Goal Pole in World 1-1.
+BEAT_1_1    0x15913DCB  1    >=2       Beat World 1-1 | Reach the Goal Pole in World 1-1.
+BEAT_1_1    0x1591474E  1    >=2       Beat World 1-1 | Reach the Goal Pole in World 1-1.

@@ -29,15 +29,16 @@
 // Definitions format, one achievement per line ('#' starts a comment line).
 // Address and expected value accept hex (0x...) or decimal. Size is 1, 2 or 4
 // bytes. The value must equal expected, or with a ">=" prefix be at least
-// expected (for counters). The name is the rest of the line and may contain
-// spaces.
+// expected (for counters). The rest of the line is the name, optionally
+// followed by '|' and a description; both may contain spaces.
 //
-//     # id             address     size expected  name
-//     BEAT_SHREDDER    0x0812ABCD  1    1         Beat Shredder
+//     # id             address     size expected  name | description
+//     BEAT_SHREDDER    0x0812ABCD  1    1         Beat Shredder | Defeat Shredder in Stage 3.
 //     TEN_LEVELS       0x0812AC20  1    >=10      Clear 10 Levels
 //
 // Several lines with the same ID are alternative conditions for one
 // achievement (e.g. one per save slot): whichever matches first unlocks it.
+// Its name and description come from the first of those lines.
 
 #include <string>
 #include <vector>
@@ -48,6 +49,7 @@ namespace Achievements
     {
         std::string id;
         std::string name;
+        std::string description;    // empty if the line has none
         bool        unlocked;
     };
 
