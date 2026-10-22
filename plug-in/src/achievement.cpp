@@ -295,6 +295,16 @@ namespace Achievements
         return true;
     }
 
+    std::vector<Info> List(void)
+    {
+        std::vector<Info> list;
+
+        for (u32 i = 0; i < g_ach.size(); i++)
+            if (IsFirstWithId(i))
+                list.push_back({ g_ach[i].id, g_ach[i].name, g_unlocked[i] });
+        return list;
+    }
+
     void Update(void)
     {
         for (u32 i = 0; i < g_ach.size(); i++)

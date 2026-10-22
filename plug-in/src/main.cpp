@@ -1,35 +1,49 @@
 #include <CTRPluginFramework.hpp>
 
 #include "achievement.hpp"
+#include "achievements_menu.hpp"
 
 #ifdef DEBUG
 #include "devtools.hpp"
 #endif
 
+// This plugin runs only the achievement system. CTRPF's other features are
+// switched off here, not in the library, so plugins that copy
+// achievement.hpp/.cpp keep theirs.
 namespace CTRPluginFramework
 {
     // Runs once, before the game's first instruction.
     void PatchProcess(FwkSettings &settings)
     {
-        // Luma loads only one plugin per game, so keep the Action Replay engine
-        // on for players who would otherwise need a separate cheat plugin.
-        settings.AllowActionReplay = true;
+        settings.AllowActionReplay = false;
+        settings.AllowSearchEngine = false;
+        settings.TryLoadSDSounds = false;
     }
 
     // Runs on the plugin thread once the game has started.
     int main(void)
     {
-        PluginMenu *menu = new PluginMenu("3DS Achievements", 0, 1, 0,
-                                          "Unlocks achievements defined in /achievements/<TitleID>.txt");
+        // CTRPF's menu object is still needed: its loop runs the callbacks.
+        PluginMenu *menu = new PluginMenu("3DS Achievements");
 
         // Run callbacks once per game frame, so Update's frame threshold counts frames.
         menu->SynchronizeWithFrame(true);
+        menu->ShowWelcomeMessage(false);
+
+        bool *screenshotsEnabled;
+        u32  *screenshotHotkey;
+        PluginMenu::ScreenshotSettings(&screenshotsEnabled, &screenshotHotkey);
+        *screenshotsEnabled = false;
 
         Achievements::Init();
         *menu += Achievements::Update;
 
+        // The menu hotkey shows our achievements list; CTRPF's menu never opens.
+        menu->OnOpening = AchievementsMenu::Open;
+
 #ifdef DEBUG
-        DevTools::AddMenuEntries(*menu);
+        // X in the achievements menu takes a memory snapshot for finding addresses.
+        AchievementsMenu::OnXPressed = DevTools::DumpSnapshot;
 #endif
 
         // Blocks until the game exits.

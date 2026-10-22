@@ -4,13 +4,14 @@
 #include <CTRPluginFramework.hpp>
 
 // Tools for finding achievement addresses. Not part of the achievement library;
-// main.cpp only adds them to debug builds.
+// main.cpp only wires them up in debug builds.
 namespace DevTools
 {
-    // Adds "Dump memory snapshot", which writes every writable game memory
-    // region to /achievements/dumps/snap<N>_<address>.bin, plus an index file
-    // snap<N>.txt. Compare snapshots on a PC with tools/snapdiff.py.
-    void    AddMenuEntries(CTRPluginFramework::PluginMenu &menu);
+    // Writes every writable game memory region to
+    // /achievements/dumps/snap<N>_<address>.bin, plus an index file
+    // snap<N>.txt, then notifies. Call it while the game is paused so the
+    // snapshot is consistent. Compare snapshots on a PC with tools/snapdiff.py.
+    void    DumpSnapshot(void);
 }
 
 #endif

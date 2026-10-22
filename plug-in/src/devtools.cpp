@@ -65,8 +65,7 @@ namespace DevTools
             return ok;
         }
 
-        // Runs from the menu, so the game is paused and the snapshot is consistent.
-        void DumpSnapshot(MenuEntry *)
+        void Dump(void)
         {
             Directory::Create("/achievements");
             Directory::Create(DUMP_DIR);
@@ -113,16 +112,16 @@ namespace DevTools
                 file.Close();
             }
 
-            std::string text = std::to_string(total / 1024) + " KB saved to\n" + prefix + "_*.bin";
+            // Shown once the game resumes.
+            std::string text = "Snapshot " + std::to_string(n) + ": " + std::to_string(total / 1024) + " KB saved";
             if (failed)
-                text += "\n" + std::to_string(failed) + " region(s) failed to write";
-            MessageBox("Snapshot " + std::to_string(n), text)();
+                text += ", " + std::to_string(failed) + " region(s) failed";
+            OSD::Notify(text);
         }
     }
 
-    void AddMenuEntries(PluginMenu &menu)
+    void DumpSnapshot(void)
     {
-        menu += new MenuEntry("Dump memory snapshot", nullptr, DumpSnapshot,
-                              "Writes all game memory to /achievements/dumps/ for finding achievement addresses.");
+        Dump();
     }
 }
