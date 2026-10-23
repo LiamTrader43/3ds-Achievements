@@ -24,7 +24,7 @@
 #define NOTIF_TERMINATE     0x100           // PM asks sysmodules to exit (shutdown)
 #define PROCESS_NAME        0x10000         // Luma svcGetProcessInfo extensions
 #define PROCESS_TITLE_ID    0x10001
-#define BANNER_MS           10000
+#define BANNER_MS           6000
 #define START_DELAY_MS      5000            // after a game launches, before its start banner
 #define START_BANNER_MS     5000
 #define BANNER_CHARS        49              // a banner text line with nothing right-aligned
