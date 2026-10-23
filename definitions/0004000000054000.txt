@@ -8,6 +8,9 @@
 #   0x1618FD9C / 0x1619272C / 0x161950BC  1-1 status (files A / B / C):
 #            1 = not beaten, 2 = beaten. Part of a list of course records,
 #            0x2990 bytes per file; it changed as Mario grabbed the pole.
+#   BEAT_WORLD_<n>: the status of each world's last spot (castle, airship or
+#            Bowser), same record layout as 1-1. Every spot's address is in
+#            docs/sm3dl-live.md (tools/sm3dl_live.py).
 #   0x1618FAE2 / 0x1618FB42 / 0x1618FBA2  lives, 2 bytes (files A / B / C),
 #            followed by the star medal count. One block per file, 0x60 apart.
 #
@@ -28,3 +31,27 @@ BEAT_1_1    0x161950BC  1    >=2       The Party Begins | Reach the Goal Pole in
 LIVES_1000  0x1618FAE2  2    >=1000    Turtle Tormentor | Reach 1000 lives.
 LIVES_1000  0x1618FB42  2    >=1000    Turtle Tormentor | Reach 1000 lives.
 LIVES_1000  0x1618FBA2  2    >=1000    Turtle Tormentor | Reach 1000 lives.
+BEAT_WORLD_1  0x1618FE5C  1    >=2       | Complete World 1.
+BEAT_WORLD_1  0x161927EC  1    >=2       | Complete World 1.
+BEAT_WORLD_1  0x1619517C  1    >=2       | Complete World 1.
+BEAT_WORLD_2  0x1618FF5C  1    >=2       | Complete World 2.
+BEAT_WORLD_2  0x161928EC  1    >=2       | Complete World 2.
+BEAT_WORLD_2  0x1619527C  1    >=2       | Complete World 2.
+BEAT_WORLD_3  0x1619005C  1    >=2       | Complete World 3.
+BEAT_WORLD_3  0x161929EC  1    >=2       | Complete World 3.
+BEAT_WORLD_3  0x1619537C  1    >=2       | Complete World 3.
+BEAT_WORLD_4  0x1619015C  1    >=2       | Complete World 4.
+BEAT_WORLD_4  0x16192AEC  1    >=2       | Complete World 4.
+BEAT_WORLD_4  0x1619547C  1    >=2       | Complete World 4.
+BEAT_WORLD_5  0x1619025C  1    >=2       | Complete World 5.
+BEAT_WORLD_5  0x16192BEC  1    >=2       | Complete World 5.
+BEAT_WORLD_5  0x1619557C  1    >=2       | Complete World 5.
+BEAT_WORLD_6  0x1619035C  1    >=2       | Complete World 6.
+BEAT_WORLD_6  0x16192CEC  1    >=2       | Complete World 6.
+BEAT_WORLD_6  0x1619567C  1    >=2       | Complete World 6.
+BEAT_WORLD_7  0x1619045C  1    >=2       | Complete World 7.
+BEAT_WORLD_7  0x16192DEC  1    >=2       | Complete World 7.
+BEAT_WORLD_7  0x1619577C  1    >=2       | Complete World 7.
+BEAT_WORLD_8  0x1619065C  1    >=2       | Complete World 8.
+BEAT_WORLD_8  0x16192FEC  1    >=2       | Complete World 8.
+BEAT_WORLD_8  0x1619597C  1    >=2       | Complete World 8.
