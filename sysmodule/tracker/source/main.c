@@ -4,8 +4,9 @@
 // Every 100 ms it finds the running game, loads that game's definitions when
 // the game changes, and checks them by mapping the game's memory with Luma's
 // svcMapProcessMemoryEx. Unlocks are saved to the progress file, with a
-// banner on the bottom screen (overlay.c). R + Down + Select pauses the game
-// and shows the achievement list (menu.c).
+// banner on the bottom screen (overlay.c). A few seconds after a game starts,
+// a banner shows its progress (or that it has no achievements).
+// R + Down + Select pauses the game and shows the achievement list (menu.c).
 
 #include <3ds.h>
 
@@ -24,6 +25,9 @@
 #define PROCESS_NAME        0x10000         // Luma svcGetProcessInfo extensions
 #define PROCESS_TITLE_ID    0x10001
 #define BANNER_MS           10000
+#define START_DELAY_MS      5000            // after a game launches, before its start banner
+#define START_BANNER_MS     5000
+#define BANNER_CHARS        49              // a banner text line with nothing right-aligned
 #define SMDH_SIZE           0x36C0
 
 Result svcMapProcessMemoryEx(Handle dstProcess, u32 dstAddress, Handle srcProcess, u32 srcAddress, u32 size, u32 flags);
@@ -298,6 +302,32 @@ static bool ReadGameTitle(u32 pid, u64 titleId, char *out, size_t capacity)
     return false;
 }
 
+// "<game>, <unlocked>/<total> achievements unlocked" (or "achievements not
+// supported" without definitions), the game's name cut with "..." to fit.
+static void ShowStartBanner(bool supported)
+{
+    char    suffix[48], message[128];   // filled to BANNER_CHARS at most
+    int     unlocked, total;
+
+    if (supported)
+    {
+        Achievements_Progress(&unlocked, &total);
+        snprintf(suffix, sizeof(suffix), ", %d/%d achievements unlocked", unlocked, total);
+    }
+    else
+        snprintf(suffix, sizeof(suffix), ", achievements not supported");
+
+    int room = BANNER_CHARS - (int)strlen(suffix);
+    int length = (int)strlen(g_gameTitle);
+    if (length <= room)
+        snprintf(message, sizeof(message), "%s%s", g_gameTitle, suffix);
+    else
+        snprintf(message, sizeof(message), "%.*s...%s", room > 3 ? room - 3 : 0, g_gameTitle, suffix);
+
+    Log("start banner: %s", message);
+    Overlay_Show("3DS Achievements", message, "", START_BANNER_MS);
+}
+
 // The running application (title ID 00040000xxxxxxxx), if any.
 static bool FindApplication(u32 *pid, u64 *titleId)
 {
@@ -333,6 +363,8 @@ int main(void)
     u64     loadedTitle = 0;
     bool    active = false;
     bool    haveTitle = false;      // from the SMDH, not the process name
+    bool    startShown = false;     // this game's start banner
+    u64     startAt = 0;
 
     g_status.stage = STAGE_MAIN;
     Log("tracker started");
@@ -378,6 +410,19 @@ int main(void)
             haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
             Log("game %016llX (%s): %d achievement line(s)", (unsigned long long)titleId, g_gameTitle,
                 Achievements_Count());
+            startShown = false;
+            startAt = osGetTime() + START_DELAY_MS;
+        }
+
+        // Once per launch, a few seconds in (the game is drawing by then and
+        // FS can read its title), unless it's suspended behind HOME.
+        u32 applet;
+        if (!startShown && osGetTime() >= startAt && Menu_GameInFront(&applet))
+        {
+            if (!haveTitle)
+                haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
+            ShowStartBanner(active);
+            startShown = true;
         }
 
         bool menu = Menu_HotkeyHeld();
@@ -386,7 +431,6 @@ int main(void)
 
         if (menu)
         {
-            u32 applet;
             if (!haveTitle)     // FS may not have been ready right at launch
                 haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
             if (!Menu_GameInFront(&applet))
