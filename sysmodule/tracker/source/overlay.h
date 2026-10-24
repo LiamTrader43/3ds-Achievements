@@ -29,6 +29,10 @@ typedef struct
 // shown. The game's next frames replace it afterwards.
 void    Overlay_Show(const char *title, const char *text, const char *rightText, u32 milliseconds);
 
+// A one-line summary of what the last Overlay_Show saw (timing, buffer swaps,
+// whether the banner was restored before or after a frame was on screen).
+void    Overlay_Stats(char *out, u32 size);
+
 // The bottom screen's on-screen framebuffer (physical address), 0 if unknown.
 u32     Overlay_Buffer(void);
 

@@ -171,7 +171,7 @@ bool Platform_AppendFile(const char *path, const char *text)
 
 static void Log(const char *format, ...)
 {
-    char    line[160];
+    char    line[320];
     va_list args;
 
     int n = snprintf(line, sizeof(line), "[%llu] ", (unsigned long long)(osGetTime() / 1000));
@@ -180,6 +180,14 @@ static void Log(const char *format, ...)
     va_end(args);
     strcat(line, "\n");
     Platform_AppendFile(LOG_PATH, line);
+}
+
+// For diagnosing banner flicker on hardware (see Overlay_Stats).
+static void LogBannerStats(void)
+{
+    char stats[256];
+    Overlay_Stats(stats, sizeof(stats));
+    Log("banner: %s", stats);
 }
 
 //------------------------------------------------------------------------------
@@ -215,6 +223,7 @@ void Platform_Unlocked(const char *name, const char *description)
 
     Log("unlocked: %s (%s)", name, progress);
     Overlay_Show("Achievement unlocked!", name, progress, BANNER_MS);
+    LogBannerStats();
 }
 
 // Reads the game's SMDH ("icon" in its ExeFS) through the SaveDataAndContent
@@ -326,6 +335,7 @@ static void ShowStartBanner(bool supported)
 
     Log("start banner: %s", message);
     Overlay_Show("3DS Achievements", message, "", START_BANNER_MS);
+    LogBannerStats();
 }
 
 // The running application (title ID 00040000xxxxxxxx), if any.
