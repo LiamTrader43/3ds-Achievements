@@ -8,7 +8,9 @@
 //
 // Definitions: "<id> <address> <size> <expected> <name> | <description>", where
 // expected may start with ">=", the description is optional, and lines sharing
-// an ID are alternative conditions for one achievement.
+// an ID are alternative conditions for one achievement. Or
+// "<id> rc:<condition> <name> | <description>" with a RetroAchievements
+// condition string, evaluated by rcheevos (AND, ResetIf, hit counts, deltas).
 
 #include <stdbool.h>
 #include <stdint.h>

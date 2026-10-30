@@ -4,21 +4,25 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "rc_runtime_types.h"   // rcheevos (../rcheevos), for "rc:" conditions
+
 #define MAX_LINES       128
 #define FILE_CAPACITY   0x8000
 #define MATCH_POLLS     3       // consecutive polls a condition must hold
+#define RC_PREFIX       "rc:"
 
 typedef struct
 {
-    char        id[32];
-    uint32_t    address;
-    uint8_t     size;
-    bool        atLeast;
-    uint32_t    expected;
-    char        name[64];
-    char        description[128];
-    bool        unlocked;
-    uint8_t     matches;
+    char            id[32];
+    uint32_t        address;
+    uint8_t         size;
+    bool            atLeast;
+    uint32_t        expected;
+    rc_trigger_t   *trigger;    // set instead for an "rc:" condition (malloc'd)
+    char            name[64];
+    char            description[128];
+    bool            unlocked;
+    uint8_t         matches;
 } Achievement;
 
 static Achievement  g_ach[MAX_LINES];
@@ -73,13 +77,59 @@ static bool ParseU32(const char *token, uint32_t *out)
     return end != token && *end == '\0';
 }
 
+// "<id> rc:<RetroAchievements condition string> <name> | <description>": the
+// condition (no spaces, e.g. "0xH1234=1_d0xH5678=1_0xH5678=2") is parsed and
+// evaluated by rcheevos, which adds AND, ResetIf/PauseIf, hit counts, deltas
+// and every comparison. Like on RetroAchievements, it can't unlock until it
+// has been false once.
+static bool ParseCondition(const char *pos, const char *end, Achievement *a)
+{
+    char        condition[1024];
+    const char *start = pos;
+
+    while (pos < end && !IsSpace(*pos)) pos++;
+    size_t length = (size_t)(pos - start);
+    if (length >= sizeof(condition))
+        return false;
+    memcpy(condition, start, length);
+    condition[length] = '\0';
+
+    int size = rc_trigger_size(condition);
+    void *buffer = size > 0 ? malloc((size_t)size) : NULL;
+    if (buffer == NULL)
+        return false;
+    a->trigger = rc_parse_trigger(buffer, condition, NULL, 0);
+    if (a->trigger == NULL)
+    {
+        free(buffer);
+        return false;
+    }
+
+    // The first '|' separates the name from the description.
+    const char *bar = memchr(pos, '|', (size_t)(end - pos));
+    CopyTrimmed(a->name, sizeof(a->name), pos, bar ? bar : end);
+    CopyTrimmed(a->description, sizeof(a->description), bar ? bar + 1 : end, end);
+    if (a->name[0] == '\0')
+        memcpy(a->name, a->id, strlen(a->id) + 1);
+    return true;
+}
+
 static bool ParseLine(const char *line, const char *end, Achievement *a)
 {
     char        address[16], size[8], expected[16];
     const char *pos = line;
     uint32_t    sizeValue;
 
-    if (!NextToken(&pos, end, a->id, sizeof(a->id)) || !NextToken(&pos, end, address, sizeof(address))
+    a->trigger = NULL;
+    a->unlocked = false;
+    a->matches = 0;
+    if (!NextToken(&pos, end, a->id, sizeof(a->id)))
+        return false;
+    while (pos < end && IsSpace(*pos)) pos++;
+    if ((size_t)(end - pos) > strlen(RC_PREFIX) && memcmp(pos, RC_PREFIX, strlen(RC_PREFIX)) == 0)
+        return ParseCondition(pos + strlen(RC_PREFIX), end, a);
+
+    if (!NextToken(&pos, end, address, sizeof(address))
         || !NextToken(&pos, end, size, sizeof(size)) || !NextToken(&pos, end, expected, sizeof(expected)))
         return false;
 
@@ -102,9 +152,6 @@ static bool ParseLine(const char *line, const char *end, Achievement *a)
     CopyTrimmed(a->description, sizeof(a->description), bar ? bar + 1 : end, end);
     if (a->name[0] == '\0')
         memcpy(a->name, a->id, strlen(a->id) + 1);  // id[32] always fits name[64]
-
-    a->unlocked = false;
-    a->matches = 0;
     return true;
 }
 
@@ -120,6 +167,8 @@ bool Achievements_Load(uint64_t titleId)
     char        path[64];
     uint32_t    length;
 
+    for (int i = 0; i < g_count; i++)
+        free(g_ach[i].trigger);
     g_count = 0;
     snprintf(path, sizeof(path), "/achievements/%016llX.txt", (unsigned long long)titleId);
     snprintf(g_unlockPath, sizeof(g_unlockPath), "/achievements/%016llX_unlocked.txt", (unsigned long long)titleId);
@@ -155,6 +204,14 @@ bool Achievements_Load(uint64_t titleId)
     return g_count > 0;
 }
 
+// rcheevos reads memory through this. Unreadable memory reads as 0.
+static uint32_t Peek(uint32_t address, uint32_t numBytes, void *userData)
+{
+    uint32_t value;
+    (void)userData;
+    return numBytes <= 4 && Platform_ReadMemory(address, (uint8_t)numBytes, &value) ? value : 0;
+}
+
 void Achievements_Update(void)
 {
     for (int i = 0; i < g_count; i++)
@@ -165,15 +222,24 @@ void Achievements_Update(void)
         if (a->unlocked)
             continue;
 
-        bool match = Platform_ReadMemory(a->address, a->size, &value)
-                     && (a->atLeast ? value >= a->expected : value == a->expected);
-        if (!match)
+        if (a->trigger != NULL)
         {
-            a->matches = 0;
-            continue;
+            // One poll is one rcheevos frame (deltas compare with the last poll).
+            if (rc_evaluate_trigger(a->trigger, Peek, NULL, NULL) != RC_TRIGGER_STATE_TRIGGERED)
+                continue;
         }
-        if (++a->matches < MATCH_POLLS)
-            continue;
+        else
+        {
+            bool match = Platform_ReadMemory(a->address, a->size, &value)
+                         && (a->atLeast ? value >= a->expected : value == a->expected);
+            if (!match)
+            {
+                a->matches = 0;
+                continue;
+            }
+            if (++a->matches < MATCH_POLLS)
+                continue;
+        }
 
         // Lines sharing an ID are alternative conditions for one achievement.
         MarkUnlocked(a->id);

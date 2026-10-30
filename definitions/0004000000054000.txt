@@ -11,6 +11,16 @@
 #   BEAT_WORLD_<n>: the status of each world's last spot (castle, airship or
 #            Bowser), same record layout as 1-1. Every spot's address is in
 #            docs/sm3dl-live.md (tools/sm3dl_live.py).
+#   NO_JUMP_1_3 (a RetroAchievements condition, "rc:"): 0x144F8215 is 01 on the
+#            ground and 00 while Mario jumps (falls don't count); 0x16197A48 is
+#            the current stage (0x150EDED4 = 1-3, 0 on the map); 0x16197A40 is
+#            the level timer (it starts after the intro); 0x1618FAA8 / FB08 / FB68
+#            are each file's coins, which count up after the goal (time bonus).
+#            An attempt starts when 1-3's timer starts; a jump in 1-3 or entering
+#            another level cancels it. It unlocks once 1-3 is left and either the
+#            file's coins change twice on the map (a goal adds the level's coins,
+#            then the time bonus; a quit only adds the level's coins, once), or
+#            1-3 became beaten (first clear, status 1 -> 2) during the attempt.
 #   0x1618FAE2 / 0x1618FB42 / 0x1618FBA2  lives, 2 bytes (files A / B / C),
 #            followed by the star medal count. One block per file, 0x60 apart.
 #
@@ -55,3 +65,7 @@ BEAT_WORLD_7  0x1619577C  1    >=2       Clearing the Skies | Complete World 7.
 BEAT_WORLD_8  0x1619065C  1    >=2       End of the Koopa King | Complete World 8.
 BEAT_WORLD_8  0x16192FEC  1    >=2       End of the Koopa King | Complete World 8.
 BEAT_WORLD_8  0x1619597C  1    >=2       End of the Koopa King | Complete World 8.
+BEAT_SPECIAL_1  0x1619075C  1    >=2       | Complete Special World 1.
+BEAT_SPECIAL_1  0x161930EC  1    >=2       | Complete Special World 1.
+BEAT_SPECIAL_1  0x16195A7C  1    >=2       | Complete Special World 1.
+NO_JUMP_1_3  rc:N:0xX16197a48!=0_R:0xX16197a48!=h150eded4_N:d0xX16197a48=h150eded4_N:0xX16197a48=h150eded4_N:d0xH144f8215=1_R:0xH144f8215=0_N:0xX16197a48=h150eded4_N:d0xX16197a40<1000_0xX16197a40>=1000.1._N:d0xX16197a48=h150eded4_0xX16197a48=0.1._0xX16197a48=0SZ:0xX16197a48=h150eded4_d0xH1618faa8!=0xH1618faa8.2.SZ:0xX16197a48=h150eded4_d0xH1618fb08!=0xH1618fb08.2.SZ:0xX16197a48=h150eded4_d0xH1618fb68!=0xH1618fb68.2.SN:d0xH1618fdfc=1_0xH1618fdfc=2.1.SN:d0xH1619278c=1_0xH1619278c=2.1.SN:d0xH1619511c=1_0xH1619511c=2.1.  | Beat World 1-3 without jumping.

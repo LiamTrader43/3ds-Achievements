@@ -34,9 +34,9 @@ include $(DEVKITARM)/3ds_rules
 TARGET		:=	tracker
 NO_SMDH		:=	1
 BUILD		:=	build
-SOURCES		:=	source
+SOURCES		:=	source rcheevos/src rcheevos/src/rcheevos
 DATA		:=	data
-INCLUDES	:=	include
+INCLUDES	:=	include rcheevos/include rcheevos/src rcheevos/src/rcheevos
 GRAPHICS	:=	gfx
 GFXBUILD	:=	$(BUILD)
 #ROMFS		:=	romfs
