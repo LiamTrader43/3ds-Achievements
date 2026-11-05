@@ -276,6 +276,27 @@ static bool ReadSmdh(u32 pid, u64 titleId, u8 *smdh)
 // The game's short title from its SMDH: English, else Japanese, else the
 // process name. Characters outside ASCII become '?'. Returns false when it
 // fell back to the process name.
+// Saves a supported game's SMDH as /achievements/<TitleID>.smdh, once, for the
+// viewer app: a game card's title and icon can't be read when it isn't inserted.
+static void CacheSmdh(u64 titleId, const u8 *smdh)
+{
+    char    path[64];
+    Handle  file;
+    u64     size = 0;
+    u32     written = 0;
+
+    snprintf(path, sizeof(path), "/achievements/%016llX.smdh", (unsigned long long)titleId);
+    if (R_FAILED(OpenSdFile(&file, path, FS_OPEN_READ | FS_OPEN_WRITE | FS_OPEN_CREATE)))
+        return;
+    Result res = FSFILE_GetSize(file, &size);
+    if (R_SUCCEEDED(res) && size == 0)
+    {
+        res = FSFILE_Write(file, &written, 0, smdh, SMDH_SIZE, FS_WRITE_FLUSH);
+        Log("title: saved %s: %08lX", path, res);
+    }
+    FSFILE_Close(file);
+}
+
 static bool ReadGameTitle(u32 pid, u64 titleId, char *out, size_t capacity)
 {
     static u8 smdh[SMDH_SIZE];
@@ -283,6 +304,8 @@ static bool ReadGameTitle(u32 pid, u64 titleId, char *out, size_t capacity)
     out[0] = '\0';
     if (ReadSmdh(pid, titleId, smdh))
     {
+        if (Achievements_Count() > 0)
+            CacheSmdh(titleId, smdh);
         for (int language = 1; language >= 0 && out[0] == '\0'; language--)
         {
             const u8 *title = smdh + 8 + language * 0x200;

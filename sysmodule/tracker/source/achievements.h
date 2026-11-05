@@ -11,6 +11,7 @@
 // an ID are alternative conditions for one achievement. Or
 // "<id> rc:<condition> <name> | <description>" with a RetroAchievements
 // condition string, evaluated by rcheevos (AND, ResetIf, hit counts, deltas).
+// Either form may end in "| <points>" after the description (default 10).
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -39,5 +40,15 @@ void    Achievements_Progress(int *unlocked, int *total);
 // ID count once). Returns how many were written. The names stay valid until
 // the next Achievements_Load().
 int     Achievements_List(const char **names, bool *unlocked, int capacity);
+
+// Each achievement's description, in the same order as Achievements_List()
+// ("" when the line has none). Used by the achievement viewer app.
+int     Achievements_Descriptions(const char **descriptions, int capacity);
+
+// Each achievement's points, in the same order as Achievements_List().
+int     Achievements_Points(uint16_t *points, int capacity);
+
+// Points of the unlocked achievements, and of all of them.
+void    Achievements_Score(int *earned, int *total);
 
 #endif

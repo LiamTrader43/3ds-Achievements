@@ -10,6 +10,8 @@
 #define FILE_CAPACITY   0x8000
 #define MATCH_POLLS     3       // consecutive polls a condition must hold
 #define RC_PREFIX       "rc:"
+#define DEFAULT_POINTS  10      // an achievement's points when its line gives none
+#define MAX_POINTS      1000
 
 typedef struct
 {
@@ -21,6 +23,7 @@ typedef struct
     rc_trigger_t   *trigger;    // set instead for an "rc:" condition (malloc'd)
     char            name[64];
     char            description[128];
+    uint16_t        points;
     bool            unlocked;
     uint8_t         matches;
 } Achievement;
@@ -77,6 +80,41 @@ static bool ParseU32(const char *token, uint32_t *out)
     return end != token && *end == '\0';
 }
 
+// The rest of a line: "<name> | <description> | <points>". The first '|' ends
+// the name; a last '|' followed by a whole number gives the points (otherwise
+// it's part of the description). No name: the ID. No points: DEFAULT_POINTS.
+static void ParseText(const char *pos, const char *end, Achievement *a)
+{
+    const char *bar = memchr(pos, '|', (size_t)(end - pos));
+    const char *descriptionEnd = end;
+
+    a->points = DEFAULT_POINTS;
+    CopyTrimmed(a->name, sizeof(a->name), pos, bar ? bar : end);
+    if (a->name[0] == '\0')
+        memcpy(a->name, a->id, strlen(a->id) + 1);  // id[32] always fits name[64]
+    if (bar == NULL)
+    {
+        a->description[0] = '\0';
+        return;
+    }
+
+    const char *last = end;
+    while (last > bar + 1 && last[-1] != '|')
+        last--;
+    if (last > bar + 1)
+    {
+        char     token[16];
+        uint32_t points;
+        CopyTrimmed(token, sizeof(token), last, end);
+        if (token[0] >= '0' && token[0] <= '9' && ParseU32(token, &points) && points <= MAX_POINTS)
+        {
+            a->points = (uint16_t)points;
+            descriptionEnd = last - 1;
+        }
+    }
+    CopyTrimmed(a->description, sizeof(a->description), bar + 1, descriptionEnd);
+}
+
 // "<id> rc:<RetroAchievements condition string> <name> | <description>": the
 // condition (no spaces, e.g. "0xH1234=1_d0xH5678=1_0xH5678=2") is parsed and
 // evaluated by rcheevos, which adds AND, ResetIf/PauseIf, hit counts, deltas
@@ -105,12 +143,7 @@ static bool ParseCondition(const char *pos, const char *end, Achievement *a)
         return false;
     }
 
-    // The first '|' separates the name from the description.
-    const char *bar = memchr(pos, '|', (size_t)(end - pos));
-    CopyTrimmed(a->name, sizeof(a->name), pos, bar ? bar : end);
-    CopyTrimmed(a->description, sizeof(a->description), bar ? bar + 1 : end, end);
-    if (a->name[0] == '\0')
-        memcpy(a->name, a->id, strlen(a->id) + 1);
+    ParseText(pos, end, a);
     return true;
 }
 
@@ -146,12 +179,7 @@ static bool ParseLine(const char *line, const char *end, Achievement *a)
         return false;
     a->size = (uint8_t)sizeValue;
 
-    // The first '|' separates the name from the description.
-    const char *bar = memchr(pos, '|', (size_t)(end - pos));
-    CopyTrimmed(a->name, sizeof(a->name), pos, bar ? bar : end);
-    CopyTrimmed(a->description, sizeof(a->description), bar ? bar + 1 : end, end);
-    if (a->name[0] == '\0')
-        memcpy(a->name, a->id, strlen(a->id) + 1);  // id[32] always fits name[64]
+    ParseText(pos, end, a);
     return true;
 }
 
@@ -293,4 +321,35 @@ int Achievements_List(const char **names, bool *unlocked, int capacity)
         n++;
     }
     return n;
+}
+
+int Achievements_Descriptions(const char **descriptions, int capacity)
+{
+    int n = 0;
+    for (int i = 0; i < g_count && n < capacity; i++)
+        if (IsFirstLine(i))
+            descriptions[n++] = g_ach[i].description;
+    return n;
+}
+
+int Achievements_Points(uint16_t *points, int capacity)
+{
+    int n = 0;
+    for (int i = 0; i < g_count && n < capacity; i++)
+        if (IsFirstLine(i))
+            points[n++] = g_ach[i].points;
+    return n;
+}
+
+void Achievements_Score(int *earned, int *total)
+{
+    *earned = *total = 0;
+    for (int i = 0; i < g_count; i++)
+    {
+        if (!IsFirstLine(i))
+            continue;
+        *total += g_ach[i].points;
+        if (g_ach[i].unlocked)
+            *earned += g_ach[i].points;
+    }
 }
