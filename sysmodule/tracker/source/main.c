@@ -26,6 +26,7 @@ Result svcControlService(u32 op, Handle *out, const char *name);
 #define PROCESS_NAME        0x10000         // Luma svcGetProcessInfo extensions
 #define PROCESS_TITLE_ID    0x10001
 #define BANNER_MS           6000
+#define APP_TITLE_ID        0x000400000AC41000ULL   // the Achievements app, when installed as a CIA
 #define LIGHT_RED           255             // gold on the notification light
 #define LIGHT_GREEN         150
 #define LIGHT_BLUE          10
@@ -477,7 +478,7 @@ int main(void)
 
         u32 pid;
         u64 titleId;
-        if (!FindApplication(&pid, &titleId) || IsHomebrewHost(titleId))    // the launcher counts as no game
+        if (!FindApplication(&pid, &titleId) || IsHomebrewHost(titleId) || titleId == APP_TITLE_ID)     // not games
         {
             loadedTitle = 0;
             active = false;

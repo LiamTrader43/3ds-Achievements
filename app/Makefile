@@ -161,7 +161,7 @@ ifneq ($(ROMFS),)
 	export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
 endif
 
-.PHONY: all clean
+.PHONY: all clean cia
 
 #---------------------------------------------------------------------------------
 all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
@@ -179,6 +179,16 @@ ifneq ($(DEPSDIR),$(BUILD))
 $(DEPSDIR):
 	@mkdir -p $@
 endif
+
+#---------------------------------------------------------------------------------
+# make cia: the app as a CIA with the logo's banner and icon (app/cia, from tools/cia_art.py).
+#---------------------------------------------------------------------------------
+cia: all
+	@bannertool makebanner -i cia/banner.png -a cia/banner.wav -o $(BUILD)/banner.bnr
+	@bannertool makesmdh -s "3DS Achievements" -l "3DS Achievements" -p "LiamTrader43" -i cia/icon.png -o $(BUILD)/cia.smdh
+	@makerom -f cia -o $(TARGET).cia -elf $(TARGET).elf -rsf cia/cia.rsf -icon $(BUILD)/cia.smdh \
+		-banner $(BUILD)/banner.bnr -target t -exefslogo
+	@echo built ... $(TARGET).cia
 
 #---------------------------------------------------------------------------------
 clean:
