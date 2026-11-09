@@ -19,7 +19,7 @@ Result svcControlProcess(Handle process, u32 op, u32 varg2, u32 varg3);
 
 #define HOTKEY              (KEY_R | KEY_A | KEY_DLEFT)
 #define CLOSE_KEYS          (KEY_B | KEY_SELECT)
-#define DIRECTION_KEYS      (KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT)
+#define DIRECTION_KEYS      (KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT | KEY_L | KEY_R)
 #define TICK_NS             (16 * 1000 * 1000LL)
 #define REDRAW_MS           100     // also catch a swap the game queued before it was paused
 
@@ -211,6 +211,12 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
     Overlay_DrawScreen(items, n);
 }
 
+// Touch doesn't need ir:rst, and hidExit would shut it down for the game (New 3DS: ZL, ZR, C-Stick).
+bool hidShouldUseIrrst(void)
+{
+    return false;
+}
+
 static Result s_touchResult;
 
 Result Menu_TouchResult(void)
@@ -227,13 +233,15 @@ static void LoadGameIcons(u64 titleId)
     s_hasGameIcons = Platform_ReadFile(path, (char *)s_gameIcons, sizeof(s_gameIcons), &length) && length == ICON_FILE_BYTES;
 }
 
-// Up/Down scroll one row, Left/Right one page.
+// Up/Down scroll one row, Left/Right or L/R one page.
 static int Direction(u32 keys)
 {
     if (keys & KEY_DUP)     return -1;
     if (keys & KEY_DDOWN)   return 1;
     if (keys & KEY_DLEFT)   return -(int)BOX_ROWS;
     if (keys & KEY_DRIGHT)  return BOX_ROWS;
+    if (keys & KEY_L)       return -(int)BOX_ROWS;
+    if (keys & KEY_R)       return BOX_ROWS;
     return 0;
 }
 
