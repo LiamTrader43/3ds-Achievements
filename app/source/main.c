@@ -44,6 +44,11 @@ static const Color BLACK = { 0, 0, 0 };
 #define TILE_RADIUS(s)  ((s) / 8)       // corner radius of a tile of size s
 #define HERO_DELAY_MS   150             // a game stays selected this long before its background loads
 #define HERO_FADE_MS    350
+#define HERO_OUT_MS     130             // a game's background fading out as you leave it
+#define TILE_BIG        112
+#define TILE_SMALL      60
+#define TILE_GROW_MS    160             // a tile changing between the two sizes
+#define CAMERA_EASE_MS  70              // lower = the row catches up faster
 #define TOP_HINT_Y      (SCREEN_HEIGHT - 13)
 
 // Bottom screen: the opened game's unlock count and progress bar, then one box
@@ -67,6 +72,11 @@ static bool         s_unlocked[MAX_ACHIEVEMENTS];
 static int          s_count;
 static u16          s_gameUnlocked[ICON_SIZE * ICON_SIZE], s_gameLocked[ICON_SIZE * ICON_SIZE];
 static bool         s_hasGameIcons;         // this game has its own achievement icons
+
+// The row: how far each position is from small (0) to big (256), and how far the row
+// has scrolled, in 1/16ths of a pixel.
+static int          s_tileScale[MAX_GAMES + ROW_POSITIONS];
+static int          s_camera;
 
 typedef enum
 {
@@ -189,10 +199,68 @@ static void LoadGame(int i)
     Achievements_Score(&g->earned, &g->points);
 }
 
+// Positions to scroll through: every game, and at least ROW_POSITIONS with empty squares.
+static int RowPositions(void)
+{
+    return s_gameCount > ROW_POSITIONS ? s_gameCount : ROW_POSITIONS;
+}
+
+static int TileSize(int position)
+{
+    return TILE_SMALL + (TILE_BIG - TILE_SMALL) * s_tileScale[position] / 256;
+}
+
+// Moves value toward target by at most step.
+static int Approach(int value, int target, int step)
+{
+    if (value < target)
+        return value + step < target ? value + step : target;
+    return value - step > target ? value - step : target;
+}
+
+// Eases the tile sizes and the row's scroll toward the selection. True while still moving.
+static bool AnimateRow(int selected, int milliseconds)
+{
+    static int cameraTarget;
+    bool moving = false;
+    int  step = milliseconds * 256 / TILE_GROW_MS;
+
+    if (step < 1)
+        step = 1;
+    for (int i = 0; i < RowPositions(); i++)
+    {
+        int target = i == selected ? 256 : 0;
+        if (s_tileScale[i] != target)
+        {
+            s_tileScale[i] = Approach(s_tileScale[i], target, step);
+            moving = true;
+        }
+    }
+
+    // The row only scrolls when the selection would leave the screen, measured with
+    // the tiles at their final sizes.
+    int left = selected * (TILE_SMALL + TILE_GAP);
+    int right = left + TILE_BIG;
+    if (left < cameraTarget)
+        cameraTarget = left;
+    if (right - cameraTarget > TOP_WIDTH - 2 * TILE_LEFT)
+        cameraTarget = right - (TOP_WIDTH - 2 * TILE_LEFT);
+
+    int difference = cameraTarget * 16 - s_camera;
+    if (difference != 0)
+    {
+        int move = difference * milliseconds / CAMERA_EASE_MS;
+        if (move == 0)
+            move = difference > 0 ? 1 : -1;
+        s_camera = Approach(s_camera, cameraTarget * 16, move > 0 ? move : -move);
+        moving = true;
+    }
+    return moving;
+}
+
 static void DrawTop(int selected, const char *hints)
 {
     static const char title[] = "3DS Achievements";
-    static const int  sizes[] = { 112, 60, 60, 60, 60, 60 };    // the last one runs off the screen
 
     Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(title, TITLE_SCALE)) / 2, 5, TITLE_SCALE, TITLE, title, 0);
     {
@@ -208,33 +276,39 @@ static void DrawTop(int selected, const char *hints)
         return;
     }
 
-    // The selected game first and big, then the ones after it. Slots past the last
-    // game are empty grey squares, except the one running off the screen.
-    const int slots = (int)(sizeof(sizes) / sizeof(sizes[0]));
-    int x = TILE_LEFT;
-    for (int t = 0; t < slots; t++)
+    // Slots past the last game are empty grey squares.
+    int x = TILE_LEFT - s_camera / 16;
+    int selectedX = x;
+    for (int i = 0; i < RowPositions() && x < TOP_WIDTH; i++)
     {
-        int size = sizes[t];
+        int size = TileSize(i);
         int y = TILE_MIDDLE - size / 2;
-        bool hasGame = selected + t < s_gameCount;
 
-        if (!hasGame && t == slots - 1)
-            break;
-        if (t == 0)
-            Draw_RoundRect(GFX_TOP, x - 2, y - 2, size + 4, size + 4, TILE_RADIUS(size) + 2, TITLE);
-        if (hasGame)
-            DrawTile(&s_games[selected + t], x, y, size);
-        else
-            Draw_RoundRect(GFX_TOP, x, y, size, size, TILE_RADIUS(size), DARK);
+        if (i == selected)
+            selectedX = x;
+        if (x + size + 2 > 0)
+        {
+            if (i == selected)
+                Draw_RoundRect(GFX_TOP, x - 2, y - 2, size + 4, size + 4, TILE_RADIUS(size) + 2, TITLE);
+            if (i < s_gameCount)
+                DrawTile(&s_games[i], x, y, size);
+            else
+                Draw_RoundRect(GFX_TOP, x, y, size, size, TILE_RADIUS(size), DARK);
+        }
         x += size + TILE_GAP;
     }
 
-    // The selected game's name, under its tile.
+    // The selected game's name under its tile, kept on the screen.
     if (selected < s_gameCount)
     {
         char name[72];
         Ellipsize(name, sizeof(name), s_games[selected].title, (TOP_WIDTH - TILE_LEFT - MARGIN) / CHAR_W);
-        Draw_Text(GFX_TOP, TILE_LEFT, TILE_MIDDLE + sizes[0] / 2 + 8, 1, WHITE, name, 0);
+        int nameX = selectedX;
+        if (nameX + TextWidth(name, 1) > TOP_WIDTH - MARGIN)
+            nameX = TOP_WIDTH - MARGIN - TextWidth(name, 1);
+        if (nameX < TILE_LEFT)
+            nameX = TILE_LEFT;
+        Draw_Text(GFX_TOP, nameX, TILE_MIDDLE + TILE_BIG / 2 + 8, 1, WHITE, name, 0);
     }
 
     Draw_Text(GFX_TOP, MARGIN, TOP_HINT_Y, 1, HINT, hints, 0);
@@ -424,17 +498,18 @@ int main(void)
 
     Update_Start();
 
+    s_tileScale[0] = 256;
     int     game = 0;
     int     scroll = 0;             // how far the list is scrolled, in pixels
     int     touchY = 0;             // where the current drag started
     int     touchScroll = 0;        // and how far the list was scrolled then
     int     redrawBottom = 0;       // like redraw, for changes to the list alone
-    bool    heroFading = false;
     u64     repeatAt = 0;
     int     redraw = 2;             // both buffers of each screen
     int     heroFor = -1;           // the game s_hero was last loaded for
     u64     heroAt = 0;             // when to load the selected game's background
-    u64     heroShown = 0;          // when it started fading in
+    int     heroLevel = 0;          // how far the background has faded in, 0-256
+    u64     lastFrame = osGetTime();
 
     while (aptMainLoop())
     {
@@ -462,6 +537,9 @@ int main(void)
                 // Whatever arrived shows up right away.
                 s_gameCount = Games_Scan(s_games, MAX_GAMES);
                 game = 0;
+                memset(s_tileScale, 0, sizeof(s_tileScale));
+                s_tileScale[0] = 256;
+                s_camera = 0;
                 s_count = 0;
                 s_heroReady = false;
                 heroFor = -1;
@@ -500,11 +578,10 @@ int main(void)
 
             if (s_gameCount > 0)
             {
-                int next = Clamp(game + ((dir & KEY_RIGHT) ? 1 : 0) - ((dir & KEY_LEFT) ? 1 : 0), 0, (s_gameCount > ROW_POSITIONS ? s_gameCount : ROW_POSITIONS) - 1);
+                int next = Clamp(game + ((dir & KEY_RIGHT) ? 1 : 0) - ((dir & KEY_LEFT) ? 1 : 0), 0, RowPositions() - 1);
                 if (next != game)
                 {
                     game = next;
-                    s_heroReady = false;
                     s_count = 0;                // the list loads once the selection settles
                     heroFor = -1;
                     heroAt = osGetTime() + HERO_DELAY_MS;
@@ -543,30 +620,35 @@ int main(void)
             }
         }
 
-        if (s_gameCount > 0 && heroFor != game && osGetTime() >= heroAt)
+        // The old background finishes fading out before the next game is loaded over it.
+        if (s_gameCount > 0 && heroFor != game && osGetTime() >= heroAt && heroLevel == 0)
         {
             heroFor = game;
+            s_heroReady = false;
             if (game < s_gameCount)         // the empty positions have nothing to load
             {
                 LoadGame(game);             // reads the progress file again, so it's current
                 s_heroReady = Games_LoadHero(s_games[game].titleId, s_hero);
             }
-            heroShown = osGetTime();
-            heroFading = s_heroReady;
             redraw = 2;
         }
-        int heroFade = 256;
-        if (s_heroReady)
+
+        // Everything that eases: the row and the background.
         {
-            u64 elapsed = osGetTime() - heroShown;
-            if (elapsed < HERO_FADE_MS)
-            {
-                heroFade = (int)(elapsed * 256 / HERO_FADE_MS);
+            u64 now = osGetTime();
+            int milliseconds = (int)(now - lastFrame);
+            lastFrame = now;
+            if (milliseconds > 100)
+                milliseconds = 100;         // after a pause, don't jump
+
+            if (s_gameCount > 0 && AnimateRow(game, milliseconds))
                 redraw = 2;
-            }
-            else if (heroFading)
+
+            int target = s_heroReady && heroFor == game ? 256 : 0;
+            if (heroLevel != target)
             {
-                heroFading = false;         // the finished picture goes into both buffers
+                int step = milliseconds * 256 / (target != 0 ? HERO_FADE_MS : HERO_OUT_MS);
+                heroLevel = Approach(heroLevel, target, step > 0 ? step : 1);
                 redraw = 2;
             }
         }
@@ -576,8 +658,8 @@ int main(void)
             bool top = redraw > 0;          // dragging the list leaves the top screen alone
 
             Draw_Begin(top);
-            if (top && s_heroReady)
-                Draw_Hero(s_hero, heroFade);
+            if (top && heroLevel > 0)
+                Draw_Hero(s_hero, heroLevel);
             if (top)
                 DrawTop(game, "SELECT: Tracker on/off   START: Exit");
             if (game < s_gameCount)
