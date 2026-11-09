@@ -1,0 +1,257 @@
+#include "update.h"
+
+#include <stdio.h>
+#include <string.h>
+#include <sys/stat.h>
+
+#include "update_tree.h"
+
+#define OWNER_REPO      "LiamTrader43/3ds-Achievements"
+#define BRANCH          "main"
+#define TREE_URL        "https://api.github.com/repos/" OWNER_REPO "/git/trees/" BRANCH "?recursive=1"
+#define RAW_URL         "https://raw.githubusercontent.com/" OWNER_REPO "/" BRANCH "/achievements"
+#define DIRECTORY       "/achievements"
+#define VERSIONS_PATH   DIRECTORY "/versions.txt"       // the GitHub ID of each file on the card
+#define BUFFER_SIZE     (320 * 1024)
+#define STACK_SIZE      0x4000
+#define STOP_WAIT_NS    3000000000LL
+
+#define ERROR_BAD_STATUS    ((Result)0xE0000001)
+#define ERROR_TOO_BIG       ((Result)0xE0000002)
+#define ERROR_MISMATCH      ((Result)0xE0000003)        // GitHub's copies are still catching up
+#define ERROR_WRITE         ((Result)0xE0000004)
+
+typedef enum { STATE_IDLE, STATE_CHECKING, STATE_CHECKED, STATE_REPORTED } State;
+
+static u8               s_buffer[BUFFER_SIZE];
+static UpdateFile       s_files[UPDATE_MAX_FILES];
+static int              s_fileCount;
+static Thread           s_thread;
+static httpcContext     s_context;
+static volatile bool    s_requestOpen;
+static volatile State   s_state;
+static bool             s_httpcReady;
+
+static Result HttpGet(const char *url, u32 *size)
+{
+    u32 status = 0;
+
+    *size = 0;
+    Result res = httpcOpenContext(&s_context, HTTPC_METHOD_GET, url, 1);
+    if (R_FAILED(res))
+        return res;
+    s_requestOpen = true;
+    httpcSetSSLOpt(&s_context, SSLCOPT_DisableVerify);      // the 3DS's own certificates are too old
+    httpcSetKeepAlive(&s_context, HTTPC_KEEPALIVE_ENABLED);
+    httpcAddRequestHeaderField(&s_context, "User-Agent", "3DS-Achievements");   // GitHub requires one
+    httpcAddRequestHeaderField(&s_context, "Accept-Encoding", "identity");
+
+    res = httpcBeginRequest(&s_context);
+    if (R_SUCCEEDED(res))
+        res = httpcGetResponseStatusCode(&s_context, &status);
+    if (R_SUCCEEDED(res) && status != 200)
+        res = ERROR_BAD_STATUS;
+    if (R_SUCCEEDED(res))
+    {
+        res = httpcDownloadData(&s_context, s_buffer, BUFFER_SIZE - 1, size);
+        if (res == (Result)HTTPC_RESULTCODE_DOWNLOADPENDING)
+            res = ERROR_TOO_BIG;
+    }
+    s_requestOpen = false;
+    httpcCloseContext(&s_context);
+    return res;
+}
+
+static void CheckThread(void *arg)
+{
+    u32 size;
+
+    (void)arg;
+    if (R_SUCCEEDED(HttpGet(TREE_URL, &size)))
+    {
+        s_buffer[size] = '\0';
+        int count = UpdateTree_Parse((const char *)s_buffer, s_files, UPDATE_MAX_FILES);
+        s_fileCount = count > 0 ? count : 0;
+    }
+    s_state = STATE_CHECKED;
+}
+
+void Update_Start(void)
+{
+    s32 priority = 0x30;
+
+    if (R_FAILED(httpcInit(0)))
+        return;
+    s_httpcReady = true;
+    s_state = STATE_CHECKING;
+    svcGetThreadPriority(&priority, CUR_THREAD_HANDLE);
+    s_thread = threadCreate(CheckThread, NULL, STACK_SIZE, priority + 1, -2, false);
+    if (s_thread == NULL)
+        s_state = STATE_REPORTED;
+}
+
+static void FilePath(const UpdateFile *f, const char *suffix, char *path, size_t capacity)
+{
+    snprintf(path, capacity, DIRECTORY "/%.16s/%.15s%s", f->titleId, f->name, suffix);
+}
+
+static bool FileExists(const char *path)
+{
+    struct stat info;
+    return stat(path, &info) == 0;
+}
+
+// True if versions.txt says the card has this exact version of the file.
+static bool VersionMatches(const UpdateFile *f)
+{
+    char  wanted[80], line[80];
+    bool  found = false;
+
+    snprintf(wanted, sizeof(wanted), "%.16s/%.15s %.40s", f->titleId, f->name, f->sha);
+    FILE *file = fopen(VERSIONS_PATH, "r");
+    if (file == NULL)
+        return false;
+    while (!found && fgets(line, sizeof(line), file) != NULL)
+    {
+        line[strcspn(line, "\r\n")] = '\0';
+        found = strcmp(line, wanted) == 0;
+    }
+    fclose(file);
+    return found;
+}
+
+// Records that the card now has this version, replacing any older line for the file.
+static void SaveVersion(const UpdateFile *f)
+{
+    static char kept[4096];
+    char   prefix[40], line[80];
+    size_t used = 0;
+
+    snprintf(prefix, sizeof(prefix), "%.16s/%.15s ", f->titleId, f->name);
+    FILE *file = fopen(VERSIONS_PATH, "r");
+    if (file != NULL)
+    {
+        while (fgets(line, sizeof(line), file) != NULL)
+        {
+            size_t length = strlen(line);
+            if (strncmp(line, prefix, strlen(prefix)) != 0 && used + length < sizeof(kept))
+            {
+                memcpy(kept + used, line, length);
+                used += length;
+            }
+        }
+        fclose(file);
+    }
+
+    file = fopen(VERSIONS_PATH, "w");
+    if (file == NULL)
+        return;
+    fwrite(kept, 1, used, file);
+    fprintf(file, "%s%s\n", prefix, f->sha);
+    fclose(file);
+}
+
+bool Update_Poll(int *newGames, int *updatedGames)
+{
+    if (s_state != STATE_CHECKED)
+        return false;
+    s_state = STATE_REPORTED;
+    threadJoin(s_thread, U64_MAX);
+    threadFree(s_thread);
+    s_thread = NULL;
+
+    *newGames = *updatedGames = 0;
+    for (int i = 0; i < s_fileCount; i++)
+    {
+        char path[64];
+        FilePath(&s_files[i], "", path, sizeof(path));
+        s_files[i].wanted = !FileExists(path) || !VersionMatches(&s_files[i]);
+    }
+
+    // Count games, not files.
+    for (int i = 0; i < s_fileCount; i++)
+    {
+        bool first = s_files[i].wanted;
+        for (int j = 0; j < i && first; j++)
+            if (s_files[j].wanted && strcmp(s_files[j].titleId, s_files[i].titleId) == 0)
+                first = false;
+        if (!first)
+            continue;
+
+        char path[64];
+        snprintf(path, sizeof(path), DIRECTORY "/%.16s/definitions.txt", s_files[i].titleId);
+        if (FileExists(path))
+            (*updatedGames)++;
+        else
+            (*newGames)++;
+    }
+    return *newGames + *updatedGames > 0;
+}
+
+// Fetches one file; it only replaces the old one once it's fully here and verified.
+static Result DownloadFile(const UpdateFile *f)
+{
+    char url[160], path[64], temporary[72], folder[40];
+    u32  size;
+
+    snprintf(url, sizeof(url), RAW_URL "/%.16s/%.15s", f->titleId, f->name);
+    Result res = HttpGet(url, &size);
+    if (R_FAILED(res))
+        return res;
+    if (size != f->size || !UpdateTree_Matches(s_buffer, size, f->sha))
+        return ERROR_MISMATCH;
+
+    snprintf(folder, sizeof(folder), DIRECTORY "/%.16s", f->titleId);
+    mkdir(folder, 0777);
+    FilePath(f, "", path, sizeof(path));
+    FilePath(f, ".tmp", temporary, sizeof(temporary));
+
+    FILE *file = fopen(temporary, "wb");
+    if (file == NULL)
+        return ERROR_WRITE;
+    bool written = fwrite(s_buffer, 1, size, file) == size;
+    fclose(file);
+    if (!written)
+    {
+        remove(temporary);
+        return ERROR_WRITE;
+    }
+    remove(path);
+    if (rename(temporary, path) != 0)
+        return ERROR_WRITE;
+    SaveVersion(f);
+    return 0;
+}
+
+Result Update_Download(void (*progress)(int done, int total))
+{
+    int total = 0, done = 0;
+
+    for (int i = 0; i < s_fileCount; i++)
+        total += s_files[i].wanted ? 1 : 0;
+
+    for (int i = 0; i < s_fileCount; i++)
+    {
+        if (!s_files[i].wanted)
+            continue;
+        progress(done, total);
+        Result res = DownloadFile(&s_files[i]);
+        if (R_FAILED(res))
+            return res;
+        s_files[i].wanted = false;
+        done++;
+    }
+    return 0;
+}
+
+void Update_Stop(void)
+{
+    if (s_thread != NULL)
+    {
+        if (s_requestOpen)
+            httpcCancelConnection(&s_context);
+        threadJoin(s_thread, STOP_WAIT_NS);
+    }
+    if (s_httpcReady)
+        httpcExit();
+}

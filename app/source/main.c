@@ -15,6 +15,7 @@
 #include "draw.h"
 #include "games.h"
 #include "tracker.h"
+#include "update.h"
 #include "trophy.h"
 
 #define MAX_ACHIEVEMENTS    128     // the tracker's MAX_LINES
@@ -67,11 +68,17 @@ static int          s_count;
 static u16          s_gameUnlocked[ICON_SIZE * ICON_SIZE], s_gameLocked[ICON_SIZE * ICON_SIZE];
 static bool         s_hasGameIcons;         // this game has its own achievement icons
 
-typedef enum { POPUP_NONE, POPUP_START_FAILED, POPUP_STOP_FAILED } Popup;
+typedef enum
+{
+    POPUP_NONE, POPUP_START_FAILED, POPUP_STOP_FAILED,
+    POPUP_UPDATE, POPUP_DOWNLOADING, POPUP_UPDATE_FAILED
+} Popup;
 
 static bool         s_trackerRunning;
 static Popup        s_popup;
 static Result       s_popupResult;
+static int          s_newGames, s_updatedGames;
+static int          s_downloadDone, s_downloadTotal;
 static u8           s_hero[HERO_BYTES];     // the selected game's background
 static bool         s_heroReady;
 
@@ -302,17 +309,47 @@ static void DrawBoxes(const Game *g, int scroll, bool loaded)
 static void DrawPopup(void)
 {
     static const Color PANEL = { 22, 22, 28 };
-    const int w = 376, h = 150;
+    const bool small = s_popup == POPUP_UPDATE || s_popup == POPUP_DOWNLOADING;
+    const int w = 376, h = small ? 100 : 150;
     const int x = (TOP_WIDTH - w) / 2, y = (SCREEN_HEIGHT - h) / 2;
-    const char *title = s_popup == POPUP_START_FAILED ? "Couldn't start the tracker" : "Couldn't stop the tracker";
-    static const char ok[] = "A: OK";
-    char text[32];
+    const char *title, *button = "A: OK";
+    char text[48];
 
-    Draw_RoundRect(GFX_TOP, x - 2, y - 2, w + 4, h + 4, 12, RED);
+    switch (s_popup)
+    {
+        case POPUP_START_FAILED:    title = "Couldn't start the tracker"; break;
+        case POPUP_STOP_FAILED:     title = "Couldn't stop the tracker"; break;
+        case POPUP_UPDATE:          title = "New achievements"; button = "A: Download   B: Later"; break;
+        case POPUP_DOWNLOADING:     title = "Downloading"; button = ""; break;
+        default:                    title = "Download failed"; break;
+    }
+
+    Draw_RoundRect(GFX_TOP, x - 2, y - 2, w + 4, h + 4, 12, small ? TITLE : RED);
     Draw_RoundRect(GFX_TOP, x, y, w, h, 10, PANEL);
     Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(title, 2)) / 2, y + 12, 2, WHITE, title, 0);
-    snprintf(text, sizeof(text), "Error 0x%08lX", s_popupResult);
-    Draw_Text(GFX_TOP, x + 12, y + 44, 1, GREY, text, 0);
+
+    if (s_popup == POPUP_UPDATE)
+    {
+        if (s_newGames > 0 && s_updatedGames > 0)
+            snprintf(text, sizeof(text), "%d new game%s, %d updated", s_newGames, s_newGames == 1 ? "" : "s", s_updatedGames);
+        else if (s_newGames > 0)
+            snprintf(text, sizeof(text), "%d new game%s", s_newGames, s_newGames == 1 ? "" : "s");
+        else
+            snprintf(text, sizeof(text), "%d game%s updated", s_updatedGames, s_updatedGames == 1 ? "" : "s");
+        Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(text, 1)) / 2, y + 44, 1, GREY, text, 0);
+    }
+    else if (s_popup == POPUP_DOWNLOADING)
+    {
+        snprintf(text, sizeof(text), "File %d of %d", s_downloadDone + 1, s_downloadTotal);
+        Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(text, 1)) / 2, y + 44, 1, GREY, text, 0);
+        DrawProgressBar(GFX_TOP, x + 24, y + 66, w - 48, 6, s_downloadDone, s_downloadTotal);
+    }
+    else
+    {
+        snprintf(text, sizeof(text), "Error 0x%08lX", s_popupResult);
+        Draw_Text(GFX_TOP, x + 12, y + 44, 1, GREY, text, 0);
+    }
+
     if (s_popup == POPUP_START_FAILED)
     {
         Draw_Text(GFX_TOP, x + 12, y + 64, 1, WHITE, "Check that:", 0);
@@ -320,7 +357,24 @@ static void DrawPopup(void)
         Draw_Text(GFX_TOP, x + 12, y + 92, 1, GREY, "- Luma's config has \"Enable loading external FIRMs", 0);
         Draw_Text(GFX_TOP, x + 12, y + 106, 1, GREY, "  and modules\" on", 0);
     }
-    Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(ok, 1)) / 2, y + h - 18, 1, HINT, ok, 0);
+    else if (s_popup == POPUP_UPDATE_FAILED)
+    {
+        Draw_Text(GFX_TOP, x + 12, y + 64, 1, WHITE, "Your achievements and progress are unchanged.", 0);
+        Draw_Text(GFX_TOP, x + 12, y + 78, 1, GREY, "It will offer the download again next time you open", 0);
+        Draw_Text(GFX_TOP, x + 12, y + 92, 1, GREY, "the app. Check your internet connection.", 0);
+    }
+    Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(button, 1)) / 2, y + h - 18, 1, HINT, button, 0);
+}
+
+// Shown while files download; nothing else on the screen is changing.
+static void ShowDownloadProgress(int done, int total)
+{
+    s_popup = POPUP_DOWNLOADING;
+    s_downloadDone = done;
+    s_downloadTotal = total;
+    Draw_Begin(true);
+    DrawPopup();
+    Draw_End();
 }
 
 // The direction key pressed this frame, or held (repeating after 400 ms).
@@ -368,6 +422,8 @@ int main(void)
         s_popupResult = startResult;
     }
 
+    Update_Start();
+
     int     game = 0;
     int     scroll = 0;             // how far the list is scrolled, in pixels
     int     touchY = 0;             // where the current drag started
@@ -389,7 +445,37 @@ int main(void)
         if (down & KEY_START)
             break;
 
-        if (s_popup != POPUP_NONE)
+        if (s_popup == POPUP_NONE && Update_Poll(&s_newGames, &s_updatedGames))
+        {
+            s_popup = POPUP_UPDATE;
+            redraw = 2;
+        }
+
+        if (s_popup == POPUP_UPDATE)
+        {
+            if (down & KEY_A)
+            {
+                Result res = Update_Download(ShowDownloadProgress);
+                s_popup = R_FAILED(res) ? POPUP_UPDATE_FAILED : POPUP_NONE;
+                s_popupResult = res;
+
+                // Whatever arrived shows up right away.
+                s_gameCount = Games_Scan(s_games, MAX_GAMES);
+                game = 0;
+                s_count = 0;
+                s_heroReady = false;
+                heroFor = -1;
+                heroAt = 0;
+                scroll = 0;
+                redraw = 2;
+            }
+            else if (down & KEY_B)
+            {
+                s_popup = POPUP_NONE;
+                redraw = 2;
+            }
+        }
+        else if (s_popup != POPUP_NONE)
         {
             if (down & (KEY_A | KEY_B))
             {
@@ -508,6 +594,7 @@ int main(void)
             gspWaitForVBlank();
     }
 
+    Update_Stop();
     Draw_Exit();
     return 0;
 }
