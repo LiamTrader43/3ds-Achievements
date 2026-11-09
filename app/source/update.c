@@ -12,6 +12,7 @@
 #define RAW_URL         "https://raw.githubusercontent.com/" OWNER_REPO "/" BRANCH "/achievements"
 #define DIRECTORY       "/achievements"
 #define VERSIONS_PATH   DIRECTORY "/versions.txt"       // the GitHub ID of each file on the card
+#define LOG_PATH        DIRECTORY "/update.log"         // what the last check found
 #define BUFFER_SIZE     (320 * 1024)
 #define STACK_SIZE      0x4000
 #define STOP_WAIT_NS    3000000000LL
@@ -31,6 +32,9 @@ static httpcContext     s_context;
 static volatile bool    s_requestOpen;
 static volatile State   s_state;
 static bool             s_httpcReady;
+static Result           s_checkResult;
+static u32              s_checkStatus, s_checkSize;
+static int              s_checkParsed;
 
 static Result HttpGet(const char *url, u32 *size)
 {
@@ -49,6 +53,7 @@ static Result HttpGet(const char *url, u32 *size)
     res = httpcBeginRequest(&s_context);
     if (R_SUCCEEDED(res))
         res = httpcGetResponseStatusCode(&s_context, &status);
+    s_checkStatus = status;
     if (R_SUCCEEDED(res) && status != 200)
         res = ERROR_BAD_STATUS;
     if (R_SUCCEEDED(res))
@@ -67,11 +72,13 @@ static void CheckThread(void *arg)
     u32 size;
 
     (void)arg;
-    if (R_SUCCEEDED(HttpGet(TREE_URL, &size)))
+    s_checkResult = HttpGet(TREE_URL, &size);
+    s_checkSize = size;
+    if (R_SUCCEEDED(s_checkResult))
     {
         s_buffer[size] = '\0';
-        int count = UpdateTree_Parse((const char *)s_buffer, s_files, UPDATE_MAX_FILES);
-        s_fileCount = count > 0 ? count : 0;
+        s_checkParsed = UpdateTree_Parse((const char *)s_buffer, s_files, UPDATE_MAX_FILES);
+        s_fileCount = s_checkParsed > 0 ? s_checkParsed : 0;
     }
     s_state = STATE_CHECKED;
 }
@@ -185,6 +192,18 @@ bool Update_Poll(int *newGames, int *updatedGames)
         else
             (*newGames)++;
     }
+
+    FILE *log = fopen(LOG_PATH, "w");
+    if (log != NULL)
+    {
+        int wanted = 0;
+        for (int i = 0; i < s_fileCount; i++)
+            wanted += s_files[i].wanted ? 1 : 0;
+        fprintf(log, "check: result %08lX, http %lu, %lu bytes, %d files listed, %d to download, %d new games, %d updated\n",
+                (unsigned long)s_checkResult, (unsigned long)s_checkStatus, (unsigned long)s_checkSize, s_checkParsed, wanted,
+                *newGames, *updatedGames);
+        fclose(log);
+    }
     return *newGames + *updatedGames > 0;
 }
 
@@ -237,7 +256,16 @@ Result Update_Download(void (*progress)(int done, int total))
         progress(done, total);
         Result res = DownloadFile(&s_files[i]);
         if (R_FAILED(res))
+        {
+            FILE *log = fopen(LOG_PATH, "a");
+            if (log != NULL)
+            {
+                fprintf(log, "download %.16s/%.15s: result %08lX, http %lu\n", s_files[i].titleId, s_files[i].name,
+                        (unsigned long)res, (unsigned long)s_checkStatus);
+                fclose(log);
+            }
             return res;
+        }
         s_files[i].wanted = false;
         done++;
     }

@@ -51,3 +51,11 @@ svcControlProcess:
 svcFlushDataCacheRange:
     svc     0x91
     bx      lr
+
+@ Result svcControlService(u32 op, Handle *out, const char *name)
+    .section .text.svcControlService, "ax", %progbits
+    .global svcControlService
+    .type svcControlService, %function
+svcControlService:
+    svc     0xB0
+    bx      lr

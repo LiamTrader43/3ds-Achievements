@@ -22,9 +22,13 @@
 #define MAP_ADDRESS         0x0E000000      // free in this process; game pages are mapped here briefly
 #define LOG_PATH            "/achievements/tracker.log"
 #define NOTIF_TERMINATE     0x100           // PM asks sysmodules to exit (shutdown)
+Result svcControlService(u32 op, Handle *out, const char *name);
 #define PROCESS_NAME        0x10000         // Luma svcGetProcessInfo extensions
 #define PROCESS_TITLE_ID    0x10001
 #define BANNER_MS           6000
+#define LIGHT_RED           255             // gold on the notification light
+#define LIGHT_GREEN         150
+#define LIGHT_BLUE          10
 #define START_DELAY_MS      5000            // after a game launches, before its start banner
 #define START_BANNER_MS     5000
 #define BANNER_CHARS        49              // a banner text line with nothing right-aligned
@@ -212,6 +216,41 @@ bool Platform_ReadMemory(uint32_t address, uint8_t size, uint32_t *value)
     return true;
 }
 
+// Holds the notification light (the one by the hinge) on the unlock colour, or turns it off.
+static void SetNotificationLight(bool on)
+{
+    InfoLedPattern pattern;
+    Handle         session = 0;
+
+    memset(&pattern, 0, sizeof(pattern));
+    pattern.delay = 0x10;
+    pattern.smoothing = 0x10;
+    if (on)
+    {
+        memset(pattern.redPattern, LIGHT_RED, sizeof(pattern.redPattern));
+        memset(pattern.greenPattern, LIGHT_GREEN, sizeof(pattern.greenPattern));
+        memset(pattern.bluePattern, LIGHT_BLUE, sizeof(pattern.bluePattern));
+    }
+
+    // Not blocking: the service can be full, and then Rosalina's way in is to share a
+    // session someone else already has.
+    srvSetBlockingPolicy(true);
+    Result res = srvGetServiceHandle(&session, "mcu::HWC");
+    srvSetBlockingPolicy(false);
+    if (R_FAILED(res))
+        res = svcControlService(0, &session, "mcu::HWC");       // SERVICEOP_STEAL_CLIENT_SESSION
+    if (R_SUCCEEDED(res))
+    {
+        Handle *handle = mcuHwcGetSessionHandle();
+        *handle = session;
+        res = MCUHWC_SetInfoLedPattern(&pattern);
+        *handle = 0;
+        svcCloseHandle(session);
+    }
+    if (R_FAILED(res))
+        Log("light: %08lX", res);
+}
+
 void Platform_Unlocked(const char *name, const char *description)
 {
     (void)description;
@@ -222,7 +261,9 @@ void Platform_Unlocked(const char *name, const char *description)
     snprintf(progress, sizeof(progress), "%d/%d", unlocked, total);
 
     Log("unlocked: %s (%s)", name, progress);
+    SetNotificationLight(true);
     Overlay_Show("Achievement unlocked!", name, progress, BANNER_MS);
+    SetNotificationLight(false);
     LogBannerStats();
 }
 
