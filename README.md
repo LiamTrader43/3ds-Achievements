@@ -89,6 +89,8 @@ python tools/make_versions.py
 
 ## Credits
 
+**Collaborators:** Swamp Puppy (UI design)
+
 **Code**
 
 - [rcheevos](https://github.com/RetroAchievements/rcheevos) v12.5.0, Copyright (c) 2018 RetroAchievements.org (MIT): achievement conditions
