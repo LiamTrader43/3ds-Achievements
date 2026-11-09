@@ -2,18 +2,23 @@
 
     python tools/cia_art.py
 
-Writes app/cia/banner.png (256x128), app/cia/icon.png (48x48) and app/cia/banner.wav (a moment
-of silence; a banner has to have sound). Run from the repo root. Needs Pillow.
+Writes app/cia/banner.png (256x128), app/cia/icon.png (48x48) and app/cia/banner.wav (the start
+of assets/hammer_on_lick.wav, in stereo and under 3 seconds, which a HOME Menu banner needs).
+Run from the repo root. Needs Pillow.
 """
+import array
 import os
-import struct
+import wave
 
 from PIL import Image
 
 LOGO = "assets/3ds-achievements-logo.png"
+SOUND = "assets/hammer_on_lick.wav"
 OUT = os.path.join("app", "cia")
 BANNER_MARGIN = 14
 ICON_MARGIN = 2
+SOUND_SECONDS = 2.9
+SOUND_FADE_SECONDS = 0.6
 
 
 def on_black(logo, width, height, margin):
@@ -26,12 +31,28 @@ def on_black(logo, width, height, margin):
     return canvas.convert("RGB")
 
 
-def silence(path, seconds=1, rate=32000):
-    frames = rate * seconds
-    data = b"\0\0" * frames
-    with open(path, "wb") as f:
-        f.write(b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt " +
-                struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16) + b"data" + struct.pack("<I", len(data)) + data)
+def banner_sound(source, path):
+    """The start of a mono 16-bit recording, faded out, with the same audio in both channels."""
+    with wave.open(source, "rb") as f:
+        if f.getnchannels() != 1 or f.getsampwidth() != 2:
+            raise SystemExit(f"{source} must be 16-bit mono")
+        rate = f.getframerate()
+        samples = array.array("h", f.readframes(int(SOUND_SECONDS * rate)))
+
+    fade = int(SOUND_FADE_SECONDS * rate)
+    start = len(samples) - fade
+    stereo = array.array("h")
+    for i, sample in enumerate(samples):
+        if i >= start:
+            sample = int(sample * (len(samples) - i) / fade)
+        stereo.append(sample)
+        stereo.append(sample)
+
+    with wave.open(path, "wb") as f:
+        f.setnchannels(2)
+        f.setsampwidth(2)
+        f.setframerate(rate)
+        f.writeframes(stereo.tobytes())
 
 
 def main():
@@ -40,7 +61,7 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     on_black(logo, 256, 128, BANNER_MARGIN).save(os.path.join(OUT, "banner.png"))
     on_black(logo, 48, 48, ICON_MARGIN).save(os.path.join(OUT, "icon.png"))
-    silence(os.path.join(OUT, "banner.wav"))
+    banner_sound(SOUND, os.path.join(OUT, "banner.wav"))
     print("wrote", OUT)
 
 
