@@ -4,7 +4,7 @@ Achievements for Nintendo 3DS games, on real hardware with [Luma3DS](https://git
 
 A background module watches the running game's memory. When you earn an achievement, it saves the unlock, shows a banner on the bottom screen and turns the notification light gold. A companion app lists every game and achievement, and downloads new ones from this repository. Your games aren't modified.
 
-| The app | In-game (R + Down + SELECT) |
+| The app | In-game (R + A + Left) |
 |---|---|
 | <img src="assets/screenshots/app.png" alt="The app, with Ocarina of Time 3D selected and its achievements listed on the bottom screen" width="400"> | <img src="assets/screenshots/in-game-menu.png" alt="The in-game achievement list on the bottom screen" width="400"> |
 
@@ -35,7 +35,7 @@ To update, copy a newer zip over the old files. Your unlocks are kept.
 | SELECT | Turn the tracker on or off |
 | START | Exit |
 
-In a game, press **R + Down + SELECT** to pause and see your achievements. B or SELECT closes the list.
+In a game, press **R + A + Left** to pause and see your achievements. B or SELECT closes the list.
 
 When you open the app on Wi-Fi, it checks this repository's `main` branch and asks before downloading new games or achievements.
 

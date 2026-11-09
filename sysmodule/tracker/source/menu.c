@@ -17,7 +17,7 @@ Result svcControlProcess(Handle process, u32 op, u32 varg2, u32 varg3);
 // menu.h). Only read in kernel mode here.
 #define HID_PAD             (*(vu32 *)(0x10146000 | (1u << 31)))
 
-#define HOTKEY              (KEY_R | KEY_DDOWN | KEY_SELECT)
+#define HOTKEY              (KEY_R | KEY_A | KEY_DLEFT)
 #define CLOSE_KEYS          (KEY_B | KEY_SELECT)
 #define DIRECTION_KEYS      (KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT)
 #define TICK_NS             (16 * 1000 * 1000LL)
@@ -268,7 +268,7 @@ bool Menu_Open(Handle game, u64 titleId)
     int     dragY = 0, dragScroll = 0;
     bool    closeArmed = false;
     bool    redraw = true;
-    u32     previous = Buttons();   // the hotkey's own Down isn't a press
+    u32     previous = Buttons();   // the hotkey's own Left isn't a press
     u64     repeatAt = 0;           // 0 until a direction is pressed in the menu
     u64     lastDraw = 0;
     u32     lastBuffer = 0;

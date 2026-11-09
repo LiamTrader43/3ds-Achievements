@@ -3,7 +3,7 @@
 
 #include <3ds.h>
 
-// Whether the menu hotkey (R + Down + Select) is held.
+// Whether the menu hotkey (R + A + Left) is held.
 bool    Menu_HotkeyHeld(void);
 
 // Whether the game is in front, not suspended behind the HOME Menu (from

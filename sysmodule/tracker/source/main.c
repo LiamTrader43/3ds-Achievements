@@ -6,7 +6,7 @@
 // svcMapProcessMemoryEx. Unlocks are saved to the progress file, with a
 // banner on the bottom screen (overlay.c). A few seconds after a game starts,
 // a banner shows its progress (or that it has no achievements).
-// R + Down + Select pauses the game and shows the achievement list (menu.c).
+// R + A + Left pauses the game and shows the achievement list (menu.c).
 
 #include <3ds.h>
 
