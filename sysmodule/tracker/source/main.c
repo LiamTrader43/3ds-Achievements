@@ -361,6 +361,15 @@ static void ShowStartBanner(bool supported)
     LogBannerStats();
 }
 
+// True while this title is really the Homebrew Launcher: Luma runs a 3DSX in
+// place of the title in its shared config (hbldr_3dsx_tid, which Rosalina can
+// switch to another title). Same check as Luma's loader, ignoring the platform bits.
+static bool IsHomebrewHost(u64 titleId)
+{
+    u64 host = *(volatile u64 *)(OS_SHAREDCFG_VADDR + 0x800);
+    return host != 0 && ((titleId ^ host) & ~0xF0000000ULL) == 0;
+}
+
 // The running application (title ID 00040000xxxxxxxx), if any.
 static bool FindApplication(u32 *pid, u64 *titleId)
 {
@@ -426,7 +435,7 @@ int main(void)
 
         u32 pid;
         u64 titleId;
-        if (!FindApplication(&pid, &titleId))
+        if (!FindApplication(&pid, &titleId) || IsHomebrewHost(titleId))    // the launcher counts as no game
         {
             loadedTitle = 0;
             active = false;
