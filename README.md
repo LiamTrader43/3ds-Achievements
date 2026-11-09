@@ -18,7 +18,7 @@ This set is a port of the RetroAchievements set for the N64 original. Many of it
 
 You need a 3DS with Luma3DS. The tracker relies on Luma's kernel extensions, so it doesn't run in emulators.
 
-1. Download the zip, extract it, and copy everything inside to the root of your SD card, merging with the folders already there.
+1. Download the zip from the [latest release](https://github.com/LiamTrader43/3ds-Achievements/releases/latest), extract it, and copy everything inside to the root of your SD card, merging with the folders already there.
 2. Hold SELECT while turning on your 3DS, and in Luma's configuration turn on **Enable loading external FIRMs and modules**.
 3. Install `cias/achievements.cia` with FBI, or use **3DS Achievements** in the Homebrew Launcher instead.
 4. Open **3DS Achievements** once after each boot to start the tracker. It keeps running after you leave the app.
@@ -84,6 +84,7 @@ Then put the builds in `sysmodule/dist`, which mirrors the SD card:
 cp sysmodule/tracker/tracker.cxi sysmodule/dist/luma/sysmodules/0004013000AC4102.cxi
 cp app/achievements-viewer.cia sysmodule/dist/cias/achievements.cia
 cp app/achievements-viewer.3dsx sysmodule/dist/3ds/achievements-viewer.3dsx
+python tools/make_versions.py
 ```
 
 ## Credits
