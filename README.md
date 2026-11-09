@@ -33,11 +33,14 @@ To update, copy a newer zip over the old files. Your unlocks are kept.
 | Up / Down, or drag the touch screen | Scroll achievements |
 | L / R | Jump a page |
 | SELECT | Turn the tracker on or off |
+| X | Allow or block achievements in patched games |
 | START | Exit |
 
 In a game, press **R + A + Left** to pause and see your achievements. B or SELECT closes the list.
 
 When you open the app on Wi-Fi, it checks this repository's `main` branch and asks before downloading new games or achievements.
+
+Patches and mods can change how a game behaves, so while Luma's game patching is on, achievements are turned off for a game with a `code.bin`, `code.bps`, `code.ips`, `code.ups` or `romfs` folder in `/luma/titles/<TitleID>/`. The start banner tells you when this happens. To earn achievements anyway, for example with a mod you trust not to affect them, press X in the app to turn on **Patched games**. Your choice is saved, and it applies the next time you start a game.
 
 ## Adding a game
 

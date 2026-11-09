@@ -27,6 +27,8 @@ Result svcControlService(u32 op, Handle *out, const char *name);
 #define PROCESS_TITLE_ID    0x10001
 #define BANNER_MS           6000
 #define APP_TITLE_ID        0x000400000AC41000ULL   // the Achievements app, when installed as a CIA
+#define LUMA_PATCHGAMES_BIT 2                       // in Luma's config (loader: singleOptions PATCHGAMES)
+#define ALLOW_PATCHED_PATH  "/achievements/allow_patched"   // exists while the app's setting is on
 #define LIGHT_RED           255             // gold on the notification light
 #define LIGHT_GREEN         150
 #define LIGHT_BLUE          10
@@ -376,14 +378,65 @@ static bool ReadGameTitle(u32 pid, u64 titleId, char *out, size_t capacity)
     return false;
 }
 
-// "<game>, <unlocked>/<total> achievements unlocked" (or "achievements not
-// supported" without definitions), the game's name cut with "..." to fit.
-static void ShowStartBanner(bool supported)
+// True if the user chose in the app to earn achievements in patched games.
+static bool PatchedGamesAllowed(void)
+{
+    Handle file;
+
+    if (R_FAILED(OpenSdFile(&file, ALLOW_PATCHED_PATH, FS_OPEN_READ)))
+        return false;
+    FSFILE_Close(file);
+    return true;
+}
+
+// The name of a Luma patch or mod for this game in /luma/titles/<TitleID>/, or
+// NULL. A patched game may not behave as its achievement conditions expect.
+// (exheader.bin and locale.txt are left out: they don't change the game's logic.)
+// With Luma's "Enable game patching" off the files aren't applied, so they don't count.
+static const char *FindGamePatch(u64 titleId)
+{
+    static const char *const names[] = { "code.bin", "code.bps", "code.ips", "code.ups" };
+    char path[64];
+    s64  config;
+
+    if (R_SUCCEEDED(svcGetSystemInfo(&config, 0x10000, 3)) && !(config & BIT(LUMA_PATCHGAMES_BIT)))
+        return NULL;
+
+    for (u32 i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+    {
+        Handle file;
+
+        snprintf(path, sizeof(path), "/luma/titles/%016llX/%s", (unsigned long long)titleId, names[i]);
+        if (R_SUCCEEDED(OpenSdFile(&file, path, FS_OPEN_READ)))
+        {
+            FSFILE_Close(file);
+            return names[i];
+        }
+    }
+
+    FS_Archive  sd;
+    Handle      dir;
+
+    if (R_FAILED(FSUSER_OpenArchive(&sd, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, ""))))
+        return NULL;
+    snprintf(path, sizeof(path), "/luma/titles/%016llX/romfs", (unsigned long long)titleId);
+    bool found = R_SUCCEEDED(FSUSER_OpenDirectory(&dir, sd, fsMakePath(PATH_ASCII, path)));
+    if (found)
+        FSDIR_Close(dir);
+    FSUSER_CloseArchive(sd);
+    return found ? "romfs" : NULL;
+}
+
+// "<game>, <unlocked>/<total> achievements unlocked" (or why achievements are
+// off), the game's name cut with "..." to fit.
+static void ShowStartBanner(bool supported, bool patched)
 {
     char    suffix[48], message[128];   // filled to BANNER_CHARS at most
     int     unlocked, total;
 
-    if (supported)
+    if (patched)
+        snprintf(suffix, sizeof(suffix), ", patched, achievements off");
+    else if (supported)
     {
         Achievements_Progress(&unlocked, &total);
         snprintf(suffix, sizeof(suffix), ", %d/%d achievements unlocked", unlocked, total);
@@ -446,6 +499,7 @@ int main(void)
     Handle  notification = 0;
     u64     loadedTitle = 0;
     bool    active = false;
+    bool    patched = false;        // has definitions, but isn't tracked (see FindGamePatch)
     bool    haveTitle = false;      // from the SMDH, not the process name
     bool    startShown = false;     // this game's start banner
     u64     startAt = 0;
@@ -495,6 +549,12 @@ int main(void)
             haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
             Log("game %016llX (%s): %d achievement line(s)", (unsigned long long)titleId, g_gameTitle,
                 Achievements_Count());
+            const char *patch = active ? FindGamePatch(titleId) : NULL;
+            patched = patch != NULL && !PatchedGamesAllowed();
+            if (patched)
+                active = false;     // the menu can still list its achievements
+            if (patch != NULL)
+                Log("game is patched (%s): %s", patch, patched ? "not tracking" : "tracking, allowed in the app");
             startShown = false;
             startAt = osGetTime() + START_DELAY_MS;
         }
@@ -506,7 +566,7 @@ int main(void)
         {
             if (!haveTitle)
                 haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
-            ShowStartBanner(active);
+            ShowStartBanner(active, patched);
             startShown = true;
         }
 

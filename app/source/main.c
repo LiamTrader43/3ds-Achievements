@@ -85,6 +85,7 @@ typedef enum
 } Popup;
 
 static bool         s_trackerRunning;
+static bool         s_patchedAllowed;
 static Popup        s_popup;
 static Result       s_popupResult;
 static int          s_newGames, s_updatedGames;
@@ -258,21 +259,38 @@ static bool AnimateRow(int selected, int milliseconds)
     return moving;
 }
 
-static void DrawTop(int selected, const char *hints)
+// One button hint ending in a setting's state, "on" in green or "off" in red,
+// with room for "off" either way so the hints after it don't move. Returns the next x.
+static int DrawSettingHint(int x, const char *label, bool on)
+{
+    Draw_Text(GFX_TOP, x, TOP_HINT_Y, 1, HINT, label, 0);
+    x += TextWidth(label, 1);
+    Draw_Text(GFX_TOP, x, TOP_HINT_Y, 1, on ? GREEN : RED, on ? "on" : "off", 0);
+    return x + TextWidth("off   ", 1);
+}
+
+// The top screen's last line, centered: the buttons, with both settings' states.
+static void DrawHints(void)
+{
+    static const char patched[] = "X: Patched games ", tracker[] = "SELECT: Tracker ", exit[] = "START: Exit";
+    int width = TextWidth(patched, 1) + TextWidth(tracker, 1) + 2 * TextWidth("off   ", 1) + TextWidth(exit, 1);
+
+    int x = DrawSettingHint((TOP_WIDTH - width) / 2, patched, s_patchedAllowed);
+    x = DrawSettingHint(x, tracker, s_trackerRunning);
+    Draw_Text(GFX_TOP, x, TOP_HINT_Y, 1, HINT, exit, 0);
+}
+
+static void DrawTop(int selected)
 {
     static const char title[] = "3DS Achievements";
 
     Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(title, TITLE_SCALE)) / 2, 5, TITLE_SCALE, TITLE, title, 0);
-    {
-        const char *state = s_trackerRunning ? "Tracker: on" : "Tracker: off";
-        Draw_Text(GFX_TOP, TOP_WIDTH - MARGIN - TextWidth(state, 1), TOP_HINT_Y, 1, s_trackerRunning ? GREEN : RED, state, 0);
-    }
+    DrawHints();
 
     if (s_gameCount == 0)
     {
         Draw_Text(GFX_TOP, MARGIN, TITLE_H + 8, 1, WHITE, "No games with achievements found.", 0);
         Draw_Text(GFX_TOP, MARGIN, TITLE_H + 24, 1, GREY, "Definitions go in /achievements/<TitleID>.txt", 0);
-        Draw_Text(GFX_TOP, MARGIN, TOP_HINT_Y, 1, HINT, "SELECT: Tracker on/off   START: Exit", 0);
         return;
     }
 
@@ -310,8 +328,6 @@ static void DrawTop(int selected, const char *hints)
             nameX = TILE_LEFT;
         Draw_Text(GFX_TOP, nameX, TILE_MIDDLE + TILE_BIG / 2 + 8, 1, WHITE, name, 0);
     }
-
-    Draw_Text(GFX_TOP, MARGIN, TOP_HINT_Y, 1, HINT, hints, 0);
 }
 
 // One achievement's box: trophy | name, points / description.
@@ -490,6 +506,7 @@ int main(void)
     Result startResult = wanted ? Tracker_Start() : 0;
     s_gameCount = Games_Scan(s_games, MAX_GAMES);
     s_trackerRunning = Tracker_Running();
+    s_patchedAllowed = Tracker_PatchedAllowed();
     if (wanted && !s_trackerRunning)
     {
         s_popup = POPUP_START_FAILED;
@@ -573,6 +590,13 @@ int main(void)
                     s_popup = on ? POPUP_START_FAILED : POPUP_STOP_FAILED;
                     s_popupResult = res;
                 }
+                redraw = 2;
+            }
+
+            if (down & KEY_X)
+            {
+                Tracker_SetPatchedAllowed(!s_patchedAllowed);
+                s_patchedAllowed = Tracker_PatchedAllowed();    // what was actually saved
                 redraw = 2;
             }
 
@@ -661,7 +685,7 @@ int main(void)
             if (top && heroLevel > 0)
                 Draw_Hero(s_hero, heroLevel);
             if (top)
-                DrawTop(game, "SELECT: Tracker on/off   START: Exit");
+                DrawTop(game);
             if (game < s_gameCount)
                 DrawBoxes(&s_games[game], scroll, heroFor == game);
             if (top && s_popup != POPUP_NONE)

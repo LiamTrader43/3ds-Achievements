@@ -18,4 +18,10 @@ bool        Tracker_TurnedOff(void);
 // Starts or stops the tracker and remembers the choice.
 Result      Tracker_SetEnabled(bool enabled);
 
+// True if achievements can be earned in games with Luma patches or mods (off by default).
+bool        Tracker_PatchedAllowed(void);
+
+// Remembers that choice. The tracker reads it each time a game starts.
+void        Tracker_SetPatchedAllowed(bool allowed);
+
 #endif
