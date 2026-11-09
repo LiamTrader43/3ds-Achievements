@@ -29,6 +29,7 @@ static const Color GREY = { 140, 140, 150 };
 static const Color DARK = { 50, 50, 58 };
 static const Color SCROLLBAR = { 110, 110, 120 };
 static const Color RED = { 235, 70, 70 };
+static const Color BLACK = { 0, 0, 0 };
 
 #define MARGIN          8
 
@@ -255,9 +256,23 @@ static void DrawBox(int i, int y)
 
 }
 
+// The furthest the list can scroll, in pixels.
+static int MaxScroll(void)
+{
+    return s_count > BOX_ROWS ? (s_count - BOX_ROWS) * BOX_H : 0;
+}
+
+// scroll is in pixels, so a drag can stop between two boxes.
 static void DrawBoxes(const Game *g, int scroll, bool loaded)
 {
     char text[32];
+
+    // The boxes first: the one scrolling off the top slides under the header.
+    int first = scroll / BOX_H;
+    int y = PROGRESS_H - scroll % BOX_H;
+    for (int i = first; i < s_count && y < SCREEN_HEIGHT; i++, y += BOX_H)
+        DrawBox(i, y);
+    Draw_Rect(GFX_BOTTOM, 0, 0, BOTTOM_WIDTH, PROGRESS_H, BLACK);
 
     // Score on the right, total unlocks on the left, the progress bar between them.
     snprintf(text, sizeof(text), "%d/%d pts", g->earned, g->points);
@@ -273,14 +288,12 @@ static void DrawBoxes(const Game *g, int scroll, bool loaded)
             Draw_Text(GFX_BOTTOM, MARGIN, PROGRESS_H + 8, 1, WHITE, "No achievements for this game.", 0);
         return;
     }
-    for (int row = 0; row < BOX_ROWS && scroll + row < s_count; row++)
-        DrawBox(scroll + row, PROGRESS_H + row * BOX_H);
 
     // Scrollbar down the left edge.
     int track = SCREEN_HEIGHT - PROGRESS_H;
     Draw_Rect(GFX_BOTTOM, 3, PROGRESS_H, 3, track, DARK);
     if (s_count > BOX_ROWS)
-        DrawScrollbar(GFX_BOTTOM, 3, PROGRESS_H, track, BOX_ROWS, scroll, s_count);
+        DrawScrollbar(GFX_BOTTOM, 3, PROGRESS_H, track, BOX_ROWS * BOX_H, scroll, s_count * BOX_H);
     else
         Draw_Rect(GFX_BOTTOM, 3, PROGRESS_H, 3, track, SCROLLBAR);
 }
@@ -341,7 +354,7 @@ int main(void)
     // A loading frame, while the files and icons are read.
     for (int i = 0; i < 2; i++)
     {
-        Draw_Begin();
+        Draw_Begin(true);
         Draw_Text(GFX_TOP, MARGIN, MARGIN, 1, WHITE, "Loading...", 0);
         Draw_End();
     }
@@ -356,7 +369,11 @@ int main(void)
     }
 
     int     game = 0;
-    int     scroll = 0;             // first box shown
+    int     scroll = 0;             // how far the list is scrolled, in pixels
+    int     touchY = 0;             // where the current drag started
+    int     touchScroll = 0;        // and how far the list was scrolled then
+    int     redrawBottom = 0;       // like redraw, for changes to the list alone
+    bool    heroFading = false;
     u64     repeatAt = 0;
     int     redraw = 2;             // both buffers of each screen
     int     heroFor = -1;           // the game s_hero was last loaded for
@@ -414,11 +431,28 @@ int main(void)
                 if (dir & KEY_DOWN)     move = 1;
                 if (down & KEY_L)       move = -BOX_ROWS;
                 if (down & KEY_R)       move = BOX_ROWS;
-                int top = Clamp(scroll + move, 0, s_count > BOX_ROWS ? s_count - BOX_ROWS : 0);
+                int top = scroll;
+                if (move != 0)
+                    top = ((scroll + BOX_H / 2) / BOX_H + move) * BOX_H;    // lands on a whole box
+
+                // Dragging on the touch screen moves the list with the stylus.
+                if (held & KEY_TOUCH)
+                {
+                    touchPosition touch;
+                    hidTouchRead(&touch);
+                    if (down & KEY_TOUCH)
+                    {
+                        touchY = touch.py;
+                        touchScroll = scroll;
+                    }
+                    top = touchScroll + touchY - touch.py;
+                }
+
+                top = Clamp(top, 0, MaxScroll());
                 if (top != scroll)
                 {
                     scroll = top;
-                    redraw = 2;
+                    redrawBottom = 2;
                 }
             }
         }
@@ -432,6 +466,7 @@ int main(void)
                 s_heroReady = Games_LoadHero(s_games[game].titleId, s_hero);
             }
             heroShown = osGetTime();
+            heroFading = s_heroReady;
             redraw = 2;
         }
         int heroFade = 256;
@@ -443,20 +478,31 @@ int main(void)
                 heroFade = (int)(elapsed * 256 / HERO_FADE_MS);
                 redraw = 2;
             }
+            else if (heroFading)
+            {
+                heroFading = false;         // the finished picture goes into both buffers
+                redraw = 2;
+            }
         }
 
-        if (redraw > 0)
+        if (redraw > 0 || redrawBottom > 0)
         {
-            Draw_Begin();
-            if (s_heroReady)
+            bool top = redraw > 0;          // dragging the list leaves the top screen alone
+
+            Draw_Begin(top);
+            if (top && s_heroReady)
                 Draw_Hero(s_hero, heroFade);
-            DrawTop(game, "SELECT: Tracker on/off   START: Exit");
+            if (top)
+                DrawTop(game, "SELECT: Tracker on/off   START: Exit");
             if (game < s_gameCount)
                 DrawBoxes(&s_games[game], scroll, heroFor == game);
-            if (s_popup != POPUP_NONE)
+            if (top && s_popup != POPUP_NONE)
                 DrawPopup();
             Draw_End();
-            redraw--;
+            if (redraw > 0)
+                redraw--;
+            if (redrawBottom > 0)
+                redrawBottom--;
         }
         else
             gspWaitForVBlank();

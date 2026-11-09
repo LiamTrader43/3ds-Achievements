@@ -18,8 +18,9 @@ typedef struct { u8 r, g, b; } Color;
 void    Draw_Init(void);
 void    Draw_Exit(void);
 
-// Starts a frame: both back buffers cleared to black.
-void    Draw_Begin(void);
+// Starts a frame: the bottom back buffer cleared to black, and the top one too unless
+// clearTop is false (for frames that only redraw the bottom screen).
+void    Draw_Begin(bool clearTop);
 // Shows the frame and waits for the next vblank.
 void    Draw_End(void);
 

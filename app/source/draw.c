@@ -21,11 +21,12 @@ int Draw_Width(gfxScreen_t screen)
     return screen == GFX_TOP ? TOP_WIDTH : BOTTOM_WIDTH;
 }
 
-void Draw_Begin(void)
+void Draw_Begin(bool clearTop)
 {
     s_fb[GFX_TOP] = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
     s_fb[GFX_BOTTOM] = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, NULL, NULL);
-    memset(s_fb[GFX_TOP], 0, TOP_WIDTH * SCREEN_HEIGHT * 3);
+    if (clearTop)
+        memset(s_fb[GFX_TOP], 0, TOP_WIDTH * SCREEN_HEIGHT * 3);
     memset(s_fb[GFX_BOTTOM], 0, BOTTOM_WIDTH * SCREEN_HEIGHT * 3);
 }
 
