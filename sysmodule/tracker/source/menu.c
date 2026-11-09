@@ -5,6 +5,7 @@
 
 #include "achievements.h"
 #include "overlay.h"
+#include "../../../app/source/trophy.h"
 
 // Luma3DS kernel extension (csvc.s).
 Result svcCustomBackdoor(void *func, ...);
@@ -22,30 +23,34 @@ Result svcControlProcess(Handle process, u32 op, u32 varg2, u32 varg3);
 #define TICK_NS             (16 * 1000 * 1000LL)
 #define REDRAW_MS           100     // also catch a swap the game queued before it was paused
 
-// Layout.
+// Layout, the same as the app's bottom screen.
 #define WIDTH               320
 #define HEIGHT              240
-#define TITLE_Y             8
-#define SUBTITLE_Y          28
-#define LIST_TOP            56
-#define ROW_HEIGHT          20
-#define VISIBLE_ROWS        8       // leaves room for the hints line
-#define HINT_Y              (HEIGHT - 20)
-#define TEXT_LEFT           10
-#define TEXT_WIDTH          (WIDTH - TEXT_LEFT - 14)
-#define LIST_LEFT           (TEXT_LEFT + 16)    // achievements are indented under the game title
-#define LIST_WIDTH          (WIDTH - LIST_LEFT - 14)
+#define MARGIN              8
+#define PROGRESS_H          20
+#define BOX_H               55
+#define BOX_ROWS            ((HEIGHT - PROGRESS_H) / BOX_H)
+#define BOX_LEFT            10                      // right of the scrollbar
+#define BOX_ICON_X          (BOX_LEFT + 4)
+#define BOX_TEXT_X          (BOX_ICON_X + OVERLAY_ICON_SIZE + 8)
+#define BOX_TEXT_W          (WIDTH - MARGIN - BOX_TEXT_X)
 
 #define CHAR_W              OVERLAY_FONT_WIDTH
 #define LINE_CHARS          (WIDTH / CHAR_W + 1)
 #define MAX_ACHIEVEMENTS    128
+#define ICON_PIXELS         (OVERLAY_ICON_SIZE * OVERLAY_ICON_SIZE)
+#define ICON_FILE_BYTES     (2 * ICON_PIXELS * 2)   // unlocked, then locked
 
-static const Rgb TITLE_TEXT = { 255, 209, 102 };     // the logo's yellow
-static const Rgb HINT_TEXT = { 255, 209, 102 };
-static const Rgb HEADER_TEXT = { 255, 255, 255 };
-static const Rgb UNLOCKED_TEXT = { 50, 205, 50 };   // LimeGreen
-static const Rgb LOCKED_TEXT = { 255, 255, 255 };
+static const Rgb WHITE = { 255, 255, 255 };
+static const Rgb GREEN = { 50, 205, 50 };           // LimeGreen, unlocked
+static const Rgb GOLD = { 255, 196, 40 };
+static const Rgb GREY = { 140, 140, 150 };
+static const Rgb DARK = { 50, 50, 58 };
 static const Rgb SCROLLBAR = { 110, 110, 120 };
+
+// The game's own achievement icons (/achievements/<TitleID>/trophy.bin), if it has any.
+static u16  s_gameIcons[2 * ICON_PIXELS + 1];       // one spare: the file reader ends with a '\0'
+static bool s_hasGameIcons;
 
 static void ReadButtonsKernel(u32 *out)
 {
@@ -106,51 +111,120 @@ static void Ellipsize(char *out, const char *text, u32 maxChars)
     memcpy(out + keep, "...", 4);
 }
 
-static void Draw(const char *gameTitle, const char **names, const bool *unlocked, int count, int scroll)
+// Word-wraps a description onto two lines, ending in "..." if it doesn't fit.
+static void WrapDescription(const char *text, char lines[2][LINE_CHARS])
 {
-    static char subtitle[LINE_CHARS + 16];
-    static char rows[VISIBLE_ROWS][LINE_CHARS];
-    OverlayItem items[OVERLAY_MAX_ITEMS];
-    u32         n = 0;
+    const int chars = BOX_TEXT_W / CHAR_W;
 
-    int done = 0;
-    for (int i = 0; i < count; i++)
-        if (unlocked[i])
-            done++;
+    lines[0][0] = lines[1][0] = '\0';
+    for (int n = 0; n < 2 && *text != '\0'; n++)
+    {
+        while (*text == ' ')
+            text++;
+        int length = (int)strlen(text);
+        int take = length;
+        if (length > chars)
+        {
+            take = chars;
+            while (take > 0 && text[take] != ' ')
+                take--;
+            if (take == 0)
+                take = chars;               // one long word
+        }
+        if (n == 1 && take < length)
+            Ellipsize(lines[n], text, chars);
+        else
+        {
+            memcpy(lines[n], text, take);
+            lines[n][take] = '\0';
+        }
+        text += take;
+    }
+}
 
-    char progress[24];
-    snprintf(progress, sizeof(progress), ": (%d/%d)", done, count);
-    Ellipsize(subtitle, gameTitle, TEXT_WIDTH / CHAR_W - strlen(progress));
-    strcat(subtitle, progress);
-
-    static const char title[] = "3DS Achievements", closeHint[] = "B: Close", scrollHint[] = "Up/Down: Scroll";
-    items[n++] = (OverlayItem){ (WIDTH - (sizeof(title) - 1) * CHAR_W) / 2, TITLE_Y, 0, 0, TITLE_TEXT, title };
-    items[n++] = (OverlayItem){ TEXT_LEFT, SUBTITLE_Y, 0, 0, HEADER_TEXT, subtitle };
-    items[n++] = (OverlayItem){ TEXT_LEFT, HINT_Y, 0, 0, HINT_TEXT, closeHint };
-    items[n++] = (OverlayItem){ WIDTH - TEXT_LEFT - (sizeof(scrollHint) - 1) * CHAR_W, HINT_Y, 0, 0, HINT_TEXT, scrollHint };
+// scroll is in pixels, so a drag can stop between two boxes.
+static void Draw(const char **names, const char **descriptions, const u16 *points, const bool *unlocked, int count, int scroll)
+{
+    enum { ROWS = BOX_ROWS + 1 };           // a partly scrolled list shows one more
+    static const Rgb    BLACK = { 0, 0, 0 };
+    static char         progress[24], score[24];
+    static char         boxPoints[ROWS][12], boxName[ROWS][LINE_CHARS], boxLines[ROWS][2][LINE_CHARS];
+    static OverlayItem  items[OVERLAY_MAX_ITEMS];
+    u32                 n = 0;
+    int                 done, total, earned, available;
 
     if (count == 0)
-        items[n++] = (OverlayItem){ LIST_LEFT, LIST_TOP, 0, 0, LOCKED_TEXT, "No achievements for this game." };
+        items[n++] = (OverlayItem){ MARGIN, PROGRESS_H + 8, 0, 0, WHITE, "No achievements for this game.", NULL };
 
-    for (int row = 0; row < VISIBLE_ROWS && scroll + row < count; row++)
+    // One box per achievement: icon | name, points / description.
+    int first = scroll / BOX_H;
+    int top = PROGRESS_H - scroll % BOX_H;
+    for (int row = 0; row < ROWS && first + row < count && top + row * BOX_H < HEIGHT; row++)
     {
-        int i = scroll + row;
-        Ellipsize(rows[row], names[i], LIST_WIDTH / CHAR_W);
-        items[n++] = (OverlayItem){ LIST_LEFT, LIST_TOP + row * ROW_HEIGHT, 0, 0,
-                                    unlocked[i] ? UNLOCKED_TEXT : LOCKED_TEXT, rows[row] };
+        int  i = first + row, y = top + row * BOX_H;
+        bool got = unlocked[i];
+        const u16 *icon = s_hasGameIcons ? (got ? s_gameIcons : s_gameIcons + ICON_PIXELS)
+                                         : (got ? TROPHY_UNLOCKED : TROPHY_LOCKED);
+
+        snprintf(boxPoints[row], sizeof(boxPoints[row]), "%u pts", points[i]);
+        int pointsX = WIDTH - MARGIN - (int)strlen(boxPoints[row]) * CHAR_W;
+        Ellipsize(boxName[row], names[i], (pointsX - 6 - BOX_TEXT_X) / CHAR_W);
+        WrapDescription(descriptions[i][0] != '\0' ? descriptions[i] : "No description.", boxLines[row]);
+
+        items[n++] = (OverlayItem){ BOX_ICON_X, y + (BOX_H - OVERLAY_ICON_SIZE) / 2, 0, 0, WHITE, NULL, icon };
+        items[n++] = (OverlayItem){ BOX_TEXT_X, y + 6, 0, 0, got ? GREEN : WHITE, boxName[row], NULL };
+        items[n++] = (OverlayItem){ pointsX, y + 6, 0, 0, got ? GOLD : GREY, boxPoints[row], NULL };
+        items[n++] = (OverlayItem){ BOX_TEXT_X, y + 21, 0, 0, GREY, boxLines[row][0], NULL };
+        items[n++] = (OverlayItem){ BOX_TEXT_X, y + 33, 0, 0, GREY, boxLines[row][1], NULL };
     }
 
-    if (count > VISIBLE_ROWS)
+    // The header goes on last, so a box scrolling off the top slides under it. Unlocks
+    // on the left, score on the right, the progress bar between them.
+    items[n++] = (OverlayItem){ 0, 0, WIDTH, PROGRESS_H, BLACK, NULL, NULL };
+    Achievements_Progress(&done, &total);
+    Achievements_Score(&earned, &available);
+    snprintf(progress, sizeof(progress), "%d/%d unlocked", done, total);
+    snprintf(score, sizeof(score), "%d/%d pts", earned, available);
+    int left = MARGIN + (int)strlen(progress) * CHAR_W + 8;
+    int right = WIDTH - MARGIN - (int)strlen(score) * CHAR_W;
+    int bar = right - 8 - left;
+
+    items[n++] = (OverlayItem){ MARGIN, 5, 0, 0, done == total && total > 0 ? GREEN : WHITE, progress, NULL };
+    items[n++] = (OverlayItem){ right, 5, 0, 0, GOLD, score, NULL };
+    items[n++] = (OverlayItem){ left, 8, bar, 4, DARK, NULL, NULL };
+    if (total > 0 && done > 0)
+        items[n++] = (OverlayItem){ left, 8, bar * done / total, 4, done == total ? GOLD : GREEN, NULL, NULL };
+
+    // The scrollbar down the left edge.
+    u32 track = HEIGHT - PROGRESS_H;
+    if (count > BOX_ROWS)
     {
-        u32 track = VISIBLE_ROWS * ROW_HEIGHT;
-        u32 thumb = track * VISIBLE_ROWS / count;
+        u32 thumb = track * BOX_ROWS / count;
         if (thumb < 12)
             thumb = 12;
-        u32 thumbY = LIST_TOP + (track - thumb) * scroll / (count - VISIBLE_ROWS);
-        items[n++] = (OverlayItem){ WIDTH - 6, thumbY, 3, thumb, SCROLLBAR, NULL };
+        items[n++] = (OverlayItem){ 3, PROGRESS_H, 3, track, DARK, NULL, NULL };
+        items[n++] = (OverlayItem){ 3, PROGRESS_H + (track - thumb) * scroll / ((count - BOX_ROWS) * BOX_H), 3, thumb, SCROLLBAR, NULL, NULL };
     }
+    else
+        items[n++] = (OverlayItem){ 3, PROGRESS_H, 3, track, SCROLLBAR, NULL, NULL };
 
     Overlay_DrawScreen(items, n);
+}
+
+static Result s_touchResult;
+
+Result Menu_TouchResult(void)
+{
+    return s_touchResult;
+}
+
+static void LoadGameIcons(u64 titleId)
+{
+    char path[64];
+    u32  length = 0;
+
+    snprintf(path, sizeof(path), "/achievements/%016llX/trophy.bin", (unsigned long long)titleId);
+    s_hasGameIcons = Platform_ReadFile(path, (char *)s_gameIcons, sizeof(s_gameIcons), &length) && length == ICON_FILE_BYTES;
 }
 
 // Up/Down scroll one row, Left/Right one page.
@@ -158,23 +232,40 @@ static int Direction(u32 keys)
 {
     if (keys & KEY_DUP)     return -1;
     if (keys & KEY_DDOWN)   return 1;
-    if (keys & KEY_DLEFT)   return -VISIBLE_ROWS;
-    if (keys & KEY_DRIGHT)  return VISIBLE_ROWS;
+    if (keys & KEY_DLEFT)   return -(int)BOX_ROWS;
+    if (keys & KEY_DRIGHT)  return BOX_ROWS;
     return 0;
 }
 
-bool Menu_Open(Handle game, const char *gameTitle)
+bool Menu_Open(Handle game, u64 titleId)
 {
-    static const char  *names[MAX_ACHIEVEMENTS];
+    static const char  *names[MAX_ACHIEVEMENTS], *descriptions[MAX_ACHIEVEMENTS];
+    static u16          points[MAX_ACHIEVEMENTS];
     static bool         unlocked[MAX_ACHIEVEMENTS];
 
     int count = Achievements_List(names, unlocked, MAX_ACHIEVEMENTS);
-    int maxScroll = count > VISIBLE_ROWS ? count - VISIBLE_ROWS : 0;
+    Achievements_Descriptions(descriptions, MAX_ACHIEVEMENTS);
+    Achievements_Points(points, MAX_ACHIEVEMENTS);
+    LoadGameIcons(titleId);
+    int maxScroll = count > BOX_ROWS ? (count - BOX_ROWS) * BOX_H : 0;
+
+    // Touch comes from the HID service; without it the buttons still work. Not
+    // blocking: the service's port can be full.
+    srvSetBlockingPolicy(true);
+    s_touchResult = hidInit();
+    bool hasTouch = R_SUCCEEDED(s_touchResult);
+    srvSetBlockingPolicy(false);
 
     if (R_FAILED(svcControlProcess(game, PROCESSOP_SCHEDULE_THREADS, 1, 0)))
+    {
+        if (hasTouch)
+            hidExit();
         return false;
+    }
 
-    int     scroll = 0;
+    int     scroll = 0;             // in pixels
+    bool    dragging = false;
+    int     dragY = 0, dragScroll = 0;
     bool    closeArmed = false;
     bool    redraw = true;
     u32     previous = Buttons();   // the hotkey's own Down isn't a press
@@ -207,24 +298,44 @@ bool Menu_Open(Handle game, const char *gameTitle)
             repeatAt = now + 80;
         }
 
+        int next = scroll;
         if (move != 0)
+            next = ((scroll + BOX_H / 2) / BOX_H + move) * BOX_H;   // lands on a whole box
+
+        // Dragging on the touch screen moves the list with the stylus.
+        if (hasTouch)
         {
-            int next = scroll + move;
-            if (next < 0)
-                next = 0;
-            if (next > maxScroll)
-                next = maxScroll;
-            if (next != scroll)
+            hidScanInput();
+            if (hidKeysHeld() & KEY_TOUCH)
             {
-                scroll = next;
-                redraw = true;
+                touchPosition touch;
+                hidTouchRead(&touch);
+                if (!dragging)
+                {
+                    dragging = true;
+                    dragY = touch.py;
+                    dragScroll = scroll;
+                }
+                next = dragScroll + dragY - touch.py;
             }
+            else
+                dragging = false;
+        }
+
+        if (next < 0)
+            next = 0;
+        if (next > maxScroll)
+            next = maxScroll;
+        if (next != scroll)
+        {
+            scroll = next;
+            redraw = true;
         }
 
         u32 buffer = Overlay_Buffer();
         if (redraw || buffer != lastBuffer || now - lastDraw >= REDRAW_MS)
         {
-            Draw(gameTitle, names, unlocked, count, scroll);
+            Draw(names, descriptions, points, unlocked, count, scroll);
             redraw = false;
             lastBuffer = buffer;
             lastDraw = now;
@@ -236,6 +347,8 @@ bool Menu_Open(Handle game, const char *gameTitle)
     while (Buttons() != 0)
         svcSleepThread(TICK_NS);
 
+    if (hasTouch)
+        hidExit();
     svcControlProcess(game, PROCESSOP_SCHEDULE_THREADS, 0, 0);
     return true;
 }

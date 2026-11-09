@@ -11,9 +11,12 @@ bool    Menu_HotkeyHeld(void);
 // unknown), for the log.
 bool    Menu_GameInFront(u32 *active);
 
-// Pauses the game, shows the achievement list on the bottom screen until B or
-// Select is pressed, then resumes it once every button is released. Returns
-// false, showing nothing, if the game couldn't be paused.
-bool    Menu_Open(Handle game, const char *gameTitle);
+// Pauses the game, shows the achievement list on the bottom screen (laid out like
+// the app's) until B or Select is pressed, then resumes it once every button is
+// released. Returns false, showing nothing, if the game couldn't be paused.
+bool    Menu_Open(Handle game, u64 titleId);
+
+// How setting up touch input went the last time the menu opened, for the log.
+Result  Menu_TouchResult(void);
 
 #endif

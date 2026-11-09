@@ -520,8 +520,10 @@ int main(void)
                 haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
             if (!Menu_GameInFront(&applet))
                 Log("menu: game not in front (active applet %lX)", applet);
-            else if (!Menu_Open(g_game, g_gameTitle))
+            else if (!Menu_Open(g_game, titleId))
                 Log("menu: couldn't pause the game (active applet %lX)", applet);
+            else
+                Log("menu: touch %08lX", Menu_TouchResult());
         }
         else
             Achievements_Update();

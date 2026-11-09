@@ -8,17 +8,20 @@ typedef struct
     u8 r, g, b;
 } Rgb;
 
-// One thing to draw on a full screen: text, or a filled rectangle when text
-// is NULL.
+// One thing to draw on a full screen: text, a filled rectangle when text is
+// NULL, or a 48x48 RGB565 icon in SMDH tile order when icon isn't NULL.
 typedef struct
 {
-    u16         x, y;
+    u16         x;
+    s16         y;              // may be above the screen; what's off it is clipped
     u16         width, height;  // rectangles only
     Rgb         color;
     const char *text;
+    const u16  *icon;
 } OverlayItem;
 
-#define OVERLAY_MAX_ITEMS   16
+#define OVERLAY_MAX_ITEMS   36
+#define OVERLAY_ICON_SIZE   48
 #define OVERLAY_FONT_WIDTH  6
 #define OVERLAY_FONT_HEIGHT 10
 

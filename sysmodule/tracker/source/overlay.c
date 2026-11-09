@@ -468,6 +468,16 @@ typedef struct
 
 static u8 s_lengths[OVERLAY_MAX_ITEMS];     // text lengths, measured before entering the kernel
 
+#define ICON_PIXEL  0xFF    // in a column: take this pixel's colour from iconColumn
+
+// An icon's pixel (x, y): 8x8 tiles, Z-order inside each (the SMDH layout).
+static inline u16 IconPixel(const u16 *icon, u32 x, u32 y)
+{
+    u32 tile = (y / 8) * 6 + x / 8;
+    u32 inner = (x & 1) | ((y & 1) << 1) | ((x & 2) << 1) | ((y & 2) << 2) | ((x & 4) << 2) | ((y & 4) << 3);
+    return icon[tile * 64 + inner];
+}
+
 // Kernel mode: builds each screen column (240 colour indices: 0 = black,
 // i + 1 = item i) and writes it out, so every pixel gets its final colour once.
 static void DrawScreenKernel(ScreenArgs *a)
@@ -475,6 +485,7 @@ static void DrawScreenKernel(ScreenArgs *a)
     static const Rgb    BLACK = { 0, 0, 0 };
     static u32          palette[OVERLAY_MAX_ITEMS + 1];
     static u8           column[SCREEN_HEIGHT];
+    static u16          iconColumn[SCREEN_HEIGHT];      // where column[y] is ICON_PIXEL
     u32                 fmt, bpp, stride;
 
     a->pa = CurrentBuffer(&fmt, &bpp, &stride);
@@ -498,10 +509,24 @@ static void DrawScreenKernel(ScreenArgs *a)
                 continue;
             u32 dx = x - it->x;
 
+            if (it->icon != NULL)
+            {
+                if (dx < OVERLAY_ICON_SIZE)
+                    for (u32 row = 0; row < OVERLAY_ICON_SIZE; row++)
+                    {
+                        int rowY = it->y + (int)row;
+                        if (rowY < 0 || rowY >= SCREEN_HEIGHT)
+                            continue;
+                        column[rowY] = ICON_PIXEL;
+                        iconColumn[rowY] = IconPixel(it->icon, dx, row);
+                    }
+                continue;
+            }
+
             if (it->text == NULL)
             {
                 if (dx < it->width)
-                    for (u32 y = it->y; y < it->y + it->height && y < SCREEN_HEIGHT; y++)
+                    for (int y = it->y < 0 ? 0 : it->y; y < it->y + (int)it->height && y < SCREEN_HEIGHT; y++)
                         column[y] = (u8)(i + 1);
                 continue;
             }
@@ -510,15 +535,26 @@ static void DrawScreenKernel(ScreenArgs *a)
                 continue;
             const unsigned char *glyph = &font[(unsigned char)it->text[dx / FONT_WIDTH] * FONT_HEIGHT];
             u32 bit = 6 - dx % FONT_WIDTH;
-            for (u32 row = 0; row < FONT_HEIGHT && it->y + row < SCREEN_HEIGHT; row++)
-                if ((glyph[row] >> bit) & 1)
-                    column[it->y + row] = (u8)(i + 1);
+            for (u32 row = 0; row < FONT_HEIGHT; row++)
+            {
+                int rowY = it->y + (int)row;
+                if (rowY >= 0 && rowY < SCREEN_HEIGHT && ((glyph[row] >> bit) & 1))
+                    column[rowY] = (u8)(i + 1);
+            }
         }
 
         u8 *p = Pixel(fb, stride, bpp, x, 0);
         for (u32 y = 0; y < SCREEN_HEIGHT; y++, p -= bpp)
         {
-            const u8 *c = (const u8 *)&palette[column[y]];
+            u32 pixel;
+            const u8 *c = (const u8 *)&palette[column[y] == ICON_PIXEL ? 0 : column[y]];
+            if (column[y] == ICON_PIXEL)
+            {
+                u16 v = iconColumn[y];
+                Rgb rgb = { (u8)(((v >> 11) & 31) << 3), (u8)(((v >> 5) & 63) << 2), (u8)((v & 31) << 3) };
+                Encode(fmt, rgb, (u8 *)&pixel);
+                c = (const u8 *)&pixel;
+            }
             p[0] = c[0];
             p[1] = c[1];
             if (bpp >= 3)
