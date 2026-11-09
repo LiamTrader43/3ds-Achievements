@@ -1,0 +1,192 @@
+# The Legend of Zelda: Ocarina of Time 3D (USA) - title ID 0004000000033500
+#
+# A port of the RetroAchievements set for the original Ocarina of Time (N64):
+# same names, descriptions and points, conditions rewritten for OoT3D's memory.
+# Group 1 so far: achievements read straight from the save data.
+#
+# OoT3D keeps the loaded save file at 0x587958 (gSaveContext, 0x15C4 bytes; the
+# save file on the SD card is the same bytes, RAM = file offset + 0x587958).
+# Layout from the OoT3D randomizer's z3D.h and the OcarinaCTRComposer RAM map:
+#   0x5879E4  items[26], one byte per slot, 0xFF = empty (3 Bow, 4 Fire Arrow,
+#             5 Din's Fire, 8 Bombchu, 9 Hookshot, 11 Farore's Wind, 13 Lens,
+#             14 Magic Beans, 17 Nayru's Love, 18-21 Bottles)
+#   0x587A0E  equipment, u16: swords 0-3 (2 = Giant's Knife/Biggoron's Sword),
+#             shields 4-6, tunics 8-10 (Goron 9, Zora 10), boots 12-14 (Iron 13)
+#   0x587A10  upgrades, u32: strength = bits 6-8 (1 bracelet, 2 silver, 3 gold)
+#   0x587A14  quest items, u32: medallions 0-5 (Forest, Fire, Water, Spirit,
+#             Shadow, Light), songs 6-17, stones 18-20 (Emerald, Ruby,
+#             Sapphire), Gerudo card 22
+#   0x58799A  max health, u16 (16 per heart; 320 = 20 hearts)
+#   0x5879A6  magic acquired; 0x5879A9 double defense; 0x5879AA Biggoron's
+#             Sword flag (1 = the unbreakable sword, 0 = Giant's Knife)
+#   0x58795C  Link's age, s32 (0 adult, 1 child)
+#   0x588844  eventChkInf[14], u16 each: N64 decomp flag 0xAB = word A, bit B
+#             (e.g. 0x45 obtained the Master Sword = 0x58884C bit 5)
+#
+# Checked against three real saves: a new file (nothing unlocks), and two 100%
+# saves from GBAtemp (US and EU: everything unlocks); none unlock on the title
+# screen.
+#
+# Every condition starts with "a file is really loaded": gameMode (0x588E3C,
+# s32) = 0 (normal play) and fileNum (0x588E34, s32) < 3. The title screen and
+# file select hold a debug save (adult Link, 14 hearts, every medallion, song,
+# tunic, boot and nearly every item) with gameMode 1 (title) / 2 (file select)
+# and fileNum 0; gameMode turns 0 at the moment the real file is in memory.
+# (Seen live in Azahar, 2026-11-05.) gameMode must also have been 0 on the last
+# poll (d0xX588e3c=0): on the poll the file appears, every "d" value still holds
+# the debug save, so a change-based condition would see the debug save turning
+# into the file as an event (A Horrible Face unlocked that way in a replay).
+#
+# rcheevos bit sizes: 0xM = bit 0 ... 0xT = bit 7 of a byte.
+#
+# id                rc:condition  name | description | points
+STONE_FOREST        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xO587a16=1  Entrusted Mission | Receive the Spiritual Stone of the Forest | 5
+STONE_FIRE          rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xP587a16=1  Soul Brothers | Receive the Spiritual Stone of Fire | 5
+STONE_WATER         rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xQ587a16=1  Wedding Band | Receive the Spiritual Stone of Water | 5
+MEDALLION_FOREST    rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xM587a14=1  Awakening | Awake Saria and obtain the Forest Medallion | 5
+MEDALLION_FIRE      rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xN587a14=1  Eternal Brothers | Awake Darunia and obtain the Fire Medallion | 5
+MEDALLION_WATER     rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xO587a14=1  Bride to Be | Obtain the Water Medallion from Princess Ruto | 5
+MEDALLION_SHADOW    rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xQ587a14=1  The Shadow of the Hylians | Awake Impa and obtain the Shadow Medallion | 5
+MEDALLION_SPIRIT    rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xP587a14=1  Brainwashed | Awake Nabooru and obtain the Spirit Medallion | 5
+IRON_BOOTS          rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xR587a0f=1  Bring Me to the Bottom of the Oceans | Obtain the Iron Boots | 5
+GORON_TUNIC         rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xN587a0f=1  Heat Resistant Tunic | Obtain a Goron Tunic | 5
+ZORA_TUNIC          rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xO587a0f=1  A Breath of Fresh Air | Obtain a Zora Tunic | 5
+BIGGORON_SWORD      rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xO587a0e=1_0xH5879aa=1  Biggoron's Sword | Obtain the Biggoron's Sword | 10
+HOOKSHOT            rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xH5879ed!=255  Hook Me Away | Obtain the Hookshot | 5
+FIRE_ARROW          rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xH5879e8!=255  The Flaming Arrow | Obtain the Fire Arrow | 5
+LENS_OF_TRUTH       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xH5879f1!=255  Seeing Is Believing | Obtain the Lens of Truth | 5
+DINS_FIRE           rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xH5879e9!=255  On Fire | Learn Din's Fire | 5
+FARORES_WIND        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xH5879ef!=255  Take Me Away | Learn Farore's Wind | 5
+NAYRUS_LOVE         rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xH5879f5!=255  Nayru's Love | Learn Nayru's Love | 5
+BOMBCHUS            rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xH5879ec!=255  Mouse Ka-Boom | Obtain some Bombchus | 5
+MAGIC_BEAN          rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xH5879f2!=255  Magic Beans | Obtain a Magic Bean | 5
+FOUR_BOTTLES        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xH5879f6!=255_0xH5879f7!=255_0xH5879f8!=255_0xH5879f9!=255  Drunkard | Obtain all 4 Bottles | 5
+GERUDO_CARD         rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xS587a16=1  Gerudo's Fan Club | Obtain the Gerudo's Membership Card | 5
+SILVER_GAUNTLETS    rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3S0xT587a10=1S0xM587a11=1  Infamous Silver Gauntlets | Obtain the Silver Gauntlets from the Spirit Temple | 5
+TWENTY_HEARTS       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x58799a>=320  Plenty of Hearts | Obtain all 20 hearts | 10
+DOUBLE_DEFENSE      rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xH5879a9!=0  The Rock | Enhance your defensive power, reducing any damage received by half | 5
+ALL_SONGS           rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xS587a14=1_0xT587a14=1_0xH587a15=255_0xM587a16=1_0xN587a16=1  Musician | Learn all 12 songs | 5
+ADULT_LINK          rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3S0xX58795c=0S0xR58884c=1  Hero of Time | Transform into Adult Link | 5
+SPIN_ATTACK         rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xH5879a6!=0  You Spin Me Round | Learn the Spin Attack technique | 5
+#
+# Group 2: story and reward flags. eventChkInf (0x588844), itemGetInf
+# (0x588860) and infTable (0x588868) are u16 arrays; the N64 decomp's flag 0xAB
+# is word A, bit B (OoT3D uses the same numbering: the Gold Skulltula reward
+# flags 0xDA-0xDE are set in both 100% saves). Which flag each event sets comes
+# from the decomp's actor code (and the OoT3D randomizer's location table for
+# the two chests: scene flags at 0x587A44, 0x1C bytes per scene, chest bits at +0).
+# Records: big Poe points u32 0x58882C, fishing flags 0x588831 (bit 2 child
+# prize, 3 golden scale, 4 owner's hat), marathon best u32 0x588838 and Dampe
+# race best u32 0x588840 (seconds), Gold Skulltula tokens 0x587A40.
+# Events with no flag at all use live values instead: the current scene
+# (GlobalContext 0x0871E840 + 0x104 = s16 0x0871E944; 0x34 Link's house, 0x49
+# fishing pond, 0x50 House of Skulltula, 0x5F Hyrule Castle, 0x55 Kokiri Forest;
+# checked live in Azahar: it changes the moment a new area loads, -1 while
+# loading; the save's sceneIndex at 0x5879D6 is NOT live), rupees (s16 0x5879A0),
+# bottles (0x5879F6-F9: 0x14 empty, 0x1A milk), adult trade item (0x5879FA).
+#
+TALON_WOKEN         rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xP588846=1  Rise and Shine!! | Help Malon locate her father | 5
+ZELDAS_LETTER       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xM58884c=1  A Royal Autograph | Meet Princess Zelda for the first time | 5
+TALON_CUCCOS        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xO588860=1  Super Cucco Catching | Obtain a reward from the Lon Lon Ranch minigame | 5
+CAUGHT_BY_GUARDS    rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xS58884d=1  Troublemaker | Anger a guard inside of the castle | 5
+SNIPER_CHILD        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xR588861=1  Sniper Fury | Obtain a reward from the Shooting Gallery as Young Link | 5
+SNIPER_ADULT        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xS588861=1  Sniper Elite | Obtain a reward at the Shooting Gallery as Adult Link | 5
+RICHARD_THE_DOG     rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xN58889a=1  Who Let the Dogs Out | Help a lady locate her lost puppy | 5
+LW_TARGET           rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xR588863=1  Bullseye!! | Obtain the Bullet Bag upgrade in the Lost Woods | 5
+SKULL_KID_OCARINA   rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xT588862=1  You Can Be a Star | Obtain the final reward from the Ocarina Playing minigame in the Lost Woods | 5
+SHIELD_GRAVE        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xM588144=1  Shield Raider | Obtain the Hylian Shield for free instead of buying it | 5
+ANJU_CUCCOS         rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xQ588861=1  Catch Me If You Can | Obtain a reward from Anju for catching her cuccos in Kakariko Village | 5
+SKULLTULAS_10       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xO58885f=1  A Man's Best Friend | Collect 10 Gold Skulltulas and obtain your reward | 5
+SKULLTULAS_20       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xP58885f=1  Secrets Detector | Collect 20 Gold Skulltulas and obtain your reward | 5
+SKULLTULAS_30       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xQ58885f=1  A Woman's Best Friend | Collect 30 Gold Skulltulas and obtain your reward | 5
+SKULLTULAS_40       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xR58885f=1  Bombchu | Collect 40 Gold Skulltulas and obtain your reward | 5
+SKULLTULAS_50       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xS58885f=1  My Broken Heart | Collect 50 Gold Skulltulas and obtain your reward | 10
+GORON_BRACELET      rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3S0xS587a10=1S0xT587a10=1S0xM587a11=1  Dance Into the Fire | Visit Darunia in Goron City and obtain a gift | 5
+STICK_SCRUB         rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xO58889a=1  Bunches of Twigs | Purchase more Deku Sticks from the Deku Merchant in Lost Woods | 5
+ROLLING_GORON       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xS58888b=1  Roll Roll and Away | Obtain the Bomb Bag upgrade in Goron City | 5
+BOMBCHU_BOWLING     rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xN588862=1  Bombchu Bowling Star | Obtain the Bomb Bag upgrade at the Bombchu Bowling Alley | 5
+NUT_SCRUB           rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xP58889a=1  Stocking Nuts | Purchase a Deku Nuts upgrade in the Lost Woods | 5
+SILVER_SCALE        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xM58884b=1  The Way the World Learns to Dive | Obtain a reward from the Zora's Diving minigame | 5
+FISH_CHILD          rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xO588831=1  Fishing Lessons | Catch a fish that weighs at least 10 pounds as Young Link | 5
+STICK_THEATER       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xS588863=1  A Pretty Face | Obtain the Deku Sticks upgrade from the Deku Scrub Brothers in the Lost Woods | 5
+OCARINA_OF_TIME     rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xP58884c=1  Damsel in Distress | Witness Zelda's great escape and obtain a royal heirloom | 5
+DYING_GUARD         rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xQ588875=1  Last Breath | Receive some news from a dying guard in his final moments | 5
+MASK_OF_TRUTH       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xT588867=1  Happy Mask Salesman | Complete the Happy Mask Salesman quest and obtain your reward | 5
+OBSTACLE_COURSE     rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xS588847=1  Jump Over | Complete the obstacle course at Lon Lon Ranch and obtain a reward | 5
+PIERRE              rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xQ588857=1  Pierre the Wanderer | Obtain the services of Pierre the Scarecrow | 5
+BIG_POES            rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xX58882c>=1000  Poe Collector | Catch all 10 Big Poes and obtain your reward | 10
+KING_ZORA_FROG      rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xH5879fa>=53_0xH5879fa<=55  Kiss That Frog | Get a kiss from King Zora | 5
+FISH_ADULT          rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xP588831=1  Expert Angler | Catch a large fish and obtain a golden reward as Adult Link | 5
+STOLE_HAT           rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xQ588831=1_0x871e944!=73  Mischievous Hero | Have the pond owner lose his hat permanently | 5
+FROG_CHOIR          rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xM58885e=1  The Fabulous Froggish Tenors | Complete the Frog minigame on Zora's River | 5
+HORSEBACK_ARCHERY   rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xT588861=1  Ultimate Horse Master | Complete the Horseback Archery minigame and obtain the top reward | 10
+GTG_ICE_ARROWS      rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xQ587b79=1  Graduate of Gerudo's Training Ground | Complete the Gerudo's Training Ground and obtain your reward | 5
+NUT_THEATER         rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_d0xT588863=0_0xT588863=1_0xX58795c=1  A Horrible Face | Obtain the Deku Nuts upgrade from the Deku Scrub Brothers in the Lost Woods | 5
+TOT_ZELDA           rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xQ58885c=1  To the Rescue | Meet Princess Zelda one last time before the final showdown | 5
+MARATHON            rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xX588838>=1_0xX588838<90  Wind Runner | Finish the Running Man challenge in less than 1:30 | 5
+DAMPE_RACE          rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xX588840>=1_0xX588840<=60  Ghost Chaser | Complete Dampe's race in 1 minute or less | 5
+CASTLE_BRIBE        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xX58795c=1_0x871e944=95_d0x5879a0>0x5879a0  Money Solves Everything | Bribe the guard in front of the gate to gain entry to the courtyard | 5
+COW_MILK            rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3Sd0xH5879f6=20_0xH5879f6=26_d0x5879a0<=0x5879a0Sd0xH5879f7=20_0xH5879f7=26_d0x5879a0<=0x5879a0Sd0xH5879f8=20_0xH5879f8=26_d0x5879a0<=0x5879a0Sd0xH5879f9=20_0xH5879f9=26_d0x5879a0<=0x5879a0  You Make Me Feel So Good | Obtain some nutritious milk from a healthy cow | 5
+SKULLTULAS_100      rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x587a40>=100_0x871e944=80_d0x5879a0<0x5879a0  Family Reunion | Collect 100 Gold Skulltulas and obtain your final reward | 25
+#
+# Group 3 (2026-11-05): boss challenges, Ganondorf/Ganon and end-of-game checks.
+# Written from the N64 decomp; checked in Azahar recordings 2026-11-05 where noted below
+# (Gohma, King Dodongo, the non-boss values); the rest not yet seen working on OoT3D.
+# Live GlobalContext data (0x0871E840): scene s16 0x0871E944; actor lists at
+# 0x087208D8 + 8*category {u32 count, Actor* head} (player head 0x087208EC, enemy
+# head 0x08720904, boss count 0x08720920 / head 0x08720924; new actors are added at
+# the head); lens active u8 0x087208CF; room clear flags u32 0x08720A7C; cutscene
+# state u8 0x08720AE0. Actor: y float +0x2C, depth in water float +0x88, health u8
+# +0xB7, id u16 +0. Link (player actor): held item action s8 +0x1A9 (N64
+# PLAYER_IA_*), stateFlags1 +0x1710 (bit 23 riding), stateFlags2 +0x1714 (bit 7 held
+# by Morpha's tentacle / Bongo Bongo's hands).
+# A dungeon boss is beaten when its room's clear flag rises (each boss sets it as the
+# blue warp appears) while a boss actor existed on the previous poll (not on re-entry;
+# Azahar: Gohma and King Dodongo stay in the boss list through it). OoT3D actor ids
+# can differ from N64's: King Dodongo is 0x12 (N64 0x27); Gohma 0x28 matches.
+# Ganondorf is beaten when the entrance (s32 0x587958) becomes 0x43F (tower collapse),
+# Ganon when it becomes 0x06B (Chamber of the Sages) straight from his scene (0x4F).
+# A try starts when Link arrives in the boss scene; breaking a rule (ResetIf) ends it
+# until he comes back. Rules only apply after the scene's first poll (loading).
+# Approximations: Spider Net = Gohma landed at full health (10) and never climbed back
+# above y -560 before dying (Azahar: right); KD's fire breath = 2+ actors in the enemy
+# list (Azahar: the breath spawns up to 27 flames, id 0; charging it is 1 actor);
+# Drunken Master = Phantom Ganon at 1-2 HP (non-sword hits stop at 2); Race Against
+# the Clock counts 111 s of non-cutscene time in the room; lens = the lens flag;
+# Twinrova fall = Link drops from y >= 200 to below 200 between polls (platform 240;
+# Azahar: he enters the arena at y 0 and rides up); Ganondorf fall = drops below y -150 (a ledge grab reads about -65; the room's lowest floor is -740).
+# Lifestyle and Stones: the current message id is u16 0x5C27B8 (Azahar: 0x2054, then the
+# rumor 0x400 + (stone params & 0xFF)); rumors 0x401-0x420, hits reset on the title screen.
+# Walking on a Tightrope: a chest flag (0, 1, 2) of the maze rises in Goron City (scene 98)
+# while all three rocks of the top-floor blockade (switch flags 3, 9, 10) are intact; the
+# boulders inside the maze don't matter. Link's actor must exist on both polls, so flags
+# being loaded with the scene don't count as a chest being opened.
+# Accomplished Angler: the loach is never recorded; the game shows message 0x4099 when one is
+# landed (0x5C27B8, seen in Azahar with a fish forced to count as the loach).
+#
+SPIDER_NET            rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_P:0x871e944!=17_I:0xX8720924_N:0x000000=40_I:0xX8720924_N:fF00002c<f-600.0_I:0xX8720924_0xH0000b7=10.1._I:0xX8720924_N:0xH0000b7>=1_I:0xX8720924_N:0xH0000b7<=127_I:0xX8720924_R:fF00002c>f-560.0_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c  Spider Net | Defeat Queen Gohma before she can retreat to the ceiling | 10
+BOMBALICIOUS          rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_P:0x871e944!=18_N:d0x871e944!=18_0x871e944=18.1._R:0xX8720900>=2_R:d0xH587a00>0xH587a00_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c  Bombalicious | Defeat King Dodongo before he breathes fire without using Bombs from your bag | 10
+DANGEROUSLY_DELICIOUS rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x58799a=48_P:0x871e944!=18_N:d0x871e944!=18_0x871e944=18.1._R:0xX8720900>=2_R:d0xH587a00>0xH587a00_R:d0x58799c>0x58799c_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c  Dangerously Delicious | Defeat King Dodongo before he breathes fire without using Bombs from your bag or taking damage, with 3 hearts only | 10
+ROLLING_THUNDER       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_P:0x871e944!=19_N:d0x871e944!=19_0x871e944=19.1._R:d0x58799c>0x58799c_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c  Rolling Thunder | Defeat Barinade without getting hit | 10
+RACE_THE_CLOCK        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x58799a=48_0x871e944=19_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c_P:0xH8720ae0=0.1110.SR:0x871e944!=19_0x58799a=48  Race Against the Clock | Defeat Barinade in less than 1:51 with 3 hearts only | 10
+DRUNKEN_MASTER        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_P:0x871e944!=20_N:d0x871e944!=20_0x871e944=20.1._I:0xX87208ec_N:0xH0001a9>=1_I:0xX87208ec_R:0xH0001a9<=7_I:0xX87208ec_N:0xH0001a9>=12_I:0xX87208ec_R:0xH0001a9<=29_I:0xX87208ec_R:0xH0001a9>=43_I:0xX8720924_N:0x000000=82_I:0xX8720924_N:0xH0000b7>=1_I:0xX8720924_0xH0000b7<=2  Drunken Master | Lower Phantom Ganon to 1 HP by using only the Bow and Bottles | 10
+DODGEBALL             rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x58799a=48_P:0x871e944!=20_N:d0x871e944!=20_0x871e944=20.1._R:d0x58799c<0x58799c_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c  Dodgeball | Defeat Phantom Ganon without healing and with 3 hearts only | 10
+WHAC_A_MOLE           rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x58799a=48_P:0x871e944!=21_N:d0x871e944!=21_0x871e944=21.1._I:0xX87208ec_N:0xH0001a9>=1_I:0xX87208ec_R:0xH0001a9<=6_I:0xX87208ec_R:0xH0001a9>=8_R:d0x58799c<0x58799c_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c  Whac-A-Mole | Defeat Volvagia using only the Megaton Hammer and without healing with 3 hearts only | 10
+HOT_HOT_HOT           rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_P:0x871e944!=21_N:d0x871e944!=21_0x871e944=21.1._R:0xL5879e3=2_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c  Hot Hot Hot | Defeat Volvagia without wearing the Goron Tunic | 10
+DAY_OF_TENTACLES      rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_P:0x871e944!=22_N:d0x871e944!=22_0x871e944=22.1._I:0xX87208ec_R:fF000088>f20.0_I:0xX87208ec_R:0xT001714=1_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c  Day of the Tentacles | Defeat Morpha without falling into the water or getting captured by its tentacle | 10
+TENTACLES_OF_DEEP     rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x58799a=48_P:0x871e944!=22_N:d0x871e944!=22_0x871e944=22.1._I:0xX87208ec_R:fF000088>f20.0_R:d0x58799c>0x58799c_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c  Tentacles of the Deep | Defeat Morpha without falling into water or taking damage with 3 hearts only | 10
+INVISIBLE_ONE         rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_P:0x871e944!=24_N:d0x871e944!=24_0x871e944=24.1._R:0xH87208cf!=0_I:0xX87208ec_R:0xT001714=1_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c  Invisible One | Defeat Bongo Bongo without using the Lens of Truth or getting trapped by his hands | 10
+INVISIBLE_STALKER     rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x58799a=48_P:0x871e944!=24_N:d0x871e944!=24_0x871e944=24.1._R:0xH87208cf!=0_R:d0x58799c<0x58799c_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c  Invisible Stalker | Defeat Bongo Bongo without using the Lens of Truth and without healing with 3 hearts only | 10
+TWINS_OF_EVIL         rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_P:0x871e944!=23_N:d0x871e944!=23_0x871e944=23.1._N:0xX87208ec!=0_N:d0xX87208ec!=0_I:0xX87208ec_N:dfF00002c>=f200.0_I:0xX87208ec_R:fF00002c<f200.0_N:d0xH5879f6=24_R:0xH5879f6!=24_N:d0xH5879f7=24_R:0xH5879f7!=24_N:d0xH5879f8=24_R:0xH5879f8!=24_N:d0xH5879f9=24_R:0xH5879f9!=24_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c  Twins of Evil | Defeat the Twinrova Sisters without falling from the platform or reviving [you have 12 sec to hook to the top for any attempt after the 1st] | 10
+DOUBLE_TROUBLE        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x58799a=48_0xL5879e2=2_0xU5879e2=3_P:0x871e944!=23_N:d0x871e944!=23_0x871e944=23.1._I:0xX87208ec_R:0xH0001a9=2_I:0xX87208ec_R:0xH0001a9>=4_N:d0xH5879f6=24_R:0xH5879f6!=24_N:d0xH5879f7=24_R:0xH5879f7!=24_N:d0xH5879f8=24_R:0xH5879f8!=24_N:d0xH5879f9=24_R:0xH5879f9!=24_d0xX8720920>=1_d0xX8720a7c<0xX8720a7c  Double Trouble | Defeat the Twinrova Sisters using only the Master Sword and Mirror Shield without using Fairies and with 3 hearts only | 10
+KING_OF_THIEVES       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_N:0x871e944!=25_N:0x871e944!=65535_P:0x871e944!=26_N:d0x871e944!=25_0x871e944=25.1._N:0xX87208ec!=0_N:d0xX87208ec!=0_I:0xX87208ec_N:dfF00002c>=f-150.0_I:0xX87208ec_R:fF00002c<f-150.0_N:d0xH5879f6=24_R:0xH5879f6!=24_N:d0xH5879f7=24_R:0xH5879f7!=24_N:d0xH5879f8=24_R:0xH5879f8!=24_N:d0xH5879f9=24_R:0xH5879f9!=24_d0xX587958!=1087_0xX587958=1087  King of Thieves | Defeat Ganondorf without falling or climbing down the Platform and without using Fairies | 10
+HOME_SWEET_HOME       rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_N:0x871e944!=79_N:0x871e944!=65535_P:0x871e944!=68_N:d0x871e944!=79_0x871e944=79.1._d0xX587958!=107_0xX587958=107  Home Sweet Home | Banish Ganon to the void of the Evil Realm | 25
+MY_LAST_BREATH        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_N:0x871e944!=79_N:0x871e944!=65535_P:0x871e944!=68_N:d0x871e944!=79_0x871e944=79.1._N:d0xH5879f6=24_R:0xH5879f6!=24_N:d0xH5879f7=24_R:0xH5879f7!=24_N:d0xH5879f8=24_R:0xH5879f8!=24_N:d0xH5879f9=24_R:0xH5879f9!=24_R:d0xH587a00>0xH587a00_d0x58799c<=16_d0xX587958!=107_0xX587958=107  My Last Breath | Defeat Ganon with 1 heart or less remaining without using Fairies or Bombs | 10
+DARK_LORD             rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x58799a=48_N:0x871e944!=79_N:0x871e944!=65535_P:0x871e944!=68_N:d0x871e944!=79_0x871e944=79.1._R:d0x58799c>0x58799c_d0xX587958!=107_0xX587958=107  Dark Lord | Defeat Ganon without getting hit and with 3 hearts only | 25
+BLIND_EXPLORER        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x58799a=48_0xH587a18<=1_0xH587a19<=1_0xH587a1a<=1_0xH587a1b<=1_0xH587a1c<=1_0xH587a1d<=1_0xH587a1e<=1_0xH587a1f<=1_0xH587a20<=1_0xH587a21<=1_0xM587a14=1_0xN587a14=1_0xO587a14=1_0xP587a14=1_0xQ587a14=1_0xR587a14=1_N:0x871e944!=79_N:0x871e944!=65535_P:0x871e944!=68_N:d0x871e944!=79_0x871e944=79.1._d0xX587958!=107_0xX587958=107  Blind Explorer | Complete the Game without getting any Map or Compass, without skipping any medallion and with 3 hearts only | 25
+CARTOGRAPHER          rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0xH587a18>=6_0xH587a19>=6_0xH587a1a>=6_0xH587a1b>=7_0xH587a1c>=7_0xH587a1d>=7_0xH587a1e>=7_0xH587a1f>=7_0xH587a20>=6_0xH587a21>=6_0xM587a22=1_N:0x871e944!=79_N:0x871e944!=65535_P:0x871e944!=68_N:d0x871e944!=79_0x871e944=79.1._d0xX587958!=107_0xX587958=107  Cartographer | Complete the game with every Map, Compass, and Boss Key from all dungeons | 10
+CUCCOS_REVENGE        rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x871e944=82_I:0xX8720904_0x000000=324  Cuccos' Revenge | Feel the wrath of the cuccos in Kakariko Village | 5
+GREAT_ESCAPE          rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3S0x871e944=81_I:0xX87208ec_0xT001712=1S0xM588847=1  The Great Escape | Ride Epona on Hyrule Field | 5
+LIFESTYLE_STONES      rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_R:0xX588e3c!=0_0x5c27b8=h401.1._0x5c27b8=h402.1._0x5c27b8=h403.1._0x5c27b8=h404.1._0x5c27b8=h405.1._0x5c27b8=h406.1._0x5c27b8=h407.1._0x5c27b8=h408.1._0x5c27b8=h409.1._0x5c27b8=h40a.1._0x5c27b8=h40b.1._0x5c27b8=h40c.1._0x5c27b8=h40d.1._0x5c27b8=h40e.1._0x5c27b8=h40f.1._0x5c27b8=h410.1._0x5c27b8=h411.1._0x5c27b8=h412.1._0x5c27b8=h413.1._0x5c27b8=h414.1._0x5c27b8=h415.1._0x5c27b8=h416.1._0x5c27b8=h417.1._0x5c27b8=h418.1._0x5c27b8=h419.1._0x5c27b8=h41a.1._0x5c27b8=h41b.1._0x5c27b8=h41c.1._0x5c27b8=h41d.1._0x5c27b8=h41e.1._0x5c27b8=h41f.1._0x5c27b8=h420.1.  Lifestyle and Stones | Listen to all 32 rumors from the Gossip Stones around the world in one session | 10
+WALKING_TIGHTROPE     rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x871e944=98_d0x871e944=98_0xX87208ec!=0_d0xX87208ec!=0_0xP8720a68=0_0xN8720a69=0_0xO8720a69=0Sd0xM8720a78=0_0xM8720a78=1Sd0xN8720a78=0_0xN8720a78=1Sd0xO8720a78=0_0xO8720a78=1  Walking on a Tightrope | Open any chest in Goron City's boulder room without destroying the entrance blockade | 5
+ACCOMPLISHED_ANGLER   rc:0xX588e3c=0_d0xX588e3c=0_0xX588e34<3_0x871e944=73_d0x5c27b8!=h4099_0x5c27b8=h4099  Accomplished Angler | Catch the rare Hyrule Loach | 10

@@ -33,7 +33,7 @@
 Result svcMapProcessMemoryEx(Handle dstProcess, u32 dstAddress, Handle srcProcess, u32 srcAddress, u32 size, u32 flags);
 Result svcUnmapProcessMemoryEx(Handle process, u32 address, u32 size);
 
-#define HEAP_SIZE           0x10000
+#define HEAP_SIZE           0x40000         // 256 KB of the Base region (never the game's); halved until it fits
 
 extern char *fake_heap_start, *fake_heap_end;
 extern u32 __ctru_heap, __ctru_heap_size, __ctru_linear_heap, __ctru_linear_heap_size;

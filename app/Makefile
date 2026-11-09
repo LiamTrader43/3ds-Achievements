@@ -33,7 +33,7 @@ include $(DEVKITARM)/3ds_rules
 #---------------------------------------------------------------------------------
 TARGET		:=	achievements-viewer
 APP_TITLE	:=	Achievements
-APP_DESCRIPTION	:=	Shows your achievements for every game
+APP_DESCRIPTION	:=	Starts the tracker and shows your achievements
 APP_AUTHOR	:=	LiamTrader43
 BUILD		:=	build
 SOURCES		:=	source ../sysmodule/tracker/rcheevos/src ../sysmodule/tracker/rcheevos/src/rcheevos

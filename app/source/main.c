@@ -1,6 +1,7 @@
-// 3DS Achievements viewer: every game with a definitions file in /achievements/
-// and its achievements, without starting the game. Reads the same files as the
-// tracker sysmodule; changes nothing.
+// 3DS Achievements app: starts the background tracker sysmodule when it isn't
+// running yet, and shows every game with a definitions file in /achievements/ and
+// its achievements, without starting the game. Reads the same files as the
+// tracker; changes nothing. SELECT opens the tracker's status and log.
 //
 // Top screen: a grid of the games' icons. Bottom screen: the highlighted game's
 // title, progress and score; after A, its progress bar and achievements, one
@@ -13,6 +14,7 @@
 #include "achievements.h"
 #include "draw.h"
 #include "games.h"
+#include "tracker.h"
 #include "trophy.h"
 
 #define MAX_ACHIEVEMENTS    128     // the tracker's MAX_LINES
@@ -26,6 +28,7 @@ static const Color GOLD = { 255, 196, 40 };
 static const Color GREY = { 140, 140, 150 };
 static const Color DARK = { 50, 50, 58 };
 static const Color SCROLLBAR = { 110, 110, 120 };
+static const Color RED = { 235, 70, 70 };
 
 #define MARGIN          8
 
@@ -58,6 +61,10 @@ static const char  *s_descriptions[MAX_ACHIEVEMENTS];
 static uint16_t     s_points[MAX_ACHIEVEMENTS];
 static bool         s_unlocked[MAX_ACHIEVEMENTS];
 static int          s_count;
+
+static TrackerInfo  s_tracker;
+static Result       s_launchResult;
+static char         s_dumpMessage[64];
 
 // Copies text cut to maxChars, ending in "..." if it was longer.
 static void Ellipsize(char *out, size_t capacity, const char *text, int maxChars)
@@ -168,12 +175,16 @@ static void DrawTop(int selected, int gridScroll, const char *hints)
 
     Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(title, 2)) / 2, 5, 2, TITLE, title, 0);
     Draw_Rect(GFX_TOP, 0, HEADER_H - 1, TOP_WIDTH, 1, DARK);
+    {
+        const char *state = s_tracker.pid != 0 ? "Tracker: on" : "Tracker: off";
+        Draw_Text(GFX_TOP, TOP_WIDTH - MARGIN - TextWidth(state, 1), 10, 1, s_tracker.pid != 0 ? GREEN : RED, state, 0);
+    }
 
     if (s_gameCount == 0)
     {
         Draw_Text(GFX_TOP, MARGIN, GRID_TOP + 8, 1, WHITE, "No games with achievements found.", 0);
         Draw_Text(GFX_TOP, MARGIN, GRID_TOP + 24, 1, GREY, "Definitions go in /achievements/<TitleID>.txt", 0);
-        Draw_Text(GFX_TOP, MARGIN, TOP_HINT_Y, 1, HINT, "START: Exit", 0);
+        Draw_Text(GFX_TOP, MARGIN, TOP_HINT_Y, 1, HINT, "SELECT: Tracker   START: Exit", 0);
         return;
     }
 
@@ -267,6 +278,118 @@ static void DrawBoxes(const Game *g, int scroll)
         Draw_Rect(GFX_BOTTOM, 3, PROGRESS_H, 3, track, SCROLLBAR);
 }
 
+// Top screen of the tracker page: whether it runs, then what it reports about itself.
+static void DrawTrackerStatus(void)
+{
+    static const char title[] = "Tracker";
+    const TrackerStatus *st = &s_tracker.status;
+    char text[80];
+    int  y = HEADER_H + 6;
+    const int line = 12;
+
+    Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(title, 2)) / 2, 5, 2, TITLE, title, 0);
+    Draw_Rect(GFX_TOP, 0, HEADER_H - 1, TOP_WIDTH, 1, DARK);
+
+    if (s_tracker.pid == 0)
+    {
+        Draw_Text(GFX_TOP, MARGIN, y, 1, RED, "Not running", 0);
+        y += line * 2;
+        snprintf(text, sizeof(text), "Launch result: 0x%08lX", s_launchResult);
+        Draw_Text(GFX_TOP, MARGIN, y, 1, WHITE, text, 0);
+        y += line * 2;
+        Draw_Text(GFX_TOP, MARGIN, y, 1, WHITE, "Check that:", 0);
+        Draw_Text(GFX_TOP, MARGIN, y + line, 1, GREY, "- /luma/sysmodules/0004013000AC4102.cxi is on the SD card", 0);
+        Draw_Text(GFX_TOP, MARGIN, y + line * 2, 1, GREY, "- Luma's config has \"Enable loading external FIRMs and", 0);
+        Draw_Text(GFX_TOP, MARGIN, y + line * 3, 1, GREY, "  modules\" on", 0);
+    }
+    else
+    {
+        snprintf(text, sizeof(text), "Running (process %lu)", s_tracker.pid);
+        Draw_Text(GFX_TOP, MARGIN, y, 1, GREEN, text, 0);
+        y += line + 4;
+        if (s_tracker.hasStatus)
+        {
+            snprintf(text, sizeof(text), "Stage: %lu (%s)", st->stage, Tracker_StageName(st->stage));
+            Draw_Text(GFX_TOP, MARGIN, y, 1, WHITE, text, 0);
+            y += line;
+            snprintf(text, sizeof(text), "Heap: %lu KB (%08lX)   Free memory: %lu KB", st->heapSize / 1024, st->heapResult,
+                     st->freeMemory / 1024);
+            Draw_Text(GFX_TOP, MARGIN, y, 1, WHITE, text, 0);
+            y += line;
+            snprintf(text, sizeof(text), "srv: %08lX   fs: %08lX", st->srvResult, st->fsResult);
+            Draw_Text(GFX_TOP, MARGIN, y, 1, WHITE, text, 0);
+            y += line;
+            snprintf(text, sizeof(text), "Last SD open: %08lX", st->lastFileResult);
+            Draw_Text(GFX_TOP, MARGIN, y, 1, WHITE, text, 0);
+            y += line;
+            snprintf(text, sizeof(text), "Polls: %lu   Game: %08lX", st->polls, st->gameTitleLow);
+            Draw_Text(GFX_TOP, MARGIN, y, 1, WHITE, text, 0);
+            y += line + 4;
+        }
+        else
+        {
+            Draw_Text(GFX_TOP, MARGIN, y, 1, GREY, "Status block not found in its memory.", 0);
+            y += line + 4;
+        }
+        snprintf(text, sizeof(text), "Threads: %d", s_tracker.threadCount);
+        Draw_Text(GFX_TOP, MARGIN, y, 1, WHITE, text, 0);
+        y += line;
+        for (int i = 0; i < s_tracker.threadCount && y < TOP_HINT_Y - 20; i++, y += line)
+        {
+            const TrackerThread *t = &s_tracker.threads[i];
+            snprintf(text, sizeof(text), "  thread %lu: priority %ld, core %ld", t->id, t->priority, t->core);
+            Draw_Text(GFX_TOP, MARGIN, y, 1, GREY, text, 0);
+        }
+    }
+
+    if (s_dumpMessage[0] != '\0')
+        Draw_Text(GFX_TOP, MARGIN, TOP_HINT_Y - 18, 1, GOLD, s_dumpMessage, 0);
+    Draw_Rect(GFX_TOP, 0, TOP_HINT_Y - 5, TOP_WIDTH, 1, DARK);
+    Draw_Text(GFX_TOP, MARGIN, TOP_HINT_Y, 1, HINT,
+              s_tracker.pid != 0 ? "Y: Save dump   SELECT: Back   START: Exit" : "A: Start tracker   SELECT: Back   START: Exit", 0);
+}
+
+// Bottom screen of the tracker page: the end of its log, as many lines as fit.
+static void DrawTrackerLog(void)
+{
+    enum { ROWS = 18, ROW_H = 12 };
+    const char *text = s_tracker.log;
+    const char *end = text + strlen(text);
+    const char *p = end;
+    char line[80];
+    int  y = 5 + 16;
+
+    Draw_Text(GFX_BOTTOM, MARGIN, 5, 1, TITLE, "tracker.log", 0);
+    Draw_Rect(GFX_BOTTOM, 0, 18, BOTTOM_WIDTH, 1, DARK);
+    if (*text == '\0')
+    {
+        Draw_Text(GFX_BOTTOM, MARGIN, y, 1, GREY, "No log yet.", 0);
+        return;
+    }
+
+    // Back up to the start of the last ROWS lines; the very last newline ends a line.
+    if (p > text && p[-1] == '\n')
+        p--;
+    for (int lines = 0; p > text; p--)
+        if (p[-1] == '\n' && ++lines == ROWS)
+            break;
+
+    while (p < end && y + CHAR_H <= SCREEN_HEIGHT)
+    {
+        const char *newline = memchr(p, '\n', end - p);
+        size_t length = newline != NULL ? (size_t)(newline - p) : (size_t)(end - p);
+        if (length > 0 && p[length - 1] == '\r')
+            length--;
+        if (length >= sizeof(line))
+            length = sizeof(line) - 1;
+        memcpy(line, p, length);
+        line[length] = '\0';
+        Draw_Text(GFX_BOTTOM, MARGIN, y, 1, WHITE, line, 0);
+        y += ROW_H;
+        p = newline != NULL ? newline + 1 : end;
+    }
+}
+
 // The direction key pressed this frame, or held (repeating after 400 ms).
 static u32 Direction(u32 down, u32 held, u64 *repeatAt)
 {
@@ -302,8 +425,13 @@ int main(void)
         Draw_Text(GFX_TOP, MARGIN, MARGIN, 1, WHITE, "Loading...", 0);
         Draw_End();
     }
+    s_launchResult = Tracker_Start();
     s_gameCount = Games_Scan(s_games, MAX_GAMES);
+    Tracker_Read(&s_tracker);
 
+    // Straight to the tracker page if it couldn't be started.
+    bool    trackerPage = s_tracker.pid == 0;
+    u64     nextRead = osGetTime() + 1000;
     bool    open = false;           // the bottom screen shows the selected game's boxes
     int     game = 0, gridScroll = 0;
     int     scroll = 0;             // first box shown
@@ -319,7 +447,38 @@ int main(void)
         if (down & KEY_START)
             break;
 
-        if (!open && s_gameCount > 0)
+        if (down & KEY_SELECT)
+        {
+            trackerPage = !trackerPage;
+            s_dumpMessage[0] = '\0';
+            nextRead = 0;
+            redraw = 2;
+        }
+
+        if (trackerPage)
+        {
+            if ((down & KEY_A) && s_tracker.pid == 0)
+            {
+                s_launchResult = Tracker_Start();
+                nextRead = 0;
+            }
+            if ((down & KEY_Y) && s_tracker.pid != 0)
+            {
+                u32 pages = Tracker_Dump(s_tracker.pid);
+                if (pages != 0)
+                    snprintf(s_dumpMessage, sizeof(s_dumpMessage), "Saved %lu pages to /achievements/tracker_dump.bin", pages);
+                else
+                    snprintf(s_dumpMessage, sizeof(s_dumpMessage), "Couldn't save tracker_dump.bin");
+                redraw = 2;
+            }
+            if (osGetTime() >= nextRead)
+            {
+                Tracker_Read(&s_tracker);
+                nextRead = osGetTime() + 1000;
+                redraw = 2;
+            }
+        }
+        else if (!open && s_gameCount > 0)
         {
             int next = game;
             if (dir & KEY_LEFT)     next--;
@@ -368,14 +527,19 @@ int main(void)
         if (redraw > 0)
         {
             Draw_Begin();
-            if (open)
+            if (trackerPage)
             {
-                DrawTop(game, gridScroll, "B: Back   Up/Down: Scroll   START: Exit");
+                DrawTrackerStatus();
+                DrawTrackerLog();
+            }
+            else if (open)
+            {
+                DrawTop(game, gridScroll, "B: Back   Up/Down: Scroll   SELECT: Tracker   START: Exit");
                 DrawBoxes(&s_games[game], scroll);
             }
             else
             {
-                DrawTop(game, gridScroll, "A: Open   D-Pad: Select game   START: Exit");
+                DrawTop(game, gridScroll, "A: Open   D-Pad: Select game   SELECT: Tracker   START: Exit");
                 DrawGameInfo(game);
             }
             Draw_End();
