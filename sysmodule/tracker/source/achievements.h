@@ -3,8 +3,8 @@
 
 // Achievement logic for the background tracker, reading:
 //
-//     /achievements/<TitleID>.txt            definitions
-//     /achievements/<TitleID>_unlocked.txt   progress, one unlocked ID per line
+//     /achievements/<TitleID>/definitions.txt   definitions
+//     /achievements/<TitleID>/progress.txt      progress, one unlocked ID per line
 //
 // Definitions: "<id> <address> <size> <expected> <name> | <description>", where
 // expected may start with ">=", the description is optional, and lines sharing

@@ -25,12 +25,22 @@ void    Draw_End(void);
 
 void    Draw_Rect(gfxScreen_t screen, int x, int y, int w, int h, Color color);
 
+// A rectangle with corners of the given radius, their edges smoothed.
+void    Draw_RoundRect(gfxScreen_t screen, int x, int y, int w, int h, int radius, Color color);
+
 // Draws text at scale 1 or 2, cut at maxWidth pixels (0 = screen edge).
 // Returns the width drawn.
 int     Draw_Text(gfxScreen_t screen, int x, int y, int scale, Color color, const char *text, int maxWidth);
 
 // A 48x48 SMDH icon (RGB565 in 8x8 tiles, Z-order inside each tile).
 void    Draw_Icon(gfxScreen_t screen, int x, int y, const u16 *icon);
+
+// The same icon smoothly enlarged to size x size pixels (size > 48), with rounded corners.
+void    Draw_IconScaled(gfxScreen_t screen, int x, int y, int size, int radius, const u16 *icon);
+
+// A full top-screen image (400x240 BGR8 in framebuffer order) as a dim background
+// that's darkest behind the title and toward the bottom. fade: 0 (invisible) to 256 (fully faded in).
+void    Draw_Hero(const u8 *pixels, int fade);
 
 // Pixel width of a screen.
 int     Draw_Width(gfxScreen_t screen);

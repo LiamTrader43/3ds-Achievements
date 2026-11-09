@@ -1,9 +1,12 @@
 CLAUDE.md
 # Super Mario 3D Land: not public until it's finished
-definitions/0004000000054000.txt
+achievements/0004000000054000/
 docs/sm3dl-live.md
 docs/sm3dl-spots.md
 tools/sm3dl_live.py
 tools/sm3dl_spots.py
 sysmodule/menu-preview.png
 sysmodule/overlay-preview.png
+# Each player's progress and cached game data
+achievements/*/progress.txt
+achievements/*/title.smdh

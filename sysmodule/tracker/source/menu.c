@@ -40,8 +40,8 @@ Result svcControlProcess(Handle process, u32 op, u32 varg2, u32 varg3);
 #define LINE_CHARS          (WIDTH / CHAR_W + 1)
 #define MAX_ACHIEVEMENTS    128
 
-static const Rgb TITLE_TEXT = { 30, 144, 255 };     // DodgerBlue
-static const Rgb HINT_TEXT = { 30, 144, 255 };
+static const Rgb TITLE_TEXT = { 255, 209, 102 };     // the logo's yellow
+static const Rgb HINT_TEXT = { 255, 209, 102 };
 static const Rgb HEADER_TEXT = { 255, 255, 255 };
 static const Rgb UNLOCKED_TEXT = { 50, 205, 50 };   // LimeGreen
 static const Rgb LOCKED_TEXT = { 255, 255, 255 };

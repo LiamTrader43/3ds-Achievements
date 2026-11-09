@@ -198,8 +198,8 @@ bool Achievements_Load(uint64_t titleId)
     for (int i = 0; i < g_count; i++)
         free(g_ach[i].trigger);
     g_count = 0;
-    snprintf(path, sizeof(path), "/achievements/%016llX.txt", (unsigned long long)titleId);
-    snprintf(g_unlockPath, sizeof(g_unlockPath), "/achievements/%016llX_unlocked.txt", (unsigned long long)titleId);
+    snprintf(path, sizeof(path), "/achievements/%016llX/definitions.txt", (unsigned long long)titleId);
+    snprintf(g_unlockPath, sizeof(g_unlockPath), "/achievements/%016llX/progress.txt", (unsigned long long)titleId);
 
     if (!Platform_ReadFile(path, g_file, FILE_CAPACITY, &length))
         return false;

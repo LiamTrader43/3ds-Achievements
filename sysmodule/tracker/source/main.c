@@ -276,7 +276,7 @@ static bool ReadSmdh(u32 pid, u64 titleId, u8 *smdh)
 // The game's short title from its SMDH: English, else Japanese, else the
 // process name. Characters outside ASCII become '?'. Returns false when it
 // fell back to the process name.
-// Saves a supported game's SMDH as /achievements/<TitleID>.smdh, once, for the
+// Saves a supported game's SMDH as /achievements/<TitleID>/title.smdh, once, for the
 // viewer app: a game card's title and icon can't be read when it isn't inserted.
 static void CacheSmdh(u64 titleId, const u8 *smdh)
 {
@@ -285,7 +285,7 @@ static void CacheSmdh(u64 titleId, const u8 *smdh)
     u64     size = 0;
     u32     written = 0;
 
-    snprintf(path, sizeof(path), "/achievements/%016llX.smdh", (unsigned long long)titleId);
+    snprintf(path, sizeof(path), "/achievements/%016llX/title.smdh", (unsigned long long)titleId);
     if (R_FAILED(OpenSdFile(&file, path, FS_OPEN_READ | FS_OPEN_WRITE | FS_OPEN_CREATE)))
         return;
     Result res = FSFILE_GetSize(file, &size);
@@ -410,6 +410,7 @@ int main(void)
 
     g_status.stage = STAGE_MAIN;
     Log("tracker started");
+    Log("heap: %lu KB (%08lX), free memory %lu KB", g_status.heapSize / 1024, g_status.heapResult, g_status.freeMemory / 1024);
     g_status.stage = STAGE_LOGGED;
     Result res = srvEnableNotification(&notification);
     if (R_SUCCEEDED(res))

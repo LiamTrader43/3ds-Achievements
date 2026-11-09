@@ -2,8 +2,8 @@
 
     python tools/smdh_from_rom.py <game.cci|.3ds|.cxi> [out_dir]
 
-Writes <out_dir>/<TitleID>.smdh (default: the current folder). Put it in the SD
-card's /achievements/ folder; the viewer uses it when the game isn't installed
+Writes <out_dir>/<TitleID>/title.smdh (default: the current folder). Put that
+folder in the SD card's /achievements/; the viewer uses it when the game isn't installed
 or its card isn't inserted (the tracker also saves it whenever the game runs).
 Works on decrypted ROMs only (what Azahar runs).
 """
@@ -59,7 +59,8 @@ def main():
     if smdh[:4] != b"SMDH":
         sys.exit("the icon file isn't an SMDH")
     title = smdh[8 + 0x200:8 + 0x200 + 0x80].decode("utf-16-le").split("\0")[0]  # English short title
-    path = os.path.join(out_dir, "%016X.smdh" % program_id)
+    path = os.path.join(out_dir, "%016X" % program_id, "title.smdh")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as out:
         out.write(smdh)
     print("%s: %s (%d bytes)" % (path, title, len(smdh)))

@@ -46,7 +46,7 @@ def background(x, y, top, bottom):
     return tuple(int(a + (b - a) * t) for a, b in zip(top, bottom))
 
 
-def render(top, bottom, grey=False):
+def render(top, bottom, grey=False, dark=False):
     """RGBA pixels, row by row."""
     pixels = []
     for py in range(N):
@@ -59,6 +59,8 @@ def render(top, bottom, grey=False):
                     if c is not None and grey:
                         v = (c[0] * 30 + c[1] * 59 + c[2] * 11) // 100
                         c = (v * 45 // 100,) * 3
+                    if c is not None and dark:                  # dark trophy on a light background
+                        c = (78, 52, 8) if c[0] == 255 else (52, 34, 4)
                     if c is None:
                         c = background(x, y, top, bottom)
                     if c is not None:
@@ -96,7 +98,7 @@ def c_array(name, values):
     return "static const u16 %s[48 * 48] = {\n    %s,\n};\n" % (name, ",\n    ".join(lines))
 
 
-unlocked = render((20, 50, 110), (30, 80, 170))
+unlocked = render((255, 228, 150), (252, 204, 90), dark=True)
 locked = render((38, 38, 44), (52, 52, 60), grey=True)
 png(unlocked, "app/icon.png")
 open("app/source/trophy.h", "w").write(

@@ -42,10 +42,10 @@ void Platform_Unlocked(const char *name, const char *description)
     (void)name; (void)description;
 }
 
-// "<16 hex digits>.txt" (not "_unlocked.txt" or tracker.log).
-static bool ParseFileName(const char *name, u64 *titleId)
+// A game's folder is named with its title ID, 16 hex digits.
+static bool ParseFolderName(const char *name, u64 *titleId)
 {
-    if (strlen(name) != 20 || strcasecmp(name + 16, ".txt") != 0)
+    if (strlen(name) != 16)
         return false;
     for (int i = 0; i < 16; i++)
         if (!isxdigit((unsigned char)name[i]))
@@ -110,11 +110,11 @@ static int CompareGames(const void *a, const void *b)
     return strcasecmp(x->title, y->title);
 }
 
-// The cached SMDH (/achievements/<TitleID>.smdh, written by the tracker while
+// The cached SMDH (/achievements/<TitleID>/title.smdh, written by the tracker while
 // the game runs, or by this app): a game card's icon when it isn't inserted.
 static void CachePath(u64 titleId, char *path, size_t capacity)
 {
-    snprintf(path, capacity, DIRECTORY "/%016llX.smdh", (unsigned long long)titleId);
+    snprintf(path, capacity, DIRECTORY "/%016llX/title.smdh", (unsigned long long)titleId);
 }
 
 static bool ReadCachedSmdh(u64 titleId, u8 *smdh)
@@ -145,6 +145,33 @@ static void WriteCachedSmdh(u64 titleId, const u8 *smdh)
     fclose(f);
 }
 
+bool Games_LoadHero(u64 titleId, u8 *pixels)
+{
+    char path[64];
+
+    snprintf(path, sizeof(path), DIRECTORY "/%016llX/hero.bin", (unsigned long long)titleId);
+    FILE *f = fopen(path, "rb");
+    if (f == NULL)
+        return false;
+    size_t read = fread(pixels, 1, HERO_BYTES, f);
+    fclose(f);
+    return read == HERO_BYTES;
+}
+
+bool Games_LoadTrophies(u64 titleId, u16 *unlocked, u16 *locked)
+{
+    char path[64];
+
+    snprintf(path, sizeof(path), DIRECTORY "/%016llX/trophy.bin", (unsigned long long)titleId);
+    FILE *f = fopen(path, "rb");
+    if (f == NULL)
+        return false;
+    bool ok = fread(unlocked, sizeof(u16), ICON_SIZE * ICON_SIZE, f) == ICON_SIZE * ICON_SIZE &&
+              fread(locked, sizeof(u16), ICON_SIZE * ICON_SIZE, f) == ICON_SIZE * ICON_SIZE;
+    fclose(f);
+    return ok;
+}
+
 int Games_Scan(Game *games, int capacity)
 {
     static u8 smdh[SMDH_SIZE];
@@ -158,7 +185,7 @@ int Games_Scan(Game *games, int capacity)
     while ((entry = readdir(dir)) != NULL && count < capacity)
     {
         Game *g = &games[count];
-        if (!ParseFileName(entry->d_name, &g->titleId) || !Achievements_Load(g->titleId))
+        if (!ParseFolderName(entry->d_name, &g->titleId) || !Achievements_Load(g->titleId))
             continue;
         Achievements_Progress(&g->unlocked, &g->total);
         Achievements_Score(&g->earned, &g->points);
