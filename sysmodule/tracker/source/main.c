@@ -171,7 +171,7 @@ bool Platform_AppendFile(const char *path, const char *text)
 
 static void Log(const char *format, ...)
 {
-    char    line[320];
+    char    line[512];
     va_list args;
 
     int n = snprintf(line, sizeof(line), "[%llu] ", (unsigned long long)(osGetTime() / 1000));
@@ -185,7 +185,7 @@ static void Log(const char *format, ...)
 // For diagnosing banner flicker on hardware (see Overlay_Stats).
 static void LogBannerStats(void)
 {
-    char stats[256];
+    char stats[420];
     Overlay_Stats(stats, sizeof(stats));
     Log("banner: %s", stats);
 }

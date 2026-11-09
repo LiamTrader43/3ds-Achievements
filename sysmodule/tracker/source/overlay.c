@@ -4,6 +4,9 @@
 #include <string.h>
 
 #include "font.h"
+#include "overlay_blend.h"
+
+#pragma GCC optimize("O2")     // a banner repair races the game's next screen swap
 
 _Static_assert(OVERLAY_FONT_WIDTH == FONT_WIDTH && OVERLAY_FONT_HEIGHT == FONT_HEIGHT, "overlay.h font size");
 
@@ -213,6 +216,13 @@ static void DrawKernel(DrawArgs *a)
     {
         if (!redraw[x])
             continue;
+        if (Blend_Column(Pixel(fb, stride, bpp, x, 0), fmt, BANNER_HEIGHT - 1,
+                         (BlendColor){ BACKGROUND.r, BACKGROUND.g, BACKGROUND.b }, BACKGROUND_ALPHA))
+        {
+            memcpy(Pixel(fb, stride, bpp, x, BANNER_HEIGHT - 1), gold, bpp);
+            continue;
+        }
+
         for (u32 y = 0; y < BANNER_HEIGHT - 1; y++)
         {
             u8 *p = Pixel(fb, stride, bpp, x, y);
@@ -268,7 +278,26 @@ static struct
     u32 seen[4], seenCount; // distinct buffer addresses in the registers
     u32 fmt, stride;
     s32 priorityResult;
+    u32 fixes;              // repairs timed below
+    u32 flushBeforeUs, flushBeforeMaxUs, drawUs, drawMaxUs, flushAfterUs, flushAfterMaxUs;
+    u32 swappedDuringFix;   // the buffer being repaired went on screen before the repair ended
 } g_stats;
+
+// Adds one timed step to a running total and maximum.
+static void AddTiming(u64 from, u64 to, u32 *total, u32 *maximum)
+{
+    u32 us = (u32)((to - from) / CPU_TICKS_PER_USEC);
+    *total += us;
+    if (us > *maximum)
+        *maximum = us;
+}
+
+// Kernel mode: just the on-screen buffer.
+static void ShownKernel(DrawArgs *a)
+{
+    u32 fmt, bpp, stride;
+    a->shown = CurrentBuffer(&fmt, &bpp, &stride);
+}
 
 static void NoteSeen(u32 pa)
 {
@@ -337,11 +366,25 @@ static void OverlayTick(DrawArgs *args)
         // Drop stale cache lines first: the GPU writes frames behind the
         // cache, and the banner blends with what's really there.
         args->pa = args->buffers[i];
+        u64 t0 = svcGetSystemTick();
         svcFlushDataCacheRange((void *)(args->pa + args->kernPaToVa), args->size);
+        u64 t1 = svcGetSystemTick();
         svcCustomBackdoor(DrawKernel, args);
+        u64 t2 = svcGetSystemTick();
         if (!args->drew)
             continue;
         svcFlushDataCacheRange((void *)(args->pa + args->kernPaToVa), args->size);  // let the LCD see it
+        u64 t3 = svcGetSystemTick();
+
+        g_stats.fixes++;
+        AddTiming(t0, t1, &g_stats.flushBeforeUs, &g_stats.flushBeforeMaxUs);
+        AddTiming(t1, t2, &g_stats.drawUs, &g_stats.drawMaxUs);
+        AddTiming(t2, t3, &g_stats.flushAfterUs, &g_stats.flushAfterMaxUs);
+        svcCustomBackdoor(ShownKernel, args);
+        if (args->pa != shown && args->shown == args->pa)
+            g_stats.swappedDuringFix++;
+        args->shown = shown;
+
         if (args->pa == shown)
             g_stats.fixedShown++;
         else if (args->pa == args->registers[0] || args->pa == args->registers[1])
@@ -398,10 +441,13 @@ void Overlay_Stats(char *out, u32 size)
 {
     snprintf(out, size, "ticks %lu, max gap %lu us, max tick %lu us, swaps %lu, fixed shown %lu, "
              "fixed other register %lu, fixed unlisted %lu, buffers %lu (%08lX %08lX %08lX %08lX), "
-             "fmt %lu, stride %lu, priority %08lX",
+             "fmt %lu, stride %lu, priority %08lX, fixes %lu, us avg/max flush %lu/%lu draw %lu/%lu flush %lu/%lu, swapped during fix %lu",
              g_stats.ticks, g_stats.maxGapUs, g_stats.maxTickUs, g_stats.swaps, g_stats.fixedShown,
              g_stats.fixedRegister, g_stats.fixedOther, g_stats.seenCount, g_stats.seen[0], g_stats.seen[1],
-             g_stats.seen[2], g_stats.seen[3], g_stats.fmt, g_stats.stride, (u32)g_stats.priorityResult);
+             g_stats.seen[2], g_stats.seen[3], g_stats.fmt, g_stats.stride, (u32)g_stats.priorityResult,
+             g_stats.fixes, g_stats.flushBeforeUs / (g_stats.fixes ? g_stats.fixes : 1), g_stats.flushBeforeMaxUs,
+             g_stats.drawUs / (g_stats.fixes ? g_stats.fixes : 1), g_stats.drawMaxUs,
+             g_stats.flushAfterUs / (g_stats.fixes ? g_stats.fixes : 1), g_stats.flushAfterMaxUs, g_stats.swappedDuringFix);
 }
 
 u32 Overlay_Buffer(void)
