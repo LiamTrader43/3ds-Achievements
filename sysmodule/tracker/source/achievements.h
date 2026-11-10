@@ -5,6 +5,9 @@
 //
 //     /achievements/<TitleID>/definitions.txt   definitions
 //     /achievements/<TitleID>/progress.txt      progress, one unlocked ID per line
+//     /achievements/<TitleID>/version.txt       instead of the two above: another release
+//                                               (region) of the game it names, sharing that
+//                                               game's definitions and progress
 //
 // Definitions: "<id> <address> <size> <expected> <name> | <description>", where
 // expected may start with ">=", the description is optional, and lines sharing
@@ -23,8 +26,14 @@ bool    Platform_AppendFile(const char *path, const char *text);
 void    Platform_Unlocked(const char *name, const char *description);
 
 // Loads the game's definitions and progress. Returns false, leaving
-// Achievements_Update() a no-op, if the game has no definitions.
+// Achievements_Update() a no-op, if the game has no definitions. For another
+// release of a game (a version.txt), loads that game's definitions with this
+// release's address shifts, and its progress.
 bool    Achievements_Load(uint64_t titleId);
+
+// The game whose folder the loaded definitions and progress came from: the
+// title ID given to Achievements_Load(), or the game its version.txt names.
+uint64_t Achievements_GameId(void);
 
 // Checks every locked achievement once. An achievement unlocks after its
 // condition holds for several consecutive calls.

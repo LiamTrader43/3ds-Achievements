@@ -1,0 +1,8 @@
+# The Legend of Zelda: Ocarina of Time 3D (EUR): the same game as the USA release,
+# sharing its achievements and progress.
+game 0004000000033500
+
+# Same save layout and static memory as USA (gSaveContext 0x587958 in both). Only the
+# GlobalContext (0x5F14 bytes) moves: USA 0x0871E840, EUR 0x087B1810. Found in Azahar
+# 2026-11-10 (title screen, a loaded file, after a restart; actor lists at the same offsets).
+shift 0x0871E840 0x08724753 +0x92FD0

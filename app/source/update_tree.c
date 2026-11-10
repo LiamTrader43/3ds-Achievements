@@ -8,6 +8,7 @@
 #define HERO_SIZE           288000u
 #define TROPHY_SIZE         9216u
 #define DEFINITIONS_MAX     32768u      // what the tracker can read
+#define VERSION_MAX         1024u       // the same for version.txt (another release of a game)
 #define FOLDER_PREFIX       "achievements/"
 
 static bool IsHex(const char *text, int count)
@@ -58,6 +59,8 @@ static bool SizeAllowed(const char *name, uint32_t size)
         return size == TROPHY_SIZE;
     if (strcmp(name, "definitions.txt") == 0)
         return size > 0 && size <= DEFINITIONS_MAX;
+    if (strcmp(name, "version.txt") == 0)
+        return size > 0 && size <= VERSION_MAX;
     return false;
 }
 

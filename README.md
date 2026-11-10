@@ -62,6 +62,18 @@ For anything more involved, use a RetroAchievements condition string. These can'
 BEAT_LEVEL  rc:0xH1618fd9c=2  Level Clear | Beat the first level. | 10
 ```
 
+### Other regions
+
+Another region (or release) of a game shares its achievements and progress. Instead of definitions, its folder holds a `version.txt` naming the game's folder:
+
+```
+# achievements/0004000000033600/version.txt: Ocarina of Time 3D (EUR)
+game 0004000000033500
+shift 0x0871E840 0x08724753 +0x92FD0
+```
+
+The app shows one tile for the game, and unlocks count whichever version you play. `shift` lines are optional (up to 8): each one moves the addresses in a range for this release, here a block that sits 0x92FD0 higher in the European game. Only addresses written in the definitions move. Offsets added to a pointer the game stores (`I:` in a condition) stay as written. A `version.txt` with any other kind of line isn't used, so a release that needs more than moved addresses isn't tracked with wrong ones.
+
 A game can also have its own background and achievement icons:
 
 ```bash

@@ -9,12 +9,15 @@
 #include "draw.h"
 
 #define MAX_GAMES   64
+#define MAX_RELEASES 4      // other releases (regions) of one game, from their version.txt
 #define TITLE_CHARS 64
 #define HERO_BYTES  (TOP_WIDTH * SCREEN_HEIGHT * 3)
 
 typedef struct
 {
-    u64     titleId;
+    u64     titleId;                        // the game's folder (definitions, progress, art)
+    u64     releases[MAX_RELEASES];         // other releases sharing it (/achievements/<id>/version.txt)
+    int     releaseCount;
     char    title[TITLE_CHARS + 1];
     bool    hasTitle;                       // false: title is the title ID
     bool    hasIcon;
@@ -23,7 +26,10 @@ typedef struct
     int     earned, points;             // score: points unlocked, points in total
 } Game;
 
-// Finds every game with at least one valid achievement, sorted by title.
+// Finds every game with at least one valid achievement, sorted by title. Another
+// release of a game (a folder with a version.txt) isn't a game of its own: its title
+// ID is added to the game's releases, and its title and icon are used when it's the
+// release that's installed.
 int     Games_Scan(Game *games, int capacity);
 
 // Reads /achievements/<TitleID>/hero.bin, the game's background (tools/hero_art.py

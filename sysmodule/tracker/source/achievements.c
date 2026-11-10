@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "rc_runtime_types.h"   // rcheevos (../rcheevos), for "rc:" conditions
+#include "rc_internal.h"        // rc_trigger_get_memrefs, to move a release's addresses
 
 #define MAX_LINES       128
 #define FILE_CAPACITY   0x8000
@@ -12,6 +13,8 @@
 #define RC_PREFIX       "rc:"
 #define DEFAULT_POINTS  10      // an achievement's points when its line gives none
 #define MAX_POINTS      1000
+#define MAX_SHIFTS      8       // "shift" lines in a version.txt
+#define VERSION_CAPACITY 1024
 
 typedef struct
 {
@@ -28,10 +31,21 @@ typedef struct
     uint8_t         matches;
 } Achievement;
 
+// Another release of a game (e.g. another region) may keep some data at other
+// addresses: addresses first..last of the definitions are read at address + amount.
+typedef struct
+{
+    uint32_t    first, last;
+    int32_t     amount;
+} Shift;
+
 static Achievement  g_ach[MAX_LINES];
 static int          g_count;
 static char         g_unlockPath[64];
 static char         g_file[FILE_CAPACITY + 1];
+static uint64_t     g_gameId;
+static Shift        g_shift[MAX_SHIFTS];
+static int          g_shiftCount;
 
 static bool IsSpace(char c)
 {
@@ -115,6 +129,29 @@ static void ParseText(const char *pos, const char *end, Achievement *a)
     CopyTrimmed(a->description, sizeof(a->description), bar + 1, descriptionEnd);
 }
 
+// An address as this release keeps it (see Shift).
+static uint32_t ShiftAddress(uint32_t address)
+{
+    for (int i = 0; i < g_shiftCount; i++)
+        if (address >= g_shift[i].first && address <= g_shift[i].last)
+            return address + (uint32_t)g_shift[i].amount;
+    return address;
+}
+
+// Moves the addresses a parsed condition reads directly. Offsets added to a
+// pointer read from memory (AddAddress, "I:") are kept apart by rcheevos (as
+// modified memrefs) and stay as written: they're relative to wherever the
+// pointer leads, which this release already reports itself.
+static void ShiftTrigger(rc_trigger_t *trigger)
+{
+    rc_memrefs_t *memrefs = g_shiftCount > 0 ? rc_trigger_get_memrefs(trigger) : NULL;
+    if (memrefs == NULL)
+        return;
+    for (rc_memref_list_t *list = &memrefs->memrefs; list != NULL; list = list->next)
+        for (uint32_t i = 0; i < list->count; i++)
+            list->items[i].address = ShiftAddress(list->items[i].address);
+}
+
 // "<id> rc:<RetroAchievements condition string> <name> | <description>": the
 // condition (no spaces, e.g. "0xH1234=1_d0xH5678=1_0xH5678=2") is parsed and
 // evaluated by rcheevos, which adds AND, ResetIf/PauseIf, hit counts, deltas
@@ -142,6 +179,7 @@ static bool ParseCondition(const char *pos, const char *end, Achievement *a)
         free(buffer);
         return false;
     }
+    ShiftTrigger(a->trigger);
 
     ParseText(pos, end, a);
     return true;
@@ -178,6 +216,7 @@ static bool ParseLine(const char *line, const char *end, Achievement *a)
     if (sizeValue < 4 && (a->expected >> (sizeValue * 8)) != 0)
         return false;
     a->size = (uint8_t)sizeValue;
+    a->address = ShiftAddress(a->address);
 
     ParseText(pos, end, a);
     return true;
@@ -190,6 +229,80 @@ static void MarkUnlocked(const char *id)
             g_ach[i].unlocked = true;
 }
 
+// A title ID written as 16 hex digits (no 0x).
+static bool ParseTitleId(const char *token, uint64_t *out)
+{
+    if (strlen(token) != 16)
+        return false;
+    char *end;
+    *out = strtoull(token, &end, 16);
+    return *end == '\0';
+}
+
+// /achievements/<titleId>/version.txt marks another release of a game (e.g.
+// another region), which shares that game's definitions and progress:
+//
+//     game  0004000000033500                   the game's folder
+//     shift 0x0871E840 0x08723FFF +0x92FD0     optional, up to 8: addresses in
+//                                              this range are read moved by the amount
+//
+// '#' starts a comment. Any other line makes the file invalid, so a release
+// with differences this version can't apply isn't tracked with wrong addresses.
+static bool ReadVersion(uint64_t titleId, uint64_t *gameId, Shift *shifts, int *shiftCount)
+{
+    char        path[64], file[VERSION_CAPACITY + 1], word[24], first[24], last[24], amount[24];
+    uint32_t    length;
+    bool        haveGame = false;
+
+    *shiftCount = 0;
+    snprintf(path, sizeof(path), "/achievements/%016llX/version.txt", (unsigned long long)titleId);
+    if (!Platform_ReadFile(path, file, VERSION_CAPACITY, &length))
+        return false;
+
+    for (const char *line = file, *end = file + length; line < end; )
+    {
+        const char *next = memchr(line, '\n', (size_t)(end - line));
+        const char *lineEnd = next ? next : end;
+        const char *hash = memchr(line, '#', (size_t)(lineEnd - line));
+        const char *pos = line;
+        if (hash != NULL)
+            lineEnd = hash;
+        line = next ? next + 1 : end;
+
+        if (!NextToken(&pos, lineEnd, word, sizeof(word)))
+            continue;                                   // blank or comment
+        if (strcmp(word, "game") == 0 && !haveGame)
+        {
+            if (!NextToken(&pos, lineEnd, word, sizeof(word)) || !ParseTitleId(word, gameId) || *gameId == titleId)
+                return false;
+            haveGame = true;
+        }
+        else if (strcmp(word, "shift") == 0 && *shiftCount < MAX_SHIFTS)
+        {
+            Shift   *s = &shifts[*shiftCount];
+            uint32_t size;
+            if (!NextToken(&pos, lineEnd, first, sizeof(first)) || !NextToken(&pos, lineEnd, last, sizeof(last))
+                || !NextToken(&pos, lineEnd, amount, sizeof(amount))
+                || (amount[0] != '+' && amount[0] != '-')
+                || !ParseU32(first, &s->first) || !ParseU32(last, &s->last) || !ParseU32(amount + 1, &size)
+                || s->last < s->first || size > 0x7FFFFFFF)
+                return false;
+            s->amount = amount[0] == '-' ? -(int32_t)size : (int32_t)size;
+            (*shiftCount)++;
+        }
+        else
+            return false;
+        if (NextToken(&pos, lineEnd, word, sizeof(word)))
+            return false;                               // anything after the values
+    }
+    return haveGame;
+}
+
+uint64_t Achievements_GameId(void)
+{
+    return g_gameId;
+}
+
 bool Achievements_Load(uint64_t titleId)
 {
     char        path[64];
@@ -198,11 +311,26 @@ bool Achievements_Load(uint64_t titleId)
     for (int i = 0; i < g_count; i++)
         free(g_ach[i].trigger);
     g_count = 0;
-    snprintf(path, sizeof(path), "/achievements/%016llX/definitions.txt", (unsigned long long)titleId);
-    snprintf(g_unlockPath, sizeof(g_unlockPath), "/achievements/%016llX/progress.txt", (unsigned long long)titleId);
+    g_gameId = titleId;
+    g_shiftCount = 0;
 
+    // The game's own folder, or (another release) the game named by its version.txt.
+    snprintf(path, sizeof(path), "/achievements/%016llX/definitions.txt", (unsigned long long)titleId);
     if (!Platform_ReadFile(path, g_file, FILE_CAPACITY, &length))
-        return false;
+    {
+        uint64_t    gameId = 0;
+        Shift       shifts[MAX_SHIFTS];
+        int         shiftCount;
+        if (!ReadVersion(titleId, &gameId, shifts, &shiftCount))
+            return false;
+        snprintf(path, sizeof(path), "/achievements/%016llX/definitions.txt", (unsigned long long)gameId);
+        if (!Platform_ReadFile(path, g_file, FILE_CAPACITY, &length))
+            return false;
+        g_gameId = gameId;
+        memcpy(g_shift, shifts, sizeof(shifts));
+        g_shiftCount = shiftCount;
+    }
+    snprintf(g_unlockPath, sizeof(g_unlockPath), "/achievements/%016llX/progress.txt", (unsigned long long)g_gameId);
 
     for (const char *line = g_file, *end = g_file + length; line < end && g_count < MAX_LINES; )
     {

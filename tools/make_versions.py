@@ -2,7 +2,7 @@
 
     python tools/make_versions.py
 
-Lists every definitions.txt, hero.bin and trophy.bin in sysmodule/dist/achievements with its Git
+Lists every definitions.txt, hero.bin, trophy.bin and version.txt in sysmodule/dist/achievements with its Git
 blob ID, the same IDs the app compares against the main branch. Run from the repo root, after the
 files in dist are final and before zipping.
 """
@@ -11,7 +11,7 @@ import os
 import re
 
 DIST = os.path.join("sysmodule", "dist", "achievements")
-FILES = ("definitions.txt", "hero.bin", "trophy.bin")
+FILES = ("definitions.txt", "hero.bin", "trophy.bin", "version.txt")
 
 
 def blob_id(path):

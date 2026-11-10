@@ -233,7 +233,10 @@ bool Update_Poll(int *newGames, int *updatedGames)
         s_files[i].wanted = !FileExists(path) || !VersionMatches(&s_files[i]);
     }
 
-    // Count games, not files.
+    // Count games, not files. Another release of a game (a folder with only a
+    // version.txt) isn't a game of its own: it counts as an update, and only if
+    // nothing else does (its game may be new or updated in the same download).
+    bool releaseWanted = false;
     for (int i = 0; i < s_fileCount; i++)
     {
         bool first = s_files[i].wanted;
@@ -243,6 +246,16 @@ bool Update_Poll(int *newGames, int *updatedGames)
         if (!first)
             continue;
 
+        bool hasDefinitions = false;
+        for (int j = 0; j < s_fileCount; j++)
+            if (strcmp(s_files[j].titleId, s_files[i].titleId) == 0 && strcmp(s_files[j].name, "definitions.txt") == 0)
+                hasDefinitions = true;
+        if (!hasDefinitions)
+        {
+            releaseWanted = true;
+            continue;
+        }
+
         char path[64];
         snprintf(path, sizeof(path), DIRECTORY "/%.16s/definitions.txt", s_files[i].titleId);
         if (FileExists(path))
@@ -250,6 +263,8 @@ bool Update_Poll(int *newGames, int *updatedGames)
         else
             (*newGames)++;
     }
+    if (releaseWanted && *newGames + *updatedGames == 0)
+        *updatedGames = 1;
 
     FILE *log = fopen(LOG_PATH, "w");
     if (log != NULL)

@@ -349,7 +349,7 @@ static bool ReadGameTitle(u32 pid, u64 titleId, char *out, size_t capacity)
     if (ReadSmdh(pid, titleId, smdh))
     {
         if (Achievements_Count() > 0)
-            CacheSmdh(titleId, smdh);
+            CacheSmdh(Achievements_GameId(), smdh);     // another release: the game's folder
         for (int language = 1; language >= 0 && out[0] == '\0'; language--)
         {
             const u8 *title = smdh + 8 + language * 0x200;
@@ -549,6 +549,8 @@ int main(void)
             haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
             Log("game %016llX (%s): %d achievement line(s)", (unsigned long long)titleId, g_gameTitle,
                 Achievements_Count());
+            if (Achievements_GameId() != titleId)
+                Log("game: another release of %016llX (version.txt)", (unsigned long long)Achievements_GameId());
             const char *patch = active ? FindGamePatch(titleId) : NULL;
             patched = patch != NULL && !PatchedGamesAllowed();
             if (patched)
@@ -580,7 +582,7 @@ int main(void)
                 haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
             if (!Menu_GameInFront(&applet))
                 Log("menu: game not in front (active applet %lX)", applet);
-            else if (!Menu_Open(g_game, titleId))
+            else if (!Menu_Open(g_game, Achievements_GameId()))     // the game's folder (trophy.bin)
                 Log("menu: couldn't pause the game (active applet %lX)", applet);
             else
                 Log("menu: touch %08lX", Menu_TouchResult());

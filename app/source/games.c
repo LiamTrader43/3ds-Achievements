@@ -177,6 +177,9 @@ int Games_Scan(Game *games, int capacity)
     static u8 smdh[SMDH_SIZE];
     int count = 0;
 
+    static u64 releaseIds[MAX_GAMES], releaseGames[MAX_GAMES];
+    int releases = 0;
+
     DIR *dir = opendir(DIRECTORY);
     if (dir == NULL)
         return 0;
@@ -187,17 +190,35 @@ int Games_Scan(Game *games, int capacity)
         Game *g = &games[count];
         if (!ParseFolderName(entry->d_name, &g->titleId) || !Achievements_Load(g->titleId))
             continue;
+        if (Achievements_GameId() != g->titleId)    // another release (version.txt) of a game
+        {
+            if (releases < MAX_GAMES)
+            {
+                releaseIds[releases] = g->titleId;
+                releaseGames[releases++] = Achievements_GameId();
+            }
+            continue;
+        }
         Achievements_Progress(&g->unlocked, &g->total);
         Achievements_Score(&g->earned, &g->points);
+        g->releaseCount = 0;
         count++;
     }
     closedir(dir);  // before writing any cache file into the folder
+
+    for (int r = 0; r < releases; r++)
+        for (int i = 0; i < count; i++)
+            if (games[i].titleId == releaseGames[r] && games[i].releaseCount < MAX_RELEASES)
+                games[i].releases[games[i].releaseCount++] = releaseIds[r];
 
     for (int i = 0; i < count; i++)
     {
         Game *g = &games[i];
 
+        // The installed or inserted release, the game's own first.
         g->hasIcon = ReadSmdh(g->titleId, smdh);
+        for (int r = 0; r < g->releaseCount && !g->hasIcon; r++)
+            g->hasIcon = ReadSmdh(g->releases[r], smdh);
         if (g->hasIcon)
             WriteCachedSmdh(g->titleId, smdh);
         else

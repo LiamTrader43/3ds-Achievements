@@ -2,7 +2,8 @@
 #define UPDATE_H
 
 // Checks the GitHub repo's main branch for new games or achievements and downloads them.
-// Only definitions.txt, hero.bin and trophy.bin are ever written; progress is left alone.
+// Only definitions.txt, hero.bin, trophy.bin and version.txt are ever written; progress is
+// left alone.
 
 #include <3ds.h>
 

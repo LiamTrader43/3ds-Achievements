@@ -12,14 +12,14 @@
 typedef struct
 {
     char        titleId[17];    // the game's folder, 16 hex digits, uppercase
-    char        name[16];       // definitions.txt, hero.bin or trophy.bin
+    char        name[16];       // definitions.txt, hero.bin, trophy.bin or version.txt
     char        sha[41];        // GitHub's ID for this version of the file
     uint32_t    size;
     bool        wanted;         // needs downloading
 } UpdateFile;
 
 // Finds every downloadable game file in a "git/trees/main?recursive=1" response. Only
-// the three known file names, at their allowed sizes, in a folder named with a title ID
+// the four known file names, at their allowed sizes, in a folder named with a title ID
 // are accepted, so nothing in the listing can choose where a file gets written.
 // Returns the number found, or -1 if GitHub cut the listing short.
 int     UpdateTree_Parse(const char *json, UpdateFile *files, int capacity);
