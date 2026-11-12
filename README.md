@@ -123,11 +123,12 @@ python tools/make_versions.py
 **Code**
 
 - [rcheevos](https://github.com/RetroAchievements/rcheevos) v12.5.0, Copyright (c) 2018 RetroAchievements.org (MIT): achievement conditions
-- [Luma3DS](https://github.com/LumaTeam/Luma3DS) (GPLv3): the 6x10 font from Rosalina
 - [libctru](https://github.com/devkitPro/libctru) and devkitPro (zlib): 3DS system library and toolchain
 - [curl](https://curl.se/), Copyright (c) 1996 - 2023 Daniel Stenberg and contributors (curl license): downloads
 - [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) (Apache-2.0): HTTPS
 - [zlib](https://zlib.net/) (zlib): compression for curl
+
+**Font:** [Inter](https://rsms.me/inter/), Copyright 2016 The Inter Project Authors (SIL Open Font License 1.1, see [assets/fonts/OFL.txt](assets/fonts/OFL.txt)): all text in the app, the banner and the in-game list.
 
 **Achievements:** the Ocarina of Time 3D names, descriptions and points come from the community's [RetroAchievements set](https://retroachievements.org/game/10113). The conditions were rewritten for the 3DS version.
 

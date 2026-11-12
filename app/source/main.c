@@ -21,7 +21,7 @@
 #define MAX_ACHIEVEMENTS    128     // the tracker's MAX_LINES
 
 // Colours, as in the tracker's menu and banner.
-static const Color TITLE = { 255, 209, 102 };        // the logo's yellow
+static const Color ACCENT = { 255, 209, 102 };       // the logo's yellow
 static const Color HINT = { 255, 209, 102 };
 static const Color WHITE = { 255, 255, 255 };
 static const Color GREEN = { 50, 205, 50 };         // LimeGreen, unlocked
@@ -34,12 +34,10 @@ static const Color BLACK = { 0, 0, 0 };
 
 #define MARGIN          8
 
-// Top screen: big title, a row of game tiles, hints.
-#define TITLE_H         40
-#define TITLE_SCALE     3
+// Top screen: a row of game tiles across the middle, hints at the bottom.
 #define TILE_LEFT       16
 #define TILE_GAP        4
-#define TILE_MIDDLE     132             // the row is centred on this y
+#define TILE_MIDDLE     120             // the row is centred on this y
 #define ROW_POSITIONS   5               // positions to scroll through, even with fewer games
 #define TILE_RADIUS(s)  ((s) / 8)       // corner radius of a tile of size s
 #define HERO_DELAY_MS   150             // a game stays selected this long before its background loads
@@ -93,62 +91,61 @@ static int          s_downloadDone, s_downloadTotal;
 static u8           s_hero[HERO_BYTES];     // the selected game's background
 static bool         s_heroReady;
 
-// Copies text cut to maxChars, ending in "..." if it was longer.
-static void Ellipsize(char *out, size_t capacity, const char *text, int maxChars)
+// Copies text cut to maxWidth pixels, ending in "..." if it was longer.
+static void Ellipsize(char *out, size_t capacity, const char *text, int maxWidth)
 {
     int length = (int)strlen(text);
-    if (maxChars >= (int)capacity)
-        maxChars = (int)capacity - 1;
-    if (length <= maxChars)
+    if (length < (int)capacity && Draw_TextWidth(text, 1) <= maxWidth)
     {
         memcpy(out, text, length + 1);
         return;
     }
-    int keep = maxChars > 3 ? maxChars - 3 : 0;
+    int keep = Draw_TextFit(text, 1, maxWidth - Draw_TextWidth("...", 1));
+    if (keep > (int)capacity - 4)
+        keep = (int)capacity - 4;
+    while (keep > 0 && text[keep - 1] == ' ')
+        keep--;                     // no gap before the dots
     memcpy(out, text, keep);
     memcpy(out + keep, "...", 4);
 }
 
-// Draws text word-wrapped to width pixels. Returns the y below the last line.
-static int DrawWrapped(gfxScreen_t screen, int x, int y, int width, int scale, int lineHeight, Color color,
+// Draws text word-wrapped to width pixels, at most maxLines lines (the last one ends
+// in "..." if the text goes on). Returns the y below the last line.
+static int DrawWrapped(gfxScreen_t screen, int x, int y, int width, int lineHeight, Color color,
                        const char *text, int maxLines)
 {
-    char line[80];
-    int  chars = width / (CHAR_W * scale);
+    char line[160];
 
-    if (chars >= (int)sizeof(line))
-        chars = (int)sizeof(line) - 1;
     for (int n = 0; *text != '\0' && n < maxLines; n++)
     {
         while (*text == ' ')
             text++;
         int length = (int)strlen(text);
-        int take = length;
-        if (length > chars)
+        int fit = Draw_TextFit(text, 1, width);
+        if (fit > (int)sizeof(line) - 1)
+            fit = (int)sizeof(line) - 1;
+        int take = fit;
+        if (fit < length)
         {
-            take = chars;
             while (take > 0 && text[take] != ' ')
-                take--;
+                take--;             // back to the end of a word
             if (take == 0)
-                take = chars;       // one long word
+                take = fit;         // one long word
         }
+        if (take == 0)
+            break;                  // not even one character fits
         if (n == maxLines - 1 && take < length)
-            Ellipsize(line, sizeof(line), text, chars);
+            Ellipsize(line, sizeof(line), text, width);
         else
         {
             memcpy(line, text, take);
             line[take] = '\0';
         }
-        Draw_Text(screen, x, y, scale, color, line, 0);
+        Draw_Text(screen, x, y, 1, color, line, 0);
         y += lineHeight;
         text += take;
     }
     return y;
-}
-
-static int TextWidth(const char *text, int scale)
-{
-    return (int)strlen(text) * CHAR_W * scale;
 }
 
 static void DrawProgressBar(gfxScreen_t screen, int x, int y, int w, int h, int unlocked, int total)
@@ -181,7 +178,7 @@ static void DrawTile(const Game *g, int x, int y, int size)
         return;
     }
     Draw_RoundRect(GFX_TOP, x, y, size, size, radius, DARK);
-    DrawWrapped(GFX_TOP, x + inset, y + inset, size - 2 * inset, 1, CHAR_H + 4, WHITE, g->title, (size - 2 * inset) / (CHAR_H + 4));
+    DrawWrapped(GFX_TOP, x + inset, y + inset, size - 2 * inset, LINE_H + 4, WHITE, g->title, (size - 2 * inset) / (LINE_H + 4));
 }
 
 // Loads game i's achievements into s_* (and refreshes its counts).
@@ -264,16 +261,16 @@ static bool AnimateRow(int selected, int milliseconds)
 static int DrawSettingHint(int x, const char *label, bool on)
 {
     Draw_Text(GFX_TOP, x, TOP_HINT_Y, 1, HINT, label, 0);
-    x += TextWidth(label, 1);
+    x += Draw_TextWidth(label, 1);
     Draw_Text(GFX_TOP, x, TOP_HINT_Y, 1, on ? GREEN : RED, on ? "on" : "off", 0);
-    return x + TextWidth("off   ", 1);
+    return x + Draw_TextWidth("off   ", 1);
 }
 
 // The top screen's last line, centered: the buttons, with both settings' states.
 static void DrawHints(void)
 {
     static const char patched[] = "X: Patched games ", tracker[] = "SELECT: Tracker ", exit[] = "START: Exit";
-    int width = TextWidth(patched, 1) + TextWidth(tracker, 1) + 2 * TextWidth("off   ", 1) + TextWidth(exit, 1);
+    int width = Draw_TextWidth(patched, 1) + Draw_TextWidth(tracker, 1) + 2 * Draw_TextWidth("off   ", 1) + Draw_TextWidth(exit, 1);
 
     int x = DrawSettingHint((TOP_WIDTH - width) / 2, patched, s_patchedAllowed);
     x = DrawSettingHint(x, tracker, s_trackerRunning);
@@ -282,15 +279,12 @@ static void DrawHints(void)
 
 static void DrawTop(int selected)
 {
-    static const char title[] = "3DS Achievements";
-
-    Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(title, TITLE_SCALE)) / 2, 5, TITLE_SCALE, TITLE, title, 0);
     DrawHints();
 
     if (s_gameCount == 0)
     {
-        Draw_Text(GFX_TOP, MARGIN, TITLE_H + 8, 1, WHITE, "No games with achievements found.", 0);
-        Draw_Text(GFX_TOP, MARGIN, TITLE_H + 24, 1, GREY, "Definitions go in /achievements/<TitleID>.txt", 0);
+        Draw_Text(GFX_TOP, MARGIN, MARGIN, 1, WHITE, "No games with achievements found.", 0);
+        Draw_Text(GFX_TOP, MARGIN, MARGIN + 16, 1, GREY, "Definitions go in /achievements/<TitleID>/definitions.txt", 0);
         return;
     }
 
@@ -307,7 +301,7 @@ static void DrawTop(int selected)
         if (x + size + 2 > 0)
         {
             if (i == selected)
-                Draw_RoundRect(GFX_TOP, x - 2, y - 2, size + 4, size + 4, TILE_RADIUS(size) + 2, TITLE);
+                Draw_RoundRect(GFX_TOP, x - 2, y - 2, size + 4, size + 4, TILE_RADIUS(size) + 2, ACCENT);
             if (i < s_gameCount)
                 DrawTile(&s_games[i], x, y, size);
             else
@@ -320,10 +314,10 @@ static void DrawTop(int selected)
     if (selected < s_gameCount)
     {
         char name[72];
-        Ellipsize(name, sizeof(name), s_games[selected].title, (TOP_WIDTH - TILE_LEFT - MARGIN) / CHAR_W);
+        Ellipsize(name, sizeof(name), s_games[selected].title, TOP_WIDTH - TILE_LEFT - MARGIN);
         int nameX = selectedX;
-        if (nameX + TextWidth(name, 1) > TOP_WIDTH - MARGIN)
-            nameX = TOP_WIDTH - MARGIN - TextWidth(name, 1);
+        if (nameX + Draw_TextWidth(name, 1) > TOP_WIDTH - MARGIN)
+            nameX = TOP_WIDTH - MARGIN - Draw_TextWidth(name, 1);
         if (nameX < TILE_LEFT)
             nameX = TILE_LEFT;
         Draw_Text(GFX_TOP, nameX, TILE_MIDDLE + TILE_BIG / 2 + 8, 1, WHITE, name, 0);
@@ -341,15 +335,15 @@ static void DrawBox(int i, int y)
     Draw_Icon(GFX_BOTTOM, BOX_ICON_X, y + (BOX_H - ICON_SIZE) / 2, icon);
 
     snprintf(text, sizeof(text), "%u pts", s_points[i]);
-    int pointsX = BOTTOM_WIDTH - MARGIN - TextWidth(text, 1);
+    int pointsX = BOTTOM_WIDTH - MARGIN - Draw_TextWidth(text, 1);
     Draw_Text(GFX_BOTTOM, pointsX, y + 6, 1, unlocked ? GOLD : GREY, text, 0);
 
     char name[80];
-    Ellipsize(name, sizeof(name), s_names[i], (pointsX - 6 - BOX_TEXT_X) / CHAR_W);
+    Ellipsize(name, sizeof(name), s_names[i], pointsX - 6 - BOX_TEXT_X);
     Draw_Text(GFX_BOTTOM, BOX_TEXT_X, y + 6, 1, unlocked ? GREEN : WHITE, name, 0);
 
     const char *description = s_descriptions[i][0] != '\0' ? s_descriptions[i] : "No description.";
-    DrawWrapped(GFX_BOTTOM, BOX_TEXT_X, y + 21, BOX_TEXT_W, 1, 12, GREY, description, 2);
+    DrawWrapped(GFX_BOTTOM, BOX_TEXT_X, y + 24, BOX_TEXT_W, LINE_H + 2, GREY, description, 2);
 
 }
 
@@ -373,7 +367,7 @@ static void DrawBoxes(const Game *g, int scroll, bool loaded)
 
     // Score on the right, total unlocks on the left, the progress bar between them.
     snprintf(text, sizeof(text), "%d/%d pts", g->earned, g->points);
-    int right = BOTTOM_WIDTH - MARGIN - TextWidth(text, 1);
+    int right = BOTTOM_WIDTH - MARGIN - Draw_TextWidth(text, 1);
     Draw_Text(GFX_BOTTOM, right, 5, 1, GOLD, text, 0);
     snprintf(text, sizeof(text), "%d/%d unlocked", g->unlocked, g->total);
     int w = Draw_Text(GFX_BOTTOM, MARGIN, 5, 1, g->unlocked == g->total ? GREEN : WHITE, text, 0);
@@ -414,9 +408,9 @@ static void DrawPopup(void)
         default:                    title = "Download failed"; break;
     }
 
-    Draw_RoundRect(GFX_TOP, x - 2, y - 2, w + 4, h + 4, 12, small ? TITLE : RED);
+    Draw_RoundRect(GFX_TOP, x - 2, y - 2, w + 4, h + 4, 12, small ? ACCENT : RED);
     Draw_RoundRect(GFX_TOP, x, y, w, h, 10, PANEL);
-    Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(title, 2)) / 2, y + 12, 2, WHITE, title, 0);
+    Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(title, 2)) / 2, y + 12, 2, WHITE, title, 0);
 
     if (s_popup == POPUP_UPDATE)
     {
@@ -426,12 +420,12 @@ static void DrawPopup(void)
             snprintf(text, sizeof(text), "%d new game%s", s_newGames, s_newGames == 1 ? "" : "s");
         else
             snprintf(text, sizeof(text), "%d game%s updated", s_updatedGames, s_updatedGames == 1 ? "" : "s");
-        Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(text, 1)) / 2, y + 44, 1, GREY, text, 0);
+        Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(text, 1)) / 2, y + 44, 1, GREY, text, 0);
     }
     else if (s_popup == POPUP_DOWNLOADING)
     {
         snprintf(text, sizeof(text), "File %d of %d", s_downloadDone + 1, s_downloadTotal);
-        Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(text, 1)) / 2, y + 44, 1, GREY, text, 0);
+        Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(text, 1)) / 2, y + 44, 1, GREY, text, 0);
         DrawProgressBar(GFX_TOP, x + 24, y + 66, w - 48, 6, s_downloadDone, s_downloadTotal);
     }
     else
@@ -453,7 +447,7 @@ static void DrawPopup(void)
         Draw_Text(GFX_TOP, x + 12, y + 78, 1, GREY, "It will offer the download again next time you open", 0);
         Draw_Text(GFX_TOP, x + 12, y + 92, 1, GREY, "the app. Check your internet connection.", 0);
     }
-    Draw_Text(GFX_TOP, (TOP_WIDTH - TextWidth(button, 1)) / 2, y + h - 18, 1, HINT, button, 0);
+    Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(button, 1)) / 2, y + h - 18, 1, HINT, button, 0);
 }
 
 // Shown while files download; nothing else on the screen is changing.

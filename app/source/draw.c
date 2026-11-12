@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-#include "font.h"   // the tracker's copy of Rosalina's font (sysmodule/tracker/source)
+#include "font_inter.h"
 
 static u8 *s_fb[2];     // back buffers of GFX_TOP and GFX_BOTTOM for this frame
 
@@ -98,24 +98,59 @@ void Draw_Rect(gfxScreen_t screen, int x, int y, int w, int h, Color color)
             Plot(screen, x + dx, y + dy, color);
 }
 
+static const FontGlyph *Glyph(int scale, unsigned char c)
+{
+    if (c < 32 || c > 126)
+        c = '?';
+    return scale >= 2 ? &font26_glyphs[c - 32] : &font13_glyphs[c - 32];
+}
+
+// The pen moves in 1/64 pixels; a position is rounded to the nearest pixel.
+static inline int Pixels(int pen64)
+{
+    return (pen64 + 32) >> 6;
+}
+
+int Draw_TextWidth(const char *text, int scale)
+{
+    int pen64 = 0;
+    for (const char *s = text; *s != '\0'; s++)
+        pen64 += Glyph(scale, (unsigned char)*s)->adv64;
+    return Pixels(pen64);
+}
+
+int Draw_TextFit(const char *text, int scale, int width)
+{
+    int pen64 = 0, n = 0;
+    for (; text[n] != '\0'; n++)
+    {
+        pen64 += Glyph(scale, (unsigned char)text[n])->adv64;
+        if (Pixels(pen64) > width)
+            break;
+    }
+    return n;
+}
+
 int Draw_Text(gfxScreen_t screen, int x, int y, int scale, Color color, const char *text, int maxWidth)
 {
     int limit = maxWidth > 0 ? x + maxWidth : Draw_Width(screen);
-    int start = x;
-    int step = FONT_WIDTH * scale;
+    int pen64 = x << 6;
 
-    for (const char *s = text; *s != '\0' && x + step <= limit; s++, x += step)
+    for (const char *s = text; *s != '\0'; s++)
     {
-        const unsigned char *glyph = &font[(unsigned char)*s * FONT_HEIGHT];
-        for (int row = 0; row < FONT_HEIGHT; row++)
-            for (int col = 0; col < FONT_WIDTH; col++)
-                if ((glyph[row] >> (6 - col)) & 1)
-                    Draw_Rect(screen, x + col * scale, y + row * scale, scale, scale, color);
+        const FontGlyph *g = Glyph(scale, (unsigned char)*s);
+        if (Pixels(pen64 + g->adv64) > limit)
+            break;
+        const unsigned char *alpha = (scale >= 2 ? font26_alpha : font13_alpha) + g->off;
+        int gx = Pixels(pen64) + g->x;
+        for (int row = 0; row < g->h; row++)
+            for (int col = 0; col < g->w; col++, alpha++)
+                if (*alpha != 0)
+                    Blend(screen, gx + col, y + g->y + row, color, (*alpha * 16 + 127) / 255);
+        pen64 += g->adv64;
     }
-    return x - start;
+    return Pixels(pen64) - x;
 }
-
-#define HERO_TOP_FADE   70      // the background brightens over this many rows from the top
 
 void Draw_Hero(const u8 *pixels, int fade)
 {
@@ -124,10 +159,7 @@ void Draw_Hero(const u8 *pixels, int fade)
     for (int x = 0; x < TOP_WIDTH; x++)
         for (int row = 0; row < SCREEN_HEIGHT; row++)    // row 0 is the bottom of the screen
         {
-            int y = SCREEN_HEIGHT - 1 - row;
-            int level = 24 + 100 * row / (SCREEN_HEIGHT - 1);                   // out of 256
-            if (y < HERO_TOP_FADE)
-                level = 28 + (level - 28) * y / HERO_TOP_FADE;                  // dark behind the title
+            int level = 40 + 110 * row / (SCREEN_HEIGHT - 1);                   // out of 256
             level = level * fade >> 8;
             for (int c = 0; c < 3; c++)
                 out[c] = (u8)(pixels[c] * level >> 8);

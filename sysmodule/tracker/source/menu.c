@@ -35,8 +35,7 @@ Result svcControlProcess(Handle process, u32 op, u32 varg2, u32 varg3);
 #define BOX_TEXT_X          (BOX_ICON_X + OVERLAY_ICON_SIZE + 8)
 #define BOX_TEXT_W          (WIDTH - MARGIN - BOX_TEXT_X)
 
-#define CHAR_W              OVERLAY_FONT_WIDTH
-#define LINE_CHARS          (WIDTH / CHAR_W + 1)
+#define LINE_CHARS          112     // a line of text, 320 px even in narrow characters
 #define MAX_ACHIEVEMENTS    128
 #define ICON_PIXELS         (OVERLAY_ICON_SIZE * OVERLAY_ICON_SIZE)
 #define ICON_FILE_BYTES     (2 * ICON_PIXELS * 2)   // unlocked, then locked
@@ -97,42 +96,31 @@ bool Menu_GameInFront(u32 *active)
     return R_FAILED(res) || *active == APPID_APPLICATION;
 }
 
-// Copies text, cut to maxChars (less than LINE_CHARS) with "..." if longer.
-static void Ellipsize(char *out, const char *text, u32 maxChars)
-{
-    size_t length = strlen(text);
-    if (length <= maxChars)
-    {
-        memcpy(out, text, length + 1);
-        return;
-    }
-    u32 keep = maxChars > 3 ? maxChars - 3 : 0;
-    memcpy(out, text, keep);
-    memcpy(out + keep, "...", 4);
-}
-
-// Word-wraps a description onto two lines, ending in "..." if it doesn't fit.
+// Word-wraps a description onto two lines of BOX_TEXT_W pixels, ending in "..." if it
+// doesn't fit (as the app's DrawWrapped).
 static void WrapDescription(const char *text, char lines[2][LINE_CHARS])
 {
-    const int chars = BOX_TEXT_W / CHAR_W;
-
     lines[0][0] = lines[1][0] = '\0';
     for (int n = 0; n < 2 && *text != '\0'; n++)
     {
         while (*text == ' ')
             text++;
         int length = (int)strlen(text);
-        int take = length;
-        if (length > chars)
+        int fit = Overlay_TextFit(text, BOX_TEXT_W);
+        if (fit > LINE_CHARS - 1)
+            fit = LINE_CHARS - 1;
+        int take = fit;
+        if (fit < length)
         {
-            take = chars;
             while (take > 0 && text[take] != ' ')
-                take--;
+                take--;                     // back to the end of a word
             if (take == 0)
-                take = chars;               // one long word
+                take = fit;                 // one long word
         }
+        if (take == 0)
+            break;                          // not even one character fits
         if (n == 1 && take < length)
-            Ellipsize(lines[n], text, chars);
+            Overlay_Ellipsize(lines[n], LINE_CHARS, text, BOX_TEXT_W);
         else
         {
             memcpy(lines[n], text, take);
@@ -167,15 +155,15 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
                                          : (got ? TROPHY_UNLOCKED : TROPHY_LOCKED);
 
         snprintf(boxPoints[row], sizeof(boxPoints[row]), "%u pts", points[i]);
-        int pointsX = WIDTH - MARGIN - (int)strlen(boxPoints[row]) * CHAR_W;
-        Ellipsize(boxName[row], names[i], (pointsX - 6 - BOX_TEXT_X) / CHAR_W);
+        int pointsX = WIDTH - MARGIN - Overlay_TextWidth(boxPoints[row]);
+        Overlay_Ellipsize(boxName[row], LINE_CHARS, names[i], pointsX - 6 - BOX_TEXT_X);
         WrapDescription(descriptions[i][0] != '\0' ? descriptions[i] : "No description.", boxLines[row]);
 
         items[n++] = (OverlayItem){ BOX_ICON_X, y + (BOX_H - OVERLAY_ICON_SIZE) / 2, 0, 0, WHITE, NULL, icon };
         items[n++] = (OverlayItem){ BOX_TEXT_X, y + 6, 0, 0, got ? GREEN : WHITE, boxName[row], NULL };
         items[n++] = (OverlayItem){ pointsX, y + 6, 0, 0, got ? GOLD : GREY, boxPoints[row], NULL };
-        items[n++] = (OverlayItem){ BOX_TEXT_X, y + 21, 0, 0, GREY, boxLines[row][0], NULL };
-        items[n++] = (OverlayItem){ BOX_TEXT_X, y + 33, 0, 0, GREY, boxLines[row][1], NULL };
+        items[n++] = (OverlayItem){ BOX_TEXT_X, y + 24, 0, 0, GREY, boxLines[row][0], NULL };
+        items[n++] = (OverlayItem){ BOX_TEXT_X, y + 24 + OVERLAY_LINE_H + 2, 0, 0, GREY, boxLines[row][1], NULL };
     }
 
     // The header goes on last, so a box scrolling off the top slides under it. Unlocks
@@ -185,8 +173,8 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
     Achievements_Score(&earned, &available);
     snprintf(progress, sizeof(progress), "%d/%d unlocked", done, total);
     snprintf(score, sizeof(score), "%d/%d pts", earned, available);
-    int left = MARGIN + (int)strlen(progress) * CHAR_W + 8;
-    int right = WIDTH - MARGIN - (int)strlen(score) * CHAR_W;
+    int left = MARGIN + Overlay_TextWidth(progress) + 8;
+    int right = WIDTH - MARGIN - Overlay_TextWidth(score);
     int bar = right - 8 - left;
 
     items[n++] = (OverlayItem){ MARGIN, 5, 0, 0, done == total && total > 0 ? GREEN : WHITE, progress, NULL };

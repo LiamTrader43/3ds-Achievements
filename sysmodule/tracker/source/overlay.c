@@ -3,12 +3,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "font.h"
 #include "overlay_blend.h"
+#include "../../../app/source/font_inter.h"     // the app's font; only its 13 px set is used here
 
 #pragma GCC optimize("O2")     // a banner repair races the game's next screen swap
-
-_Static_assert(OVERLAY_FONT_WIDTH == FONT_WIDTH && OVERLAY_FONT_HEIGHT == FONT_HEIGHT, "overlay.h font size");
 
 // Luma3DS kernel extension (csvc.s).
 Result svcCustomBackdoor(void *func, ...);
@@ -38,6 +36,13 @@ void   svcFlushDataCacheRange(void *address, u32 length);
 #define SCREEN_HEIGHT       240
 #define BANNER_HEIGHT       30
 #define BACKGROUND_ALPHA    166     // out of 256: background over the game (~65%)
+#define BANNER_TITLE_Y      3       // tops of the banner's two lines of text
+#define BANNER_TEXT_Y       15
+#define BANNER_GAP          6       // between the second line and its right-aligned text
+
+_Static_assert(OVERLAY_LINE_H == 13, "overlay.h line height = the font13 set");
+_Static_assert(BANNER_TEXT_Y + FONT13_BOTTOM < BANNER_HEIGHT - 1, "text stays above the gold bottom edge");
+_Static_assert(SCREEN_WIDTH - 16 == OVERLAY_BANNER_W, "overlay.h banner width");
 
 static const Rgb BACKGROUND = { 16, 16, 24 };
 static const Rgb GOLD = { 255, 196, 40 };
@@ -52,6 +57,7 @@ typedef struct
     const char *title;
     const char *text;
     const char *rightText;  // right-aligned on the text line (e.g. "1/3")
+    int         rightX;     // where rightText starts
     u32         kernPaToVa;
     u32         pa;         // probe: out, the on-screen buffer; draw: in (buffer that was flushed)
     u32         shown;      // probe: out, the on-screen buffer (kept while pa is reused)
@@ -116,25 +122,96 @@ static inline u8 *Pixel(u8 *fb, u32 stride, u32 bpp, u32 x, u32 y)
     return fb + x * stride + (SCREEN_HEIGHT - 1 - y) * bpp;
 }
 
-// Draws s from x, stopping before any character would pass `limit`, only in
-// the screen columns marked in `columns`.
-static void DrawText(u8 *fb, u32 stride, u32 bpp, u32 fmt, u32 x, u32 y, u32 limit, const char *s, Rgb c,
+static inline const FontGlyph *Glyph(char ch)
+{
+    unsigned char c = (unsigned char)ch;
+    if (c < 32 || c > 126)
+        c = '?';
+    return &font13_glyphs[c - 32];
+}
+
+// The pen moves in 1/64 pixels; a position is rounded to the nearest pixel.
+static inline int Pixels(int pen64)
+{
+    return (pen64 + 32) >> 6;
+}
+
+int Overlay_TextWidth(const char *text)
+{
+    int pen64 = 0;
+    for (; *text != '\0'; text++)
+        pen64 += Glyph(*text)->adv64;
+    return Pixels(pen64);
+}
+
+int Overlay_TextFit(const char *text, int width)
+{
+    int pen64 = 0, n = 0;
+    for (; text[n] != '\0'; n++)
+    {
+        pen64 += Glyph(text[n])->adv64;
+        if (Pixels(pen64) > width)
+            break;
+    }
+    return n;
+}
+
+void Overlay_Ellipsize(char *out, u32 capacity, const char *text, int maxWidth)
+{
+    u32 length = strlen(text);
+    if (length < capacity && Overlay_TextWidth(text) <= maxWidth)
+    {
+        memcpy(out, text, length + 1);
+        return;
+    }
+    int keep = Overlay_TextFit(text, maxWidth - Overlay_TextWidth("..."));
+    if (keep > (int)capacity - 4)
+        keep = (int)capacity - 4;
+    while (keep > 0 && text[keep - 1] == ' ')
+        keep--;                     // no gap before the dots
+    memcpy(out, text, keep);
+    memcpy(out + keep, "...", 4);
+}
+
+// c over `under` by a glyph's coverage (0-255), in 16 steps like the app's text.
+static inline Rgb Mix(Rgb under, Rgb c, u32 alpha)
+{
+    u32 cover = (alpha * 16 + 127) / 255;
+    if (cover >= 16)
+        return c;
+    return (Rgb){ (u8)((under.r * (16 - cover) + c.r * cover) / 16), (u8)((under.g * (16 - cover) + c.g * cover) / 16),
+                  (u8)((under.b * (16 - cover) + c.b * cover) / 16) };
+}
+
+// Draws s from x, blended over what's there, stopping before any character would
+// pass `limit`, only in the screen columns marked in `columns`.
+static void DrawText(u8 *fb, u32 stride, u32 bpp, u32 fmt, int x, int y, int limit, const char *s, Rgb c,
                      const bool *columns)
 {
-    u8 raw[4];
-    Encode(fmt, c, raw);
+    int pen64 = x << 6;
 
-    for (; *s != '\0' && x + FONT_WIDTH <= limit; s++, x += FONT_WIDTH)
+    for (; *s != '\0'; s++)
     {
-        const unsigned char *glyph = &font[(unsigned char)*s * FONT_HEIGHT];
-        for (u32 col = 0; col < FONT_WIDTH; col++)
+        const FontGlyph *g = Glyph(*s);
+        if (Pixels(pen64 + g->adv64) > limit)
+            break;
+        int left = Pixels(pen64) + g->x;
+        for (int col = 0; col < g->w; col++)
         {
-            if (!columns[x + col])
+            int px = left + col;
+            if (px < 0 || px >= SCREEN_WIDTH || !columns[px])
                 continue;
-            for (u32 row = 0; row < FONT_HEIGHT; row++)
-                if ((glyph[row] >> (6 - col)) & 1)
-                    memcpy(Pixel(fb, stride, bpp, x + col, y + row), raw, bpp);
+            const u8 *alpha = font13_alpha + g->off + col;
+            for (int row = 0; row < g->h; row++, alpha += g->w)
+                if (*alpha != 0)
+                {
+                    u8 *p = Pixel(fb, stride, bpp, px, y + g->y + row);
+                    u8 raw[4];
+                    Encode(fmt, Mix(Decode(fmt, p), c, *alpha), raw);
+                    memcpy(p, raw, bpp);
+                }
         }
+        pen64 += g->adv64;
     }
 }
 
@@ -239,11 +316,10 @@ static void DrawKernel(DrawArgs *a)
         memcpy(Pixel(fb, stride, bpp, x, BANNER_HEIGHT - 1), gold, bpp);
     }
 
-    // The name stops a character short of the right-aligned count.
-    u32 rightX = SCREEN_WIDTH - 8 - strlen(a->rightText) * FONT_WIDTH;
-    DrawText(fb, stride, bpp, fmt, 8, 3, SCREEN_WIDTH - 8, a->title, GOLD, redraw);
-    DrawText(fb, stride, bpp, fmt, 8, 15, rightX - FONT_WIDTH, a->text, TEXT, redraw);
-    DrawText(fb, stride, bpp, fmt, rightX, 15, SCREEN_WIDTH - 8, a->rightText, TEXT, redraw);
+    // Each text pixel is blended over the background just drawn in its column.
+    DrawText(fb, stride, bpp, fmt, 8, BANNER_TITLE_Y, SCREEN_WIDTH - 8, a->title, GOLD, redraw);
+    DrawText(fb, stride, bpp, fmt, 8, BANNER_TEXT_Y, a->rightX - BANNER_GAP, a->text, TEXT, redraw);
+    DrawText(fb, stride, bpp, fmt, a->rightX, BANNER_TEXT_Y, SCREEN_WIDTH - 8, a->rightText, TEXT, redraw);
     a->drew = true;
 }
 
@@ -397,7 +473,15 @@ static void OverlayTick(DrawArgs *args)
 
 void Overlay_Show(const char *title, const char *text, const char *rightText, u32 milliseconds)
 {
-    DrawArgs args = { .title = title, .text = text, .rightText = rightText, .kernPaToVa = KernPaToVa() };
+    static char fittedTitle[64], fittedText[128];
+    int rightX = SCREEN_WIDTH - 8 - Overlay_TextWidth(rightText);
+
+    // Measured here, before the kernel-mode drawing.
+    Overlay_Ellipsize(fittedTitle, sizeof(fittedTitle), title, OVERLAY_BANNER_W);
+    Overlay_Ellipsize(fittedText, sizeof(fittedText), text, (rightText[0] != '\0' ? rightX - BANNER_GAP : SCREEN_WIDTH - 8) - 8);
+
+    DrawArgs args = { .title = fittedTitle, .text = fittedText, .rightText = rightText, .rightX = rightX,
+                      .kernPaToVa = KernPaToVa() };
     u32      lastShown = 0;
     u64      last = 0;
     s32      priority = 0;
@@ -466,27 +550,51 @@ typedef struct
     u32                 size;       // out
 } ScreenArgs;
 
-static u8 s_lengths[OVERLAY_MAX_ITEMS];     // text lengths, measured before entering the kernel
-
-#define ICON_PIXEL  0xFF    // in a column: take this pixel's colour from iconColumn
+static u8  s_lengths[OVERLAY_MAX_ITEMS];    // text lengths, measured before entering the kernel
+static u8  s_next[OVERLAY_MAX_ITEMS];       // per text: the first glyph that can still reach this column
+static int s_pen64[OVERLAY_MAX_ITEMS];      // and where that glyph's pen position is, in 1/64 pixels
 
 // An icon's pixel (x, y): 8x8 tiles, Z-order inside each (the SMDH layout).
-static inline u16 IconPixel(const u16 *icon, u32 x, u32 y)
+static inline Rgb IconPixel(const u16 *icon, u32 x, u32 y)
 {
     u32 tile = (y / 8) * 6 + x / 8;
     u32 inner = (x & 1) | ((y & 1) << 1) | ((x & 2) << 1) | ((y & 2) << 2) | ((x & 4) << 2) | ((y & 4) << 3);
-    return icon[tile * 64 + inner];
+    u16 v = icon[tile * 64 + inner];
+    return (Rgb){ (u8)(((v >> 11) & 31) << 3), (u8)(((v >> 5) & 63) << 2), (u8)((v & 31) << 3) };
 }
 
-// Kernel mode: builds each screen column (240 colour indices: 0 = black,
-// i + 1 = item i) and writes it out, so every pixel gets its final colour once.
+// Blends text item i's pixels in screen column x into column. Columns are drawn left
+// to right, and s_next/s_pen64 move along the text with them.
+static void TextColumn(const OverlayItem *it, u32 i, int x, Rgb *column)
+{
+    while (s_next[i] < s_lengths[i] && Pixels(s_pen64[i]) + FONT13_MAX_RIGHT <= x)
+        s_pen64[i] += Glyph(it->text[s_next[i]++])->adv64;     // ends left of x: done
+
+    int pen64 = s_pen64[i];
+    for (u32 k = s_next[i]; k < s_lengths[i] && Pixels(pen64) + FONT13_MIN_X <= x; k++)
+    {
+        const FontGlyph *g = Glyph(it->text[k]);
+        int col = x - (Pixels(pen64) + g->x);
+        if (col >= 0 && col < g->w)
+        {
+            const u8 *alpha = font13_alpha + g->off + col;
+            for (int row = 0; row < g->h; row++, alpha += g->w)
+            {
+                int y = it->y + g->y + row;
+                if (*alpha != 0 && y >= 0 && y < SCREEN_HEIGHT)
+                    column[y] = Mix(column[y], it->color, *alpha);
+            }
+        }
+        pen64 += g->adv64;
+    }
+}
+
+// Kernel mode: builds each screen column in colour (black, then the items in order)
+// and writes it out, so every pixel gets its final colour once.
 static void DrawScreenKernel(ScreenArgs *a)
 {
-    static const Rgb    BLACK = { 0, 0, 0 };
-    static u32          palette[OVERLAY_MAX_ITEMS + 1];
-    static u8           column[SCREEN_HEIGHT];
-    static u16          iconColumn[SCREEN_HEIGHT];      // where column[y] is ICON_PIXEL
-    u32                 fmt, bpp, stride;
+    static Rgb  column[SCREEN_HEIGHT];
+    u32         fmt, bpp, stride;
 
     a->pa = CurrentBuffer(&fmt, &bpp, &stride);
     a->size = SCREEN_WIDTH * stride;
@@ -494,9 +602,11 @@ static void DrawScreenKernel(ScreenArgs *a)
         return;
 
     u8 *fb = (u8 *)(a->pa + a->kernPaToVa);
-    Encode(fmt, BLACK, (u8 *)&palette[0]);
     for (u32 i = 0; i < a->count; i++)
-        Encode(fmt, a->items[i].color, (u8 *)&palette[i + 1]);
+    {
+        s_next[i] = 0;
+        s_pen64[i] = a->items[i].x << 6;
+    }
 
     for (u32 x = 0; x < SCREEN_WIDTH; x++)
     {
@@ -505,6 +615,11 @@ static void DrawScreenKernel(ScreenArgs *a)
         for (u32 i = 0; i < a->count; i++)
         {
             const OverlayItem *it = &a->items[i];
+            if (it->icon == NULL && it->text != NULL)
+            {
+                TextColumn(it, i, (int)x, column);      // a glyph can start left of it->x
+                continue;
+            }
             if (x < it->x)
                 continue;
             u32 dx = x - it->x;
@@ -514,54 +629,31 @@ static void DrawScreenKernel(ScreenArgs *a)
                 if (dx < OVERLAY_ICON_SIZE)
                     for (u32 row = 0; row < OVERLAY_ICON_SIZE; row++)
                     {
-                        int rowY = it->y + (int)row;
-                        if (rowY < 0 || rowY >= SCREEN_HEIGHT)
-                            continue;
-                        column[rowY] = ICON_PIXEL;
-                        iconColumn[rowY] = IconPixel(it->icon, dx, row);
+                        int y = it->y + (int)row;
+                        if (y >= 0 && y < SCREEN_HEIGHT)
+                            column[y] = IconPixel(it->icon, dx, row);
                     }
-                continue;
             }
-
-            if (it->text == NULL)
-            {
-                if (dx < it->width)
-                    for (int y = it->y < 0 ? 0 : it->y; y < it->y + (int)it->height && y < SCREEN_HEIGHT; y++)
-                        column[y] = (u8)(i + 1);
-                continue;
-            }
-
-            if (dx / FONT_WIDTH >= s_lengths[i])
-                continue;
-            const unsigned char *glyph = &font[(unsigned char)it->text[dx / FONT_WIDTH] * FONT_HEIGHT];
-            u32 bit = 6 - dx % FONT_WIDTH;
-            for (u32 row = 0; row < FONT_HEIGHT; row++)
-            {
-                int rowY = it->y + (int)row;
-                if (rowY >= 0 && rowY < SCREEN_HEIGHT && ((glyph[row] >> bit) & 1))
-                    column[rowY] = (u8)(i + 1);
-            }
+            else if (dx < it->width)
+                for (int y = it->y < 0 ? 0 : it->y; y < it->y + (int)it->height && y < SCREEN_HEIGHT; y++)
+                    column[y] = it->color;
         }
 
         u8 *p = Pixel(fb, stride, bpp, x, 0);
-        for (u32 y = 0; y < SCREEN_HEIGHT; y++, p -= bpp)
-        {
-            u32 pixel;
-            const u8 *c = (const u8 *)&palette[column[y] == ICON_PIXEL ? 0 : column[y]];
-            if (column[y] == ICON_PIXEL)
+        if (fmt == GSP_BGR8_OES)
+            for (u32 y = 0; y < SCREEN_HEIGHT; y++, p -= 3)
             {
-                u16 v = iconColumn[y];
-                Rgb rgb = { (u8)(((v >> 11) & 31) << 3), (u8)(((v >> 5) & 63) << 2), (u8)((v & 31) << 3) };
-                Encode(fmt, rgb, (u8 *)&pixel);
-                c = (const u8 *)&pixel;
+                p[0] = column[y].b;
+                p[1] = column[y].g;
+                p[2] = column[y].r;
             }
-            p[0] = c[0];
-            p[1] = c[1];
-            if (bpp >= 3)
-                p[2] = c[2];
-            if (bpp == 4)
-                p[3] = c[3];
-        }
+        else
+            for (u32 y = 0; y < SCREEN_HEIGHT; y++, p -= bpp)
+            {
+                u8 raw[4];
+                Encode(fmt, column[y], raw);
+                memcpy(p, raw, bpp);
+            }
     }
 }
 
@@ -572,7 +664,7 @@ void Overlay_DrawScreen(const OverlayItem *items, u32 count)
     for (u32 i = 0; i < args.count; i++)
     {
         size_t length = items[i].text ? strlen(items[i].text) : 0;
-        s_lengths[i] = (u8)(length < SCREEN_WIDTH / FONT_WIDTH ? length : SCREEN_WIDTH / FONT_WIDTH);
+        s_lengths[i] = (u8)(length < 255 ? length : 255);
     }
 
     svcCustomBackdoor(DrawScreenKernel, &args);

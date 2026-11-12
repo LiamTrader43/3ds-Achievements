@@ -34,7 +34,6 @@ Result svcControlService(u32 op, Handle *out, const char *name);
 #define LIGHT_BLUE          10
 #define START_DELAY_MS      5000            // after a game launches, before its start banner
 #define START_BANNER_MS     5000
-#define BANNER_CHARS        49              // a banner text line with nothing right-aligned
 #define SMDH_SIZE           0x36C0
 
 #define HEAP_SIZE           0x40000         // 256 KB of the Base region (never the game's); halved until it fits
@@ -483,7 +482,7 @@ static const char *FindGamePatch(u64 titleId)
 // off), the game's name cut with "..." to fit.
 static void ShowStartBanner(bool supported, bool patched)
 {
-    char    suffix[48], message[128];   // filled to BANNER_CHARS at most
+    char    suffix[48], title[96], message[160];
     int     unlocked, total;
 
     if (patched)
@@ -496,12 +495,8 @@ static void ShowStartBanner(bool supported, bool patched)
     else
         snprintf(suffix, sizeof(suffix), ", achievements not supported");
 
-    int room = BANNER_CHARS - (int)strlen(suffix);
-    int length = (int)strlen(g_gameTitle);
-    if (length <= room)
-        snprintf(message, sizeof(message), "%s%s", g_gameTitle, suffix);
-    else
-        snprintf(message, sizeof(message), "%.*s...%s", room > 3 ? room - 3 : 0, g_gameTitle, suffix);
+    Overlay_Ellipsize(title, sizeof(title), g_gameTitle, OVERLAY_BANNER_W - Overlay_TextWidth(suffix));
+    snprintf(message, sizeof(message), "%s%s", title, suffix);
 
     Log("start banner: %s", message);
     Overlay_Show("3DS Achievements", message, "", START_BANNER_MS);
