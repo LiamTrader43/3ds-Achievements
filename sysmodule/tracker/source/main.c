@@ -15,11 +15,11 @@
 #include <string.h>
 
 #include "achievements.h"
+#include "gamemem.h"
 #include "menu.h"
 #include "overlay.h"
 
 #define POLL_NS             (100 * 1000 * 1000LL)
-#define MAP_ADDRESS         0x0E000000      // free in this process; game pages are mapped here briefly
 #define LOG_PATH            "/achievements/tracker.log"
 #define NOTIF_TERMINATE     0x100           // PM asks sysmodules to exit (shutdown)
 Result svcControlService(u32 op, Handle *out, const char *name);
@@ -36,9 +36,6 @@ Result svcControlService(u32 op, Handle *out, const char *name);
 #define START_BANNER_MS     5000
 #define BANNER_CHARS        49              // a banner text line with nothing right-aligned
 #define SMDH_SIZE           0x36C0
-
-Result svcMapProcessMemoryEx(Handle dstProcess, u32 dstAddress, Handle srcProcess, u32 srcAddress, u32 size, u32 flags);
-Result svcUnmapProcessMemoryEx(Handle process, u32 address, u32 size);
 
 #define HEAP_SIZE           0x40000         // 256 KB of the Base region (never the game's); halved until it fits
 
@@ -201,22 +198,77 @@ static void LogBannerStats(void)
 // Game memory and notifications
 //------------------------------------------------------------------------------
 
+// Game memory is read through gamemem.c (one mapping at a time, copied; see there).
+#define STATS_POLLS     600     // one stats window: about a minute
+#define STATS_EVERY     10      // a routine "poll:" line every 10 windows (~10 minutes)
+
+static u32 g_statsWindows;      // stats windows since the current game started
+
+// Counts a poll, in windows of STATS_POLLS polls. Logs a window ("poll:" lines in
+// tracker.log: how long checking took and how game memory was read; a banner's
+// seconds count in a poll's time) when something went wrong in it (a skipped poll:
+// memory that was readable couldn't be read; or a failed unmap), for the first
+// window of a game, and every STATS_EVERY windows; so a normal session adds one
+// line per ~10 minutes, not one a minute. Map calls count each range or page
+// mapped, failed ones too (a few failed maps are normal: junk pointers).
+static void PollStats(u64 ticks)
+{
+    static u32          polls;
+    static u64          total, longest;
+    static GameMemStats sum;
+    GameMemStats        poll;
+
+    GameMem_TakeStats(&poll);
+    polls++;
+    sum.reads += poll.reads;
+    sum.failedReads += poll.failedReads;
+    sum.maps += poll.maps;
+    sum.mapFailures += poll.mapFailures;
+    sum.unmapFailures += poll.unmapFailures;
+    sum.skippedPolls += poll.skippedPolls;
+    if (poll.mapFailures + poll.unmapFailures > 0)
+    {
+        sum.lastError = poll.lastError;
+        sum.lastErrorAddress = poll.lastErrorAddress;
+    }
+    total += ticks;
+    if (ticks > longest)
+        longest = ticks;
+    if (polls < STATS_POLLS)
+        return;
+
+    g_statsWindows++;
+    bool trouble = sum.skippedPolls > 0 || sum.unmapFailures > 0;
+    if (!trouble && g_statsWindows != 1 && g_statsWindows % STATS_EVERY != 0)
+    {
+        polls = 0;
+        total = longest = 0;
+        memset(&sum, 0, sizeof(sum));
+        return;
+    }
+
+    // The pages the last poll read: which pointers led where (e.g. an enemy's actor).
+    u32  pages[16];
+    char list[16 * 9 + 1] = "";
+    int  count = GameMem_LastPages(pages, 16);
+    for (int i = 0; i < count; i++)
+        snprintf(list + i * 9, sizeof(list) - (size_t)i * 9, " %08lX", (unsigned long)pages[i]);
+    Log("poll: %lu polls (%lu skipped), avg %llu us, max %llu us, per poll %lu reads (%lu.%02lu unreadable), "
+        "%lu.%02lu map calls; failed maps %lu, unmaps %lu (last %08lX at %08lX); pages:%s",
+        (unsigned long)polls, (unsigned long)sum.skippedPolls,
+        total * 1000000 / SYSCLOCK_ARM11 / polls, longest * 1000000 / SYSCLOCK_ARM11,
+        (unsigned long)(sum.reads / polls), (unsigned long)(sum.failedReads / polls), (unsigned long)(sum.failedReads * 100 / polls % 100),
+        (unsigned long)(sum.maps / polls), (unsigned long)(sum.maps * 100 / polls % 100),
+        (unsigned long)sum.mapFailures, (unsigned long)sum.unmapFailures,
+        (unsigned long)sum.lastError, (unsigned long)sum.lastErrorAddress, list);
+    polls = 0;
+    total = longest = 0;
+    memset(&sum, 0, sizeof(sum));
+}
+
 bool Platform_ReadMemory(uint32_t address, uint8_t size, uint32_t *value)
 {
-    u32 page = address & ~0xFFFu;
-    u32 span = ((address + size - 1) & ~0xFFFu) - page + 0x1000;
-
-    if (R_FAILED(svcMapProcessMemoryEx(CUR_PROCESS_HANDLE, MAP_ADDRESS, g_game, page, span, 0)))
-        return false;
-
-    const u8 *p = (const u8 *)(MAP_ADDRESS + (address - page));
-    u32 v = 0;
-    for (u8 i = 0; i < size; i++)
-        v |= (u32)p[i] << (8 * i);
-
-    svcUnmapProcessMemoryEx(CUR_PROCESS_HANDLE, MAP_ADDRESS, span);
-    *value = v;
-    return true;
+    return GameMem_Read(address, size, value);
 }
 
 // Holds the notification light (the one by the hinge) on the unlock colour, or turns it off.
@@ -465,32 +517,43 @@ static bool IsHomebrewHost(u64 titleId)
     return host != 0 && ((titleId ^ host) & ~0xF0000000ULL) == 0;
 }
 
-// The running application (title ID 00040000xxxxxxxx), if any.
+// Whether process pid is an application (title ID 00040000xxxxxxxx), and its title ID.
+static bool IsApplication(u32 pid, u64 *titleId)
+{
+    Handle  process;
+    s64     tid;
+
+    if (R_FAILED(svcOpenProcess(&process, pid)))
+        return false;
+    Result res = svcGetProcessInfo(&tid, process, PROCESS_TITLE_ID);
+    svcCloseHandle(process);
+    *titleId = (u64)tid;
+    return R_SUCCEEDED(res) && ((u64)tid >> 32) == 0x00040000;
+}
+
+// The running application, if any. Checks the one found last time first (process
+// IDs aren't reused, so while it's alive it's still the game) and only lists every
+// process (~100 kernel calls each poll) when it's gone.
 static bool FindApplication(u32 *pid, u64 *titleId)
 {
+    static u32 last;
     u32 pids[64];
     s32 count;
 
+    if (last != 0 && IsApplication(last, titleId))
+    {
+        *pid = last;
+        return true;
+    }
+    last = 0;
     if (R_FAILED(svcGetProcessList(&count, pids, 64)))
         return false;
-
     for (s32 i = 0; i < count; i++)
-    {
-        Handle  process;
-        s64     tid;
-
-        if (R_FAILED(svcOpenProcess(&process, pids[i])))
-            continue;
-        Result res = svcGetProcessInfo(&tid, process, PROCESS_TITLE_ID);
-        svcCloseHandle(process);
-
-        if (R_SUCCEEDED(res) && ((u64)tid >> 32) == 0x00040000)
+        if (IsApplication(pids[i], titleId))
         {
-            *pid = pids[i];
-            *titleId = (u64)tid;
+            *pid = last = pids[i];
             return true;
         }
-    }
     return false;
 }
 
@@ -559,6 +622,7 @@ int main(void)
                 Log("game is patched (%s): %s", patch, patched ? "not tracking" : "tracking, allowed in the app");
             startShown = false;
             startAt = osGetTime() + START_DELAY_MS;
+            g_statsWindows = 0;     // this game's first stats window gets logged
         }
 
         // Once per launch, a few seconds in (the game is drawing by then and
@@ -588,7 +652,13 @@ int main(void)
                 Log("menu: touch %08lX", Menu_TouchResult());
         }
         else
-            Achievements_Update();
+        {
+            u64 start = svcGetSystemTick();
+            if (GameMem_BeginPoll(g_game, pid))     // false: memory unreadable, don't check with zeros
+                Achievements_Update();
+            GameMem_EndPoll();
+            PollStats(svcGetSystemTick() - start);
+        }
         svcCloseHandle(g_game);
     }
 

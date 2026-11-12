@@ -10,7 +10,7 @@ A background module watches the running game's memory. When you earn an achievem
 
 ## Supported games
 
-- **The Legend of Zelda: Ocarina of Time 3D** (USA): 97 achievements, 690 points
+- **The Legend of Zelda: Ocarina of Time 3D** (USA, EUR, JPN): 97 achievements, 690 points. All three versions share one achievement list and your progress.
 
 This set is a port of the RetroAchievements set for the N64 original. Many of its conditions were tested with recordings and simulated play rather than a full playthrough, so some may need fixes.
 
@@ -41,6 +41,20 @@ In a game, press **R + A + Left** to pause and see your achievements. B or SELEC
 When you open the app on Wi-Fi, it checks this repository's `main` branch and asks before downloading new games or achievements.
 
 Patches and mods can change how a game behaves, so while Luma's game patching is on, achievements are turned off for a game with a `code.bin`, `code.bps`, `code.ips`, `code.ups` or `romfs` folder in `/luma/titles/<TitleID>/`. The start banner tells you when this happens. To earn achievements anyway, for example with a mod you trust not to affect them, press X in the app to turn on **Patched games**. Your choice is saved, and it applies the next time you start a game.
+
+## Reporting a bug
+
+Open an [issue](https://github.com/LiamTrader43/3ds-Achievements/issues) and **attach `/achievements/tracker.log` from your SD card**. The tracker writes it as you play: which games started, every unlock, and whether it could read the game's memory. It's usually the only way to tell what went wrong. For download problems, attach `/achievements/update.log` too. Neither contains personal information, only game titles, unlocks and technical details.
+
+In the issue, include:
+
+- your console (Old or New 3DS, 2DS), its system version (bottom right of System Settings) and your Luma3DS version;
+- the game and its region;
+- what happened and what you expected, for example the achievement that didn't unlock or unlocked too early, and roughly when.
+
+If the console crashed with a Luma exception screen, press A to save the crash dump and attach the newest file from `/luma/dumps/arm11/`, or a photo of the screen.
+
+You can delete `tracker.log` any time; the tracker starts a new one.
 
 ## Adding a game
 
