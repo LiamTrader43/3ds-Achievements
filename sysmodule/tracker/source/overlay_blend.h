@@ -9,6 +9,7 @@
 
 #define BLEND_BGR8      1       // GSP_BGR8_OES: bytes B, G, R
 #define BLEND_RGBA8     0       // GSP_RGBA8_OES: bytes A, B, G, R
+#define BLEND_RGB565    2       // GSP_RGB565_OES: a 16-bit word, R5 G6 B5
 
 typedef struct { uint8_t r, g, b; } BlendColor;
 
@@ -38,6 +39,19 @@ static inline int Blend_Column(uint8_t *p, uint32_t fmt, uint32_t rows, BlendCol
             p[1] = (uint8_t)((b + p[1] * keep) >> 8);
             p[2] = (uint8_t)((g + p[2] * keep) >> 8);
             p[3] = (uint8_t)((r + p[3] * keep) >> 8);
+        }
+        return 1;
+    }
+    if (fmt == BLEND_RGB565)
+    {
+        // Channels widened and narrowed exactly as overlay.c's Decode and Encode do.
+        for (uint32_t i = 0; i < rows; i++, p -= 2)
+        {
+            uint32_t v = *(uint16_t *)p;
+            uint32_t nr = (r + (((v >> 11) & 31) << 3) * keep) >> 8;
+            uint32_t ng = (g + (((v >> 5) & 63) << 2) * keep) >> 8;
+            uint32_t nb = (b + ((v & 31) << 3) * keep) >> 8;
+            *(uint16_t *)p = (uint16_t)(((nr >> 3) << 11) | ((ng >> 2) << 5) | (nb >> 3));
         }
         return 1;
     }

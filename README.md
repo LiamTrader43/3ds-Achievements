@@ -20,8 +20,8 @@ You need a 3DS with Luma3DS. The tracker relies on Luma's kernel extensions, so 
 
 1. Download the zip from the [latest release](https://github.com/LiamTrader43/3ds-Achievements/releases/latest), extract it, and copy everything inside to the root of your SD card, merging with the folders already there.
 2. Hold SELECT while turning on your 3DS, and in Luma's configuration turn on **Enable loading external FIRMs and modules**.
-3. Install `cias/achievements.cia` with FBI, or use **3DS Achievements** in the Homebrew Launcher instead.
-4. Open **3DS Achievements** once after each boot to start the tracker. It keeps running after you leave the app.
+3. Install `cias/achievements.cia` with FBI to get **3DS Achievements** on the HOME Menu, or use **Achievements** in the Homebrew Launcher instead.
+4. Open the app once after each boot to start the tracker. It keeps running after you leave the app.
 
 To update, copy a newer zip over the old files. Your unlocks are kept.
 

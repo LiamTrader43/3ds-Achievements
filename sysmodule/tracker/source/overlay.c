@@ -173,14 +173,63 @@ void Overlay_Ellipsize(char *out, u32 capacity, const char *text, int maxWidth)
     memcpy(out + keep, "...", 4);
 }
 
-// c over `under` by a glyph's coverage (0-255), in 16 steps like the app's text.
-static inline Rgb Mix(Rgb under, Rgb c, u32 alpha)
+// How much of a pixel a glyph covers, from its image (0-255) to 16 steps like the app's text.
+static inline u32 Cover(u32 alpha)
 {
-    u32 cover = (alpha * 16 + 127) / 255;
+    return (alpha * 16 + 127) / 255;
+}
+
+// c over `under` by cover (0-16).
+static inline Rgb Mix(Rgb under, Rgb c, u32 cover)
+{
     if (cover >= 16)
         return c;
     return (Rgb){ (u8)((under.r * (16 - cover) + c.r * cover) / 16), (u8)((under.g * (16 - cover) + c.g * cover) / 16),
                   (u8)((under.b * (16 - cover) + c.b * cover) / 16) };
+}
+
+static inline u8 MixByte(u32 under, u32 c, u32 cover)
+{
+    return (u8)((under * (16 - cover) + c * cover) / 16);
+}
+
+// The text colour c over the framebuffer pixel at p by cover (1-16): the same result as
+// Encode(Mix(Decode(p))), but the common formats are blended in place. Measured on an Old
+// 3DS, the general way cost ~2.9 ms per banner repair in OoT (about 2,200 text pixels).
+static inline void BlendTextPixel(u8 *p, u32 fmt, Rgb c, u32 cover)
+{
+    if (cover >= 16)
+        cover = 16;
+    switch (fmt)
+    {
+        case GSP_BGR8_OES:      // bytes: B, G, R
+            p[0] = MixByte(p[0], c.b, cover);
+            p[1] = MixByte(p[1], c.g, cover);
+            p[2] = MixByte(p[2], c.r, cover);
+            return;
+        case GSP_RGBA8_OES:     // bytes: A, B, G, R
+            p[0] = 0xFF;
+            p[1] = MixByte(p[1], c.b, cover);
+            p[2] = MixByte(p[2], c.g, cover);
+            p[3] = MixByte(p[3], c.r, cover);
+            return;
+        case GSP_RGB565_OES:    // channels widened as Decode does, mixed, narrowed as Encode does
+        {
+            u32 v = *(u16 *)p;
+            u32 r = MixByte(((v >> 11) & 31) << 3, c.r, cover);
+            u32 g = MixByte(((v >> 5) & 63) << 2, c.g, cover);
+            u32 b = MixByte((v & 31) << 3, c.b, cover);
+            *(u16 *)p = (u16)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+            return;
+        }
+        default:
+        {
+            u8 raw[4];
+            Encode(fmt, Mix(Decode(fmt, p), c, cover), raw);
+            memcpy(p, raw, BYTES_PER_PIXEL[fmt & 7]);
+            return;
+        }
+    }
 }
 
 // Draws s from x, blended over what's there, stopping before any character would
@@ -203,13 +252,11 @@ static void DrawText(u8 *fb, u32 stride, u32 bpp, u32 fmt, int x, int y, int lim
                 continue;
             const u8 *alpha = font13_alpha + g->off + col;
             for (int row = 0; row < g->h; row++, alpha += g->w)
-                if (*alpha != 0)
-                {
-                    u8 *p = Pixel(fb, stride, bpp, px, y + g->y + row);
-                    u8 raw[4];
-                    Encode(fmt, Mix(Decode(fmt, p), c, *alpha), raw);
-                    memcpy(p, raw, bpp);
-                }
+            {
+                u32 cover = Cover(*alpha);
+                if (cover != 0)             // 0 would leave the pixel as it is
+                    BlendTextPixel(Pixel(fb, stride, bpp, px, y + g->y + row), fmt, c, cover);
+            }
         }
         pen64 += g->adv64;
     }
@@ -582,7 +629,7 @@ static void TextColumn(const OverlayItem *it, u32 i, int x, Rgb *column)
             {
                 int y = it->y + g->y + row;
                 if (*alpha != 0 && y >= 0 && y < SCREEN_HEIGHT)
-                    column[y] = Mix(column[y], it->color, *alpha);
+                    column[y] = Mix(column[y], it->color, Cover(*alpha));
             }
         }
         pen64 += g->adv64;
