@@ -1,5 +1,6 @@
 #include "draw.h"
 
+#include <math.h>
 #include <string.h>
 
 #include "font_inter.h"
@@ -21,13 +22,14 @@ int Draw_Width(gfxScreen_t screen)
     return screen == GFX_TOP ? TOP_WIDTH : BOTTOM_WIDTH;
 }
 
-void Draw_Begin(bool clearTop)
+void Draw_Begin(bool clearTop, bool clearBottom)
 {
     s_fb[GFX_TOP] = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
     s_fb[GFX_BOTTOM] = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, NULL, NULL);
     if (clearTop)
         memset(s_fb[GFX_TOP], 0, TOP_WIDTH * SCREEN_HEIGHT * 3);
-    memset(s_fb[GFX_BOTTOM], 0, BOTTOM_WIDTH * SCREEN_HEIGHT * 3);
+    if (clearBottom)
+        memset(s_fb[GFX_BOTTOM], 0, BOTTOM_WIDTH * SCREEN_HEIGHT * 3);
 }
 
 void Draw_End(void)
@@ -236,4 +238,176 @@ void Draw_Image(gfxScreen_t screen, int x, int y, int w, int h, const u8 *rgb)
             Color c = { rgb[0], rgb[1], rgb[2] };
             Plot(screen, x + col, y + row, c);
         }
+}
+
+// The light running around the selected game's frame: a lighter stretch of the frame's
+// colour moving clockwise, one lap every SHINE_LAP_MS.
+#define SHINE_LAP_MS    4800
+#define SHINE_HALF      190             // half the light's length, in 1024ths of a lap
+#define SHINE_GLOW      5               // the light's glow reaches this far outside the frame
+#define SHINE_GLOW_PEAK 180             // and is this strong right at its edge (of 256)
+#define SHINE_MAX_BOX   128             // largest frame whose pixels are kept for redraws
+
+static struct
+{
+    bool        saved;
+    gfxScreen_t screen;
+    int         x, y, w, h, radius, thickness;
+    Color       base, light;
+    u8          pixels[(SHINE_MAX_BOX + 2 * SHINE_GLOW) * (SHINE_MAX_BOX + 2 * SHINE_GLOW) * 3];  // without the light
+} s_shine;
+
+// Where pixel centre (cx, cy) is along the middle of the frame (a w x h rounded rectangle
+// with corner radius r, from its top-left), clockwise from the top edge's left end, in 1024ths.
+static int AlongFrame(float cx, float cy, float w, float h, float r)
+{
+    const float halfPi = 1.57079633f;
+    float top = w - 2 * r, side = h - 2 * r, arc = halfPi * r;
+    float s;
+
+    if (cx < r && cy < r)
+        s = 2 * top + 2 * side + 3 * arc + arc * (atan2f(cy - r, cx - r) + 2 * halfPi) / halfPi;
+    else if (cx > w - r && cy < r)
+        s = top + arc * (atan2f(cy - r, cx - (w - r)) + halfPi) / halfPi;
+    else if (cx > w - r && cy > h - r)
+        s = top + arc + side + arc * atan2f(cy - (h - r), cx - (w - r)) / halfPi;
+    else if (cx < r && cy > h - r)
+        s = 2 * top + 2 * arc + side + arc * (atan2f(cy - (h - r), cx - r) - halfPi) / halfPi;
+    else if (cy <= r)
+        s = cx - r;
+    else if (cy >= h - r)
+        s = top + 2 * arc + side + (w - r - cx);
+    else if (cx <= r)
+        s = 2 * top + 3 * arc + side + (h - r - cy);
+    else
+        s = top + arc + (cy - r);
+    int along = (int)(s * 1024.0f / (2 * top + 2 * side + 4 * arc));
+    return along & 1023;
+}
+
+// How strongly the light shows at a point along the frame (0-1): 1 at its middle, fading
+// to 0 at its ends.
+static float LightAt(int along, int head)
+{
+    int d = (along - head) & 1023;
+    if (d > 512)
+        d = 1024 - d;
+    if (d >= SHINE_HALF)
+        return 0.0f;
+    return 0.5f + 0.5f * cosf(3.14159265f * d / SHINE_HALF);
+}
+
+// Draws the light where it is now. On the frame, only the part of each pixel that's frame
+// colour gets lighter (smooth edges, nothing inside touched); just outside it, a soft glow
+// fades out over SHINE_GLOW pixels.
+static void DrawLight(void)
+{
+    const int t = s_shine.thickness, w = s_shine.w, h = s_shine.h, r = s_shine.radius, g = SHINE_GLOW;
+    const int head = (int)(osGetTime() % SHINE_LAP_MS * 1024 / SHINE_LAP_MS);
+    const float mid = t / 2.0f;
+    const int add[3] = { s_shine.light.b - s_shine.base.b, s_shine.light.g - s_shine.base.g,
+                         s_shine.light.r - s_shine.base.r };
+    const u8 light[3] = { s_shine.light.b, s_shine.light.g, s_shine.light.r };
+
+    for (int dy = -g; dy < h + g; dy++)
+    {
+        // Rows between the corners only have frame and glow at their two ends.
+        bool band = dy >= r && dy < h - r;
+        for (int dx = -g; dx < w + g; dx++)
+        {
+            if (band && dx == t + 1)
+                dx = w - t - 1;
+            int x = s_shine.x + dx, y = s_shine.y + dy;
+            if (x < 0 || y < 0 || x >= Draw_Width(s_shine.screen) || y >= SCREEN_HEIGHT)
+                continue;
+
+            bool inBox = dx >= 0 && dy >= 0 && dx < w && dy < h;
+            int outer = inBox ? Coverage(dx, dy, w, h, r) : 0;
+            int inner = 0;
+            if (dx >= t && dy >= t && dx < w - t && dy < h - t)
+                inner = Coverage(dx - t, dy - t, w - 2 * t, h - 2 * t, r > t ? r - t : 0);
+            int frame = outer * (16 - inner);       // how much of the pixel is frame, 0-256
+
+            // Distance outside the frame's outer edge (pixel centre), for the glow.
+            float cx = dx + 0.5f, cy = dy + 0.5f;
+            float ix = cx < r ? r : cx > w - r ? w - r : cx, iy = cy < r ? r : cy > h - r ? h - r : cy;
+            float outside = sqrtf((cx - ix) * (cx - ix) + (cy - iy) * (cy - iy)) - r;
+            if (frame <= 0 && outside >= g)
+                continue;
+
+            float k = LightAt(AlongFrame(cx - mid, cy - mid, w - t, h - t, r - mid), head);
+            if (k <= 0.0f)
+                continue;
+
+            u8 *p = s_fb[s_shine.screen] + (x * SCREEN_HEIGHT + (SCREEN_HEIGHT - 1 - y)) * 3;
+            if (frame > 0)
+            {
+                int amount = (int)(k * frame);      // 0-256
+                for (int c = 0; c < 3; c++)
+                {
+                    int v = p[c] + (add[c] * amount >> 8);
+                    p[c] = (u8)(v < 0 ? 0 : v > 255 ? 255 : v);
+                }
+            }
+            if (outer < 16 && outside < g)
+            {
+                float fade = 1.0f - (outside > 0.0f ? outside : 0.0f) / g;
+                int amount = (int)(k * fade * fade * SHINE_GLOW_PEAK * (16 - outer) / 16);   // 0-256
+                for (int c = 0; c < 3; c++)
+                    p[c] = (u8)(p[c] + ((light[c] - p[c]) * amount >> 8));
+            }
+        }
+    }
+}
+
+// Copies the frame's box (with the glow around it) between the back buffer and the saved pixels.
+static void CopyBox(bool save)
+{
+    const int g = SHINE_GLOW, size = SHINE_MAX_BOX + 2 * SHINE_GLOW;
+
+    for (int dx = -g; dx < s_shine.w + g; dx++)
+    {
+        int x = s_shine.x + dx;
+        if (x < 0 || x >= Draw_Width(s_shine.screen))
+            continue;
+        for (int dy = -g; dy < s_shine.h + g; dy++)
+        {
+            int y = s_shine.y + dy;
+            if (y < 0 || y >= SCREEN_HEIGHT)
+                continue;
+            u8 *p = s_fb[s_shine.screen] + (x * SCREEN_HEIGHT + (SCREEN_HEIGHT - 1 - y)) * 3;
+            u8 *q = s_shine.pixels + ((dy + g) * size + dx + g) * 3;
+            if (save)
+                memcpy(q, p, 3);
+            else
+                memcpy(p, q, 3);
+        }
+    }
+}
+
+void Draw_FrameShine(gfxScreen_t screen, int x, int y, int w, int h, int radius, int thickness,
+                     Color base, Color light)
+{
+    s_shine.screen = screen;
+    s_shine.x = x, s_shine.y = y, s_shine.w = w, s_shine.h = h;
+    s_shine.radius = radius, s_shine.thickness = thickness;
+    s_shine.base = base, s_shine.light = light;
+    s_shine.saved = w <= SHINE_MAX_BOX && h <= SHINE_MAX_BOX;
+    if (s_shine.saved)
+        CopyBox(true);
+    DrawLight();
+}
+
+bool Draw_FrameShineAgain(void)
+{
+    if (!s_shine.saved)
+        return false;
+    CopyBox(false);
+    DrawLight();
+    return true;
+}
+
+void Draw_FrameShineOff(void)
+{
+    s_shine.saved = false;
 }

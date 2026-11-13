@@ -349,6 +349,7 @@ bool Share_Poll(void)
     return changed;
 }
 
+// The image exactly as it's shared: still, with no light running around the icon.
 void Share_DrawTop(void)
 {
     Draw_Image(GFX_TOP, (TOP_WIDTH - SHARE_PREVIEW) / 2, 0, SHARE_PREVIEW, SHARE_PREVIEW, s_preview);

@@ -32,6 +32,7 @@ static const Color GREY = { 140, 140, 150 };
 static const Color DARK = { 50, 50, 58 };
 static const Color SCROLLBAR = { 110, 110, 120 };
 static const Color RED = { 235, 70, 70 };
+static const Color SHINE = { 255, 255, 245 };       // the light running around the selected game's frame
 static const Color BLACK = { 0, 0, 0 };
 
 #define MARGIN          8
@@ -294,14 +295,14 @@ static void DrawTop(int selected)
 
     // Slots past the last game are empty grey squares.
     int x = TILE_LEFT - s_camera / 16;
-    int selectedX = x;
+    int selectedX = x, selectedY = 0, selectedSize = 0;
     for (int i = 0; i < RowPositions() && x < TOP_WIDTH; i++)
     {
         int size = TileSize(i);
         int y = TILE_MIDDLE - size / 2;
 
         if (i == selected)
-            selectedX = x;
+            selectedX = x, selectedY = y, selectedSize = size;
         if (x + size + 2 > 0)
         {
             if (i == selected)
@@ -313,6 +314,12 @@ static void DrawTop(int selected)
         }
         x += size + TILE_GAP;
     }
+
+    // The light running around the selected frame, once the tiles next to it are drawn (its
+    // glow reaches toward them).
+    if (selectedSize > 0)
+        Draw_FrameShine(GFX_TOP, selectedX - 2, selectedY - 2, selectedSize + 4, selectedSize + 4,
+                        TILE_RADIUS(selectedSize) + 2, 2, ACCENT, SHINE);
 
     // The selected game's name under its tile, kept on the screen.
     if (selected < s_gameCount)
@@ -461,7 +468,7 @@ static void ShowDownloadProgress(int done, int total)
     s_popup = POPUP_DOWNLOADING;
     s_downloadDone = done;
     s_downloadTotal = total;
-    Draw_Begin(true);
+    Draw_Begin(true, true);
     DrawPopup();
     Draw_End();
 }
@@ -497,7 +504,7 @@ int main(void)
     // A loading frame, while the files and icons are read.
     for (int i = 0; i < 2; i++)
     {
-        Draw_Begin(true);
+        Draw_Begin(true, true);
         Draw_Text(GFX_TOP, MARGIN, MARGIN, 1, WHITE, "Loading...", 0);
         Draw_End();
     }
@@ -622,7 +629,7 @@ int main(void)
             // Share: only once the selected game's achievements have loaded.
             if ((down & KEY_Y) && game < s_gameCount && heroFor == game)
             {
-                Draw_Begin(true);
+                Draw_Begin(true, true);
                 if (heroLevel > 0)
                     Draw_Hero(s_hero, heroLevel);
                 DrawTop(game);
@@ -711,15 +718,22 @@ int main(void)
             }
         }
 
-        if (redraw > 0 || redrawBottom > 0)
+        // The light around the selected game's frame moves all the time. In a frame where
+        // nothing else changed, only it is redrawn.
+        // The share screen stays still: it shows the image as it's shared.
+        bool shine = !sharing && s_gameCount > 0 && s_popup == POPUP_NONE;
+        if (redraw > 0 || redrawBottom > 0 || shine)
         {
-            bool top = redraw > 0;          // dragging the list leaves the top screen alone
+            bool top = redraw > 0;
+            bool bottom = redraw > 0 || redrawBottom > 0;   // dragging the list leaves the top screen alone
 
-            Draw_Begin(top);
+            Draw_Begin(top, bottom);
             if (sharing)
             {
-                Share_DrawTop();
-                Share_DrawBottom();
+                if (top)
+                    Share_DrawTop();
+                if (bottom)
+                    Share_DrawBottom();
             }
             else
             {
@@ -727,11 +741,13 @@ int main(void)
                     Draw_Hero(s_hero, heroLevel);
                 if (top)
                     DrawTop(game);
-                if (game < s_gameCount)
+                if (bottom && game < s_gameCount)
                     DrawBoxes(&s_games[game], scroll, heroFor == game);
                 if (top && s_popup != POPUP_NONE)
                     DrawPopup();
             }
+            if (!top && shine)
+                Draw_FrameShineAgain();
             Draw_End();
             if (redraw > 0)
                 redraw--;

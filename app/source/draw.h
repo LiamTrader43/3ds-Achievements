@@ -17,9 +17,9 @@ typedef struct { u8 r, g, b; } Color;
 void    Draw_Init(void);
 void    Draw_Exit(void);
 
-// Starts a frame: the bottom back buffer cleared to black, and the top one too unless
-// clearTop is false (for frames that only redraw the bottom screen).
-void    Draw_Begin(bool clearTop);
+// Starts a frame, clearing the back buffer of each screen that will be redrawn. A screen
+// that isn't keeps what it showed two frames ago (both its buffers must be up to date).
+void    Draw_Begin(bool clearTop, bool clearBottom);
 // Shows the frame and waits for the next vblank.
 void    Draw_End(void);
 
@@ -50,6 +50,19 @@ void    Draw_Hero(const u8 *pixels, int fade);
 
 // A w x h RGB image (rows top to bottom) at (x, y).
 void    Draw_Image(gfxScreen_t screen, int x, int y, int w, int h, const u8 *rgb);
+
+// A light running around a rounded frame that's already drawn (a w x h box with corner
+// radius, the frame thickness pixels wide inside its edge, in colour base): a lighter
+// stretch (light) moving clockwise, one lap every 4.8 s. Remembers the box without the light,
+// so Draw_FrameShineAgain can move the light in a frame where nothing else is redrawn.
+void    Draw_FrameShine(gfxScreen_t screen, int x, int y, int w, int h, int radius, int thickness,
+                        Color base, Color light);
+
+// Puts the frame's box back and draws the light at its new place. False if there's no frame.
+bool    Draw_FrameShineAgain(void);
+
+// Forgets the frame (nothing is shining).
+void    Draw_FrameShineOff(void);
 
 // Pixel width of a screen.
 int     Draw_Width(gfxScreen_t screen);
