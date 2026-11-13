@@ -6,7 +6,7 @@ A background module watches the running game's memory. When you earn an achievem
 
 | The app | In-game (R + A + Left) |
 |---|---|
-| <img src="assets/screenshots/app.png" alt="The app, with Ocarina of Time 3D selected and its achievements listed on the bottom screen" width="400"> | <img src="assets/screenshots/in-game-menu.png" alt="The in-game achievement list on the bottom screen" width="400"> |
+| <img src="assets/screenshots/app.png" alt="The app, with Ocarina of Time 3D selected, the button hints along the bottom of the top screen and its achievements listed on the bottom screen" width="400"> | <img src="assets/screenshots/in-game-menu.png" alt="The in-game achievement list on the bottom screen" width="400"> |
 
 ## Supported games
 
@@ -40,6 +40,10 @@ To update, copy a newer zip over the old files. Your unlocks are kept.
 In a game, press **R + A + Left** to pause and see your achievements. B or SELECT closes the list.
 
 **Sharing:** press Y to make an image of the selected game's progress. With the 3DS on Wi-Fi, scan the QR code on the bottom screen with a phone on the same network. A page opens with the image and a **Save image** button; on an iPhone, touch and hold the image to save it to Photos. The 3DS sends it itself, so nothing is uploaded anywhere. Press A to save the image on the SD card instead, in `/achievements/share/`.
+
+| The share screen (Y) | The image you get |
+|---|---|
+| <img src="assets/screenshots/share.png" alt="The share screen: the image on the top screen, and on the bottom a QR code to scan with a phone, the link it opens, and A: Save to SD, B: Back" width="400"> | <img src="assets/screenshots/share-image.png" alt="The shared image: 3DS Achievements, the Ocarina of Time 3D icon in a gold frame over the game's art, its name, and a progress bar with 3/97" width="400"> |
 
 When you open the app on Wi-Fi, it checks this repository's `main` branch and asks before downloading new games or achievements.
 
