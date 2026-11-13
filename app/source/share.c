@@ -17,6 +17,7 @@
 #define LOG_PATH        "/achievements/share.log"
 #define SAVE_FOLDER     "/achievements/share"
 #define NETWORK_CHECK_MS 1000           // without Wi-Fi, look again this often
+#define ENCODER_STACK   0x8000
 #define QR_MAX_VERSION  10
 #define QR_QUIET        4               // light modules around the code, as the standard asks
 #define QR_HEIGHT       170             // most pixels the code (with its margin) may take
@@ -61,6 +62,12 @@ static const char PAGE[] =
 static u8       s_preview[SHARE_PREVIEW * SHARE_PREVIEW * 3];
 static u8      *s_png;
 static u32      s_pngSize;
+static u8      *s_rgb;                  // the drawn image, until it's been made into the PNG
+static Thread   s_encoder;              // makes the PNG in the background
+static volatile bool s_encoded;         // and has finished
+static u64      s_encodeMs;
+static bool     s_ready;                // the PNG is made: it can be served and saved
+static bool     s_saveWanted;           // A was pressed before it was ready
 static char     s_page[sizeof(PAGE) + 1024];
 static char     s_name[72];             // the game's name, safe for file names
 static char     s_inline[128], s_attachment[128];
@@ -170,7 +177,7 @@ static void BuildPage(const Game *g)
 // should change.
 static bool CheckNetwork(void)
 {
-    if (s_serving || s_serverFailed || !Update_NetworkReady())
+    if (!s_ready || s_serving || s_serverFailed || !Update_NetworkReady())
         return false;
 
     u32 ip = (u32)gethostid();
@@ -195,6 +202,56 @@ static bool CheckNetwork(void)
     return true;
 }
 
+static void EncodeThread(void *arg)
+{
+    (void)arg;
+    u64 start = osGetTime();
+    s_png = ShareImage_Png(s_rgb, SHARE_SIZE, SHARE_SIZE, &s_pngSize);
+    s_encodeMs = osGetTime() - start;
+    s_encoded = true;
+}
+
+// Takes the PNG once the encoder has finished (waiting for it if wait), and starts sharing
+// it. True if that happened now.
+static bool FinishEncoding(bool wait)
+{
+    if (s_rgb == NULL || (!s_encoded && !wait))
+        return false;
+    if (s_encoder != NULL)
+    {
+        threadJoin(s_encoder, U64_MAX);
+        threadFree(s_encoder);
+        s_encoder = NULL;
+    }
+    free(s_rgb);
+    s_rgb = NULL;
+
+    if (s_png == NULL)
+    {
+        Log("png: no memory");
+        s_saveWanted = false;
+        return true;
+    }
+    Log("png: %lu bytes in %llu ms", (unsigned long)s_pngSize, s_encodeMs);
+    s_files[1] = (ShareFile){ "/share.png", "image/png", s_inline, s_png, s_pngSize, true };
+    s_files[2] = (ShareFile){ "/save.png", "image/png", s_attachment, s_png, s_pngSize, true };
+    s_ready = true;
+
+    if (s_saveWanted)
+    {
+        s_saveWanted = false;
+        Share_Save();
+    }
+    if (wait)
+        return true;                // closing: no server to start
+    s_checkAt = osGetTime() + NETWORK_CHECK_MS;
+    if (!Update_NetworkReady())
+        Log("server: no network service");
+    else if (!CheckNetwork())
+        Log("server: no Wi-Fi yet");
+    return true;
+}
+
 bool Share_Open(const Game *g, const u8 *hero, const u16 *trophy)
 {
     FILE *f = fopen(LOG_PATH, "w");     // a new log for each share
@@ -212,34 +269,30 @@ bool Share_Open(const Game *g, const u8 *hero, const u16 *trophy)
     u64 start = osGetTime();
     ShareImage_Draw(&info, rgb);
     ShareImage_Shrink(rgb, s_preview);
-    u64 drawn = osGetTime();
-    s_png = ShareImage_Png(rgb, SHARE_SIZE, SHARE_SIZE, &s_pngSize);
-    free(rgb);
-    if (s_png == NULL)
-    {
-        Log("png: no memory");
-        return false;
-    }
-    Log("image: drawn in %llu ms, png %lu bytes in %llu ms", drawn - start, (unsigned long)s_pngSize,
-        osGetTime() - drawn);
+    Log("image: drawn in %llu ms", osGetTime() - start);
 
-    // What the phone can ask for: the page, the image to show, the image to download.
+    // What the phone can ask for: the page, the image to show, the image to download (the
+    // two images once the PNG is made).
     SafeName(s_name, sizeof(s_name), g->title);
     BuildPage(g);
     snprintf(s_inline, sizeof(s_inline), "inline; filename=\"%s.png\"", s_name);
     snprintf(s_attachment, sizeof(s_attachment), "attachment; filename=\"%s.png\"", s_name);
     s_files[0] = (ShareFile){ "/", "text/html; charset=utf-8", NULL, (const u8 *)s_page, (u32)strlen(s_page), false };
-    s_files[1] = (ShareFile){ "/share.png", "image/png", s_inline, s_png, s_pngSize, true };
-    s_files[2] = (ShareFile){ "/save.png", "image/png", s_attachment, s_png, s_pngSize, true };
 
     s_serving = s_serverFailed = s_hasQr = false;
     s_shownSent = 0;
     s_status[0] = '\0';
-    s_checkAt = osGetTime() + NETWORK_CHECK_MS;
-    if (!Update_NetworkReady())
-        Log("server: no network service");
-    else if (!CheckNetwork())
-        Log("server: no Wi-Fi yet");
+
+    // The PNG (the slow part) is made in the background, so the screen shows right away.
+    s_rgb = rgb;
+    s_png = NULL;
+    s_encoded = s_ready = s_saveWanted = false;
+    s32 priority = 0x30;
+    svcGetThreadPriority(&priority, CUR_THREAD_HANDLE);
+    s_encoder = threadCreate(EncodeThread, NULL, ENCODER_STACK, priority + 1, -2, false);
+    if (s_encoder == NULL)
+        EncodeThread(NULL);
+    FinishEncoding(false);
     return true;
 }
 
@@ -248,6 +301,16 @@ bool Share_Save(void)
     char path[160];
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
+
+    if (!s_ready)
+    {
+        if (s_rgb != NULL)          // still being made: save as soon as it's ready
+        {
+            s_saveWanted = true;
+            Status(GREY, "Saving...");
+        }
+        return false;
+    }
 
     mkdir(SAVE_FOLDER, 0777);
     if (t != NULL && t->tm_year >= 100)
@@ -270,12 +333,12 @@ bool Share_Save(void)
 
 bool Share_Poll(void)
 {
-    bool changed = false;
+    bool changed = FinishEncoding(false);
 
-    if (!s_serving && osGetTime() >= s_checkAt)
+    if (s_ready && !s_serving && osGetTime() >= s_checkAt)
     {
         s_checkAt = osGetTime() + NETWORK_CHECK_MS;
-        changed = CheckNetwork();
+        changed |= CheckNetwork();
     }
     if (s_serving && ShareServer_Sent() != s_shownSent)
     {
@@ -318,6 +381,20 @@ void Share_DrawBottom(void)
         if (s_status[0] != '\0')
             Centered(ty + 34, s_statusColor, s_status);
     }
+    else if (s_rgb != NULL)
+    {
+        Centered(100, WHITE, "Getting the image ready...");
+        if (s_status[0] != '\0')
+            Centered(124, s_statusColor, s_status);
+    }
+    else if (!s_ready)
+    {
+        const char *title = "Couldn't make the image";
+        Draw_Text(GFX_BOTTOM, (BOTTOM_WIDTH - Draw_TextWidth(title, 2)) / 2, 24, 2, RED, title, 0);
+        Centered(70, GREY, "There wasn't enough memory for it.");
+        Draw_Text(GFX_BOTTOM, 8, hintY, 1, HINT, "B: Back", 0);
+        return;
+    }
     else
     {
         const char *title = s_serverFailed ? "Couldn't start sharing" : "No Wi-Fi connection";
@@ -341,6 +418,7 @@ void Share_DrawBottom(void)
 
 void Share_Close(void)
 {
+    FinishEncoding(true);           // the encoder can't be stopped halfway: let it finish
     if (s_serving)
     {
         ShareServer_Stop();
