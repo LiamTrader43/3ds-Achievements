@@ -16,8 +16,7 @@
 #define ICON_X          ((S - ICON_PX) / 2)
 #define ICON_Y          156
 #define ICON_RADIUS     (ICON_PX / 8)           // like the app's tiles
-#define FRAME           6                       // white frame around the icon
-#define FRAME_ALPHA     255
+#define FRAME           6                       // yellow frame around the icon (2 px in the 240 px preview, like the app's selected tile)
 #define NAME_BASELINE   528
 #define NAME_MAX_W      (S - 120)
 #define ROW_Y           612                     // middle of the trophy / bar / count row
@@ -311,9 +310,9 @@ void ShareImage_Draw(const ShareInfo *info, uint8_t *rgb)
                 Blend(rgb, x + col, y + row, ACCENT, *a);
     }
 
-    // The game's icon in a white frame, rounded like the app's tiles.
+    // The game's icon in a yellow frame, rounded, like the selected game in the app.
     FillRound(rgb, ICON_X - FRAME, ICON_Y - FRAME, ICON_PX + 2 * FRAME, ICON_PX + 2 * FRAME,
-              ICON_RADIUS + FRAME, WHITE, FRAME_ALPHA);
+              ICON_RADIUS + FRAME, ACCENT, 255);
     if (info->icon != NULL)
         DrawIcon(rgb, info->icon, ICON_X, ICON_Y, ICON_PX, 0.0f, ICON_RADIUS);
     else
