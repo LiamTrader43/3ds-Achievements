@@ -10,7 +10,9 @@ typedef struct
 
 // One thing to draw on a full screen: text (a line LINE_H tall from y), a filled
 // rectangle when text is NULL, or a 48x48 RGB565 icon in SMDH tile order when icon
-// isn't NULL. Items are drawn in order, later ones over earlier ones.
+// isn't NULL. A rectangle with outline > 0 is only its outline, that many pixels wide,
+// with corners rounded at radius (edges smoothed). Items are drawn in order, later ones
+// over earlier ones.
 typedef struct
 {
     u16         x;
@@ -19,6 +21,7 @@ typedef struct
     Rgb         color;
     const char *text;
     const u16  *icon;
+    u8          outline, radius;    // rectangles only
 } OverlayItem;
 
 #define OVERLAY_MAX_ITEMS   36

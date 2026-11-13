@@ -4,9 +4,9 @@ Achievements for Nintendo 3DS games, on real hardware with [Luma3DS](https://git
 
 A background module watches the running game's memory. When you earn an achievement, it saves the unlock, shows a banner on the bottom screen and turns the notification light gold. A companion app lists every game and achievement, downloads new ones from this repository, and makes an image of your progress to share. Your games aren't modified.
 
-| The app | In-game (R + A + Left) |
+| The app | One achievement in full (A) |
 |---|---|
-| <img src="assets/screenshots/app.png" alt="The app, with Ocarina of Time 3D selected, the button hints along the bottom of the top screen and its achievements listed on the bottom screen" width="400"> | <img src="assets/screenshots/in-game-menu.png" alt="The in-game achievement list on the bottom screen" width="400"> |
+| <img src="assets/screenshots/app.png" alt="The app, with Ocarina of Time 3D selected, the button hints along the bottom of the top screen and its achievements listed on the bottom screen" width="400"> | <img src="assets/screenshots/details-app.png" alt="One achievement in full: Twins of Evil, locked, 10 points, 85 of 97, with its whole name and its long description" width="400"> |
 
 ## Supported games
 
@@ -30,14 +30,16 @@ To update, copy a newer zip over the old files. Your unlocks are kept.
 | In the app | |
 |---|---|
 | Left / Right | Change game |
-| Up / Down, or drag the touch screen | Scroll achievements |
+| Up / Down | Select an achievement (the list scrolls to keep it on screen) |
+| Drag the touch screen | Scroll achievements |
+| A, or tap an achievement | Show it in full: the whole name and description (B or a tap goes back, Up/Down show the next ones) |
 | L / R | Jump a page |
 | SELECT | Turn the tracker on or off |
 | X | Allow or block achievements in patched games |
 | Y | Share the selected game's progress (A saves the image to the SD card, B goes back) |
 | START | Exit |
 
-In a game, press **R + A + Left** to pause and see your achievements. B or SELECT closes the list.
+In a game, press **R + A + Left** to pause and see your achievements. It works like the app's list: Up/Down select an achievement, L/R (or Left/Right) jump a page, and A or a tap shows the selected one in full (B or a tap goes back). B or SELECT closes the list.
 
 **Sharing:** press Y to make an image of the selected game's progress. With the 3DS on Wi-Fi, scan the QR code on the bottom screen with a phone on the same network. A page opens with the image and a **Save image** button; on an iPhone, touch and hold the image to save it to Photos. The 3DS sends it itself, so nothing is uploaded anywhere. Press A to save the image on the SD card instead, in `/achievements/share/`.
 

@@ -1,6 +1,7 @@
 #include "menu.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "achievements.h"
@@ -35,6 +36,21 @@ Result svcControlProcess(Handle process, u32 op, u32 varg2, u32 varg3);
 #define BOX_TEXT_X          (BOX_ICON_X + OVERLAY_ICON_SIZE + 8)
 #define BOX_TEXT_W          (WIDTH - MARGIN - BOX_TEXT_X)
 
+#define LIST_H              (HEIGHT - PROGRESS_H)   // the boxes' part of the screen
+#define SELECT_X            (BOX_LEFT - 2)          // the selected box's outline
+#define SELECT_W            (WIDTH - 4 - SELECT_X)
+#define SELECT_LINE         2
+#define SELECT_RADIUS       8
+#define TAP_SLOP            6                       // a touch moving less is a tap
+
+// One achievement in full (A), as the app's.
+#define DETAIL_MARGIN       10
+#define DETAIL_NAME_LINES   3
+#define DETAIL_NAME_LINE    (OVERLAY_LINE_H + 4)
+#define DETAIL_LINES        10
+#define DETAIL_LINE         (OVERLAY_LINE_H + 3)
+#define DETAIL_HINT_Y       (HEIGHT - 16)
+
 #define LINE_CHARS          112     // a line of text, 320 px even in narrow characters
 #define MAX_ACHIEVEMENTS    128
 #define ICON_PIXELS         (OVERLAY_ICON_SIZE * OVERLAY_ICON_SIZE)
@@ -44,6 +60,8 @@ static const Rgb WHITE = { 255, 255, 255 };
 static const Rgb GREEN = { 50, 205, 50 };           // LimeGreen, unlocked
 static const Rgb GOLD = { 255, 196, 40 };
 static const Rgb GREY = { 140, 140, 150 };
+static const Rgb LIGHT = { 205, 205, 212 };         // longer text, easier to read than GREY
+static const Rgb HINT = { 255, 209, 102 };
 static const Rgb DARK = { 50, 50, 58 };
 static const Rgb SCROLLBAR = { 110, 110, 120 };
 
@@ -96,17 +114,20 @@ bool Menu_GameInFront(u32 *active)
     return R_FAILED(res) || *active == APPID_APPLICATION;
 }
 
-// Word-wraps a description onto two lines of BOX_TEXT_W pixels, ending in "..." if it
-// doesn't fit (as the app's DrawWrapped).
-static void WrapDescription(const char *text, char lines[2][LINE_CHARS])
+// Word-wraps text onto at most maxLines lines of width pixels, the last one ending in
+// "..." if it doesn't fit (as the app's DrawWrapped). Returns the number of lines.
+static int Wrap(const char *text, int width, char lines[][LINE_CHARS], int maxLines)
 {
-    lines[0][0] = lines[1][0] = '\0';
-    for (int n = 0; n < 2 && *text != '\0'; n++)
+    int n = 0;
+
+    for (int k = 0; k < maxLines; k++)
+        lines[k][0] = '\0';
+    for (; n < maxLines && *text != '\0'; n++)
     {
         while (*text == ' ')
             text++;
         int length = (int)strlen(text);
-        int fit = Overlay_TextFit(text, BOX_TEXT_W);
+        int fit = Overlay_TextFit(text, width);
         if (fit > LINE_CHARS - 1)
             fit = LINE_CHARS - 1;
         int take = fit;
@@ -119,8 +140,8 @@ static void WrapDescription(const char *text, char lines[2][LINE_CHARS])
         }
         if (take == 0)
             break;                          // not even one character fits
-        if (n == 1 && take < length)
-            Overlay_Ellipsize(lines[n], LINE_CHARS, text, BOX_TEXT_W);
+        if (n == maxLines - 1 && take < length)
+            Overlay_Ellipsize(lines[n], LINE_CHARS, text, width);
         else
         {
             memcpy(lines[n], text, take);
@@ -128,10 +149,57 @@ static void WrapDescription(const char *text, char lines[2][LINE_CHARS])
         }
         text += take;
     }
+    return n;
 }
 
-// scroll is in pixels, so a drag can stop between two boxes.
-static void Draw(const char **names, const char **descriptions, const u16 *points, const bool *unlocked, int count, int scroll)
+// The trophy for achievement i: the game's own, or the app's.
+static const u16 *Trophy(bool unlocked)
+{
+    return s_hasGameIcons ? (unlocked ? s_gameIcons : s_gameIcons + ICON_PIXELS)
+                          : (unlocked ? TROPHY_UNLOCKED : TROPHY_LOCKED);
+}
+
+// Achievement i in full, for names and descriptions too long for its box: its trophy,
+// whether it's unlocked and its points, then the whole name and description.
+static void DrawDetails(const char **names, const char **descriptions, const u16 *points, const bool *unlocked, int count, int i)
+{
+    static char         pointsText[12], position[24];
+    static char         nameLines[DETAIL_NAME_LINES][LINE_CHARS], lines[DETAIL_LINES][LINE_CHARS];
+    static OverlayItem  items[OVERLAY_MAX_ITEMS];
+    static const char   other[] = "Up/Down: Previous / Next";
+    const int           x = DETAIL_MARGIN, width = WIDTH - 2 * DETAIL_MARGIN, textX = x + OVERLAY_ICON_SIZE + 10;
+    bool                got = unlocked[i];
+    u32                 n = 0;
+
+    items[n++] = (OverlayItem){ x, DETAIL_MARGIN, 0, 0, WHITE, NULL, Trophy(got), 0, 0 };
+    items[n++] = (OverlayItem){ textX, DETAIL_MARGIN + 4, 0, 0, got ? GREEN : GREY, got ? "Unlocked" : "Locked", NULL, 0, 0 };
+    snprintf(pointsText, sizeof(pointsText), "%u pts", points[i]);
+    items[n++] = (OverlayItem){ textX, DETAIL_MARGIN + 22, 0, 0, got ? GOLD : GREY, pointsText, NULL, 0, 0 };
+    snprintf(position, sizeof(position), "%d of %d", i + 1, count);
+    items[n++] = (OverlayItem){ WIDTH - DETAIL_MARGIN - Overlay_TextWidth(position), DETAIL_MARGIN + 4, 0, 0, GREY, position, NULL, 0, 0 };
+
+    int y = DETAIL_MARGIN + OVERLAY_ICON_SIZE + 10;
+    int nameCount = Wrap(names[i], width, nameLines, DETAIL_NAME_LINES);
+    for (int k = 0; k < nameCount; k++, y += DETAIL_NAME_LINE)
+        items[n++] = (OverlayItem){ x, y, 0, 0, got ? GREEN : WHITE, nameLines[k], NULL, 0, 0 };
+
+    y += 4;
+    int room = (DETAIL_HINT_Y - 4 - y) / DETAIL_LINE;
+    if (room > DETAIL_LINES)
+        room = DETAIL_LINES;
+    int lineCount = Wrap(descriptions[i][0] != '\0' ? descriptions[i] : "No description.", width, lines, room > 0 ? room : 1);
+    for (int k = 0; k < lineCount; k++, y += DETAIL_LINE)
+        items[n++] = (OverlayItem){ x, y, 0, 0, LIGHT, lines[k], NULL, 0, 0 };
+
+    items[n++] = (OverlayItem){ x, DETAIL_HINT_Y, 0, 0, HINT, "B: Back", NULL, 0, 0 };
+    items[n++] = (OverlayItem){ WIDTH - DETAIL_MARGIN - Overlay_TextWidth(other), DETAIL_HINT_Y, 0, 0, HINT, other, NULL, 0, 0 };
+    Overlay_DrawScreen(items, n);
+}
+
+// scroll is in pixels, so a drag can stop between two boxes. The selected box has a
+// white outline.
+static void Draw(const char **names, const char **descriptions, const u16 *points, const bool *unlocked, int count,
+                 int scroll, int selected)
 {
     enum { ROWS = BOX_ROWS + 1 };           // a partly scrolled list shows one more
     static const Rgb    BLACK = { 0, 0, 0 };
@@ -142,7 +210,7 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
     int                 done, total, earned, available;
 
     if (count == 0)
-        items[n++] = (OverlayItem){ MARGIN, PROGRESS_H + 8, 0, 0, WHITE, "No achievements for this game.", NULL };
+        items[n++] = (OverlayItem){ MARGIN, PROGRESS_H + 8, 0, 0, WHITE, "No achievements for this game.", NULL, 0, 0 };
 
     // One box per achievement: icon | name, points / description.
     int first = scroll / BOX_H;
@@ -151,24 +219,24 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
     {
         int  i = first + row, y = top + row * BOX_H;
         bool got = unlocked[i];
-        const u16 *icon = s_hasGameIcons ? (got ? s_gameIcons : s_gameIcons + ICON_PIXELS)
-                                         : (got ? TROPHY_UNLOCKED : TROPHY_LOCKED);
 
         snprintf(boxPoints[row], sizeof(boxPoints[row]), "%u pts", points[i]);
         int pointsX = WIDTH - MARGIN - Overlay_TextWidth(boxPoints[row]);
         Overlay_Ellipsize(boxName[row], LINE_CHARS, names[i], pointsX - 6 - BOX_TEXT_X);
-        WrapDescription(descriptions[i][0] != '\0' ? descriptions[i] : "No description.", boxLines[row]);
+        Wrap(descriptions[i][0] != '\0' ? descriptions[i] : "No description.", BOX_TEXT_W, boxLines[row], 2);
 
-        items[n++] = (OverlayItem){ BOX_ICON_X, y + (BOX_H - OVERLAY_ICON_SIZE) / 2, 0, 0, WHITE, NULL, icon };
-        items[n++] = (OverlayItem){ BOX_TEXT_X, y + 6, 0, 0, got ? GREEN : WHITE, boxName[row], NULL };
-        items[n++] = (OverlayItem){ pointsX, y + 6, 0, 0, got ? GOLD : GREY, boxPoints[row], NULL };
-        items[n++] = (OverlayItem){ BOX_TEXT_X, y + 24, 0, 0, GREY, boxLines[row][0], NULL };
-        items[n++] = (OverlayItem){ BOX_TEXT_X, y + 24 + OVERLAY_LINE_H + 2, 0, 0, GREY, boxLines[row][1], NULL };
+        if (i == selected)
+            items[n++] = (OverlayItem){ SELECT_X, y, SELECT_W, BOX_H, WHITE, NULL, NULL, SELECT_LINE, SELECT_RADIUS };
+        items[n++] = (OverlayItem){ BOX_ICON_X, y + (BOX_H - OVERLAY_ICON_SIZE) / 2, 0, 0, WHITE, NULL, Trophy(got), 0, 0 };
+        items[n++] = (OverlayItem){ BOX_TEXT_X, y + 6, 0, 0, got ? GREEN : WHITE, boxName[row], NULL, 0, 0 };
+        items[n++] = (OverlayItem){ pointsX, y + 6, 0, 0, got ? GOLD : GREY, boxPoints[row], NULL, 0, 0 };
+        items[n++] = (OverlayItem){ BOX_TEXT_X, y + 24, 0, 0, GREY, boxLines[row][0], NULL, 0, 0 };
+        items[n++] = (OverlayItem){ BOX_TEXT_X, y + 24 + OVERLAY_LINE_H + 2, 0, 0, GREY, boxLines[row][1], NULL, 0, 0 };
     }
 
     // The header goes on last, so a box scrolling off the top slides under it. Unlocks
     // on the left, score on the right, the progress bar between them.
-    items[n++] = (OverlayItem){ 0, 0, WIDTH, PROGRESS_H, BLACK, NULL, NULL };
+    items[n++] = (OverlayItem){ 0, 0, WIDTH, PROGRESS_H, BLACK, NULL, NULL, 0, 0 };
     Achievements_Progress(&done, &total);
     Achievements_Score(&earned, &available);
     snprintf(progress, sizeof(progress), "%d/%d unlocked", done, total);
@@ -177,11 +245,11 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
     int right = WIDTH - MARGIN - Overlay_TextWidth(score);
     int bar = right - 8 - left;
 
-    items[n++] = (OverlayItem){ MARGIN, 5, 0, 0, done == total && total > 0 ? GREEN : WHITE, progress, NULL };
-    items[n++] = (OverlayItem){ right, 5, 0, 0, GOLD, score, NULL };
-    items[n++] = (OverlayItem){ left, 8, bar, 4, DARK, NULL, NULL };
+    items[n++] = (OverlayItem){ MARGIN, 5, 0, 0, done == total && total > 0 ? GREEN : WHITE, progress, NULL, 0, 0 };
+    items[n++] = (OverlayItem){ right, 5, 0, 0, GOLD, score, NULL, 0, 0 };
+    items[n++] = (OverlayItem){ left, 8, bar, 4, DARK, NULL, NULL, 0, 0 };
     if (total > 0 && done > 0)
-        items[n++] = (OverlayItem){ left, 8, bar * done / total, 4, done == total ? GOLD : GREEN, NULL, NULL };
+        items[n++] = (OverlayItem){ left, 8, bar * done / total, 4, done == total ? GOLD : GREEN, NULL, NULL, 0, 0 };
 
     // The scrollbar down the left edge.
     u32 track = HEIGHT - PROGRESS_H;
@@ -190,11 +258,11 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
         u32 thumb = track * BOX_ROWS / count;
         if (thumb < 12)
             thumb = 12;
-        items[n++] = (OverlayItem){ 3, PROGRESS_H, 3, track, DARK, NULL, NULL };
-        items[n++] = (OverlayItem){ 3, PROGRESS_H + (track - thumb) * scroll / ((count - BOX_ROWS) * BOX_H), 3, thumb, SCROLLBAR, NULL, NULL };
+        items[n++] = (OverlayItem){ 3, PROGRESS_H, 3, track, DARK, NULL, NULL, 0, 0 };
+        items[n++] = (OverlayItem){ 3, PROGRESS_H + (track - thumb) * scroll / ((count - BOX_ROWS) * BOX_H), 3, thumb, SCROLLBAR, NULL, NULL, 0, 0 };
     }
     else
-        items[n++] = (OverlayItem){ 3, PROGRESS_H, 3, track, SCROLLBAR, NULL, NULL };
+        items[n++] = (OverlayItem){ 3, PROGRESS_H, 3, track, SCROLLBAR, NULL, NULL, 0, 0 };
 
     Overlay_DrawScreen(items, n);
 }
@@ -221,7 +289,17 @@ static void LoadGameIcons(u64 titleId)
     s_hasGameIcons = Platform_ReadFile(path, (char *)s_gameIcons, sizeof(s_gameIcons), &length) && length == ICON_FILE_BYTES;
 }
 
-// Up/Down scroll one row, Left/Right or L/R one page.
+// The scroll (in whole boxes) that keeps box `selected` on the screen, starting from scroll.
+static int ScrollToShow(int scroll, int selected)
+{
+    if (selected * BOX_H < scroll)
+        return selected * BOX_H;
+    if ((selected + 1) * BOX_H > scroll + LIST_H)
+        return (selected + 1) * BOX_H - LIST_H;
+    return scroll;
+}
+
+// Up/Down move the selection one box, Left/Right or L/R one page.
 static int Direction(u32 keys)
 {
     if (keys & KEY_DUP)     return -1;
@@ -260,8 +338,11 @@ bool Menu_Open(Handle game, u64 titleId)
     }
 
     int     scroll = 0;             // in pixels
-    bool    dragging = false;
-    int     dragY = 0, dragScroll = 0;
+    int     selected = 0;           // the achievement with the white outline
+    bool    details = false;        // it's shown in full (A)
+    bool    touching = false;       // a touch that began on the list is still down
+    bool    touchMoved = false;     // and it has moved: a drag, not a tap
+    int     touchY = 0, touchScroll = 0;
     bool    closeArmed = false;
     bool    redraw = true;
     u32     previous = Buttons();   // the hotkey's own Left isn't a press
@@ -276,11 +357,25 @@ bool Menu_Open(Handle game, u64 titleId)
         u64 now = osGetTime();
         previous = held;
 
-        // The hotkey that opened the menu is still held at first.
+        // The hotkey that opened the menu is still held at first. In the full view, B goes
+        // back to the list; otherwise B or Select closes the menu.
         if (!(held & CLOSE_KEYS))
             closeArmed = true;
         if (closeArmed && (pressed & CLOSE_KEYS))
-            break;
+        {
+            if (!(details && (pressed & KEY_B)))
+                break;
+            details = false;
+            redraw = true;
+        }
+
+        // A shows the selected achievement in full (the hotkey's own A isn't a press).
+        if ((pressed & KEY_A) && !details && count > 0)
+        {
+            details = true;
+            touching = false;
+            redraw = true;
+        }
 
         int move = 0;
         if (pressed & DIRECTION_KEYS)
@@ -294,28 +389,77 @@ bool Menu_Open(Handle game, u64 titleId)
             repeatAt = now + 80;
         }
 
+        // In the list, Up/Down move the selection a box and the others a page, and the list
+        // scrolls (by whole boxes) only to keep it on the screen. In the full view, Up/Down
+        // show the achievement before or after (the list follows).
         int next = scroll;
-        if (move != 0)
-            next = ((scroll + BOX_H / 2) / BOX_H + move) * BOX_H;   // lands on a whole box
+        if (move != 0 && count > 0)
+        {
+            int  was = selected;
+            bool page = move == (int)BOX_ROWS || move == -(int)BOX_ROWS;
+            if (details)
+            {
+                if (!page)
+                    selected += move;
+            }
+            else
+            {
+                int firstShown = (scroll + BOX_H - 1) / BOX_H, lastShown = (scroll + LIST_H) / BOX_H - 1;
+                if (page)
+                    next = ((scroll + BOX_H / 2) / BOX_H + move) * BOX_H;
+                if (!page && selected < firstShown)
+                    selected = firstShown;          // dragged off the screen: start from what's shown
+                else if (!page && selected > lastShown)
+                    selected = lastShown;
+                else
+                    selected += move;
+            }
+            selected = selected < 0 ? 0 : selected > count - 1 ? count - 1 : selected;
+            next = ScrollToShow(next, selected);
+            if (selected != was)
+                redraw = true;
+        }
 
-        // Dragging on the touch screen moves the list with the stylus.
+        // Dragging on the touch screen moves the list with the stylus; a tap (a touch that
+        // hardly moves) on an achievement shows it in full, and a tap there goes back.
         if (hasTouch)
         {
             hidScanInput();
-            if (hidKeysHeld() & KEY_TOUCH)
+            u32 down = hidKeysDown(), up = hidKeysUp();
+            touchPosition touch;
+            hidTouchRead(&touch);
+            if (down & KEY_TOUCH)
             {
-                touchPosition touch;
-                hidTouchRead(&touch);
-                if (!dragging)
+                if (details)
                 {
-                    dragging = true;
-                    dragY = touch.py;
-                    dragScroll = scroll;
+                    details = false;
+                    redraw = true;
                 }
-                next = dragScroll + dragY - touch.py;
+                else
+                {
+                    touching = true;
+                    touchMoved = false;
+                    touchY = touch.py;
+                    touchScroll = scroll;
+                }
             }
-            else
-                dragging = false;
+            if (touching && (hidKeysHeld() & KEY_TOUCH))
+            {
+                if (abs(touch.py - touchY) > TAP_SLOP)
+                    touchMoved = true;
+                next = touchScroll + touchY - touch.py;
+            }
+            if (touching && (up & KEY_TOUCH))
+            {
+                touching = false;
+                int i = (scroll + touchY - PROGRESS_H) / BOX_H;
+                if (!touchMoved && touchY >= PROGRESS_H && i < count)
+                {
+                    selected = i;
+                    details = true;
+                    redraw = true;
+                }
+            }
         }
 
         if (next < 0)
@@ -331,7 +475,10 @@ bool Menu_Open(Handle game, u64 titleId)
         u32 buffer = Overlay_Buffer();
         if (redraw || buffer != lastBuffer || now - lastDraw >= REDRAW_MS)
         {
-            Draw(names, descriptions, points, unlocked, count, scroll);
+            if (details)
+                DrawDetails(names, descriptions, points, unlocked, count, selected);
+            else
+                Draw(names, descriptions, points, unlocked, count, scroll, selected);
             redraw = false;
             lastBuffer = buffer;
             lastDraw = now;

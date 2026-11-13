@@ -10,6 +10,7 @@
 #include <3ds.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "achievements.h"
@@ -29,6 +30,7 @@ static const Color WHITE = { 255, 255, 255 };
 static const Color GREEN = { 50, 205, 50 };         // LimeGreen, unlocked
 static const Color GOLD = { 255, 196, 40 };
 static const Color GREY = { 140, 140, 150 };
+static const Color LIGHT = { 205, 205, 212 };       // longer text, easier to read than GREY
 static const Color DARK = { 50, 50, 58 };
 static const Color SCROLLBAR = { 110, 110, 120 };
 static const Color RED = { 235, 70, 70 };
@@ -66,6 +68,18 @@ static const Color PILL = { 22, 22, 28 };           // behind each button hint
 #define BOX_ICON_X      (BOX_LEFT + 4)
 #define BOX_TEXT_X      (BOX_ICON_X + ICON_SIZE + 8)
 #define BOX_TEXT_W      (BOTTOM_WIDTH - MARGIN - BOX_TEXT_X)
+#define LIST_H          (SCREEN_HEIGHT - PROGRESS_H)                // the boxes' part of the screen
+#define SELECT_X        (BOX_LEFT - 2)                              // the selected box's outline
+#define SELECT_W        (BOTTOM_WIDTH - 4 - SELECT_X)
+#define SELECT_LINE     2
+#define SELECT_RADIUS   8
+#define TAP_SLOP        6                                           // a touch moving less is a tap
+
+// Bottom screen, one achievement in full (A).
+#define DETAIL_MARGIN   10
+#define DETAIL_NAME_LINE (LINE_H + 4)                              // the name, the same size as in the game's list
+#define DETAIL_LINE     (LINE_H + 3)
+#define DETAIL_HINT_Y   (SCREEN_HEIGHT - 16)
 
 static Game         s_games[MAX_GAMES];
 static int          s_gameCount;
@@ -76,6 +90,7 @@ static const char  *s_descriptions[MAX_ACHIEVEMENTS];
 static uint16_t     s_points[MAX_ACHIEVEMENTS];
 static bool         s_unlocked[MAX_ACHIEVEMENTS];
 static int          s_count;
+static int          s_selected;             // the achievement Up/Down have selected
 static u16          s_gameUnlocked[ICON_SIZE * ICON_SIZE], s_gameLocked[ICON_SIZE * ICON_SIZE];
 static bool         s_hasGameIcons;         // this game has its own achievement icons
 
@@ -99,16 +114,16 @@ static int          s_downloadDone, s_downloadTotal;
 static u8           s_hero[HERO_BYTES];     // the selected game's background
 static bool         s_heroReady;
 
-// Copies text cut to maxWidth pixels, ending in "..." if it was longer.
-static void Ellipsize(char *out, size_t capacity, const char *text, int maxWidth)
+// Copies text cut to maxWidth pixels at the given text scale, ending in "..." if it was longer.
+static void EllipsizeScaled(char *out, size_t capacity, const char *text, int maxWidth, int scale)
 {
     int length = (int)strlen(text);
-    if (length < (int)capacity && Draw_TextWidth(text, 1) <= maxWidth)
+    if (length < (int)capacity && Draw_TextWidth(text, scale) <= maxWidth)
     {
         memcpy(out, text, length + 1);
         return;
     }
-    int keep = Draw_TextFit(text, 1, maxWidth - Draw_TextWidth("...", 1));
+    int keep = Draw_TextFit(text, scale, maxWidth - Draw_TextWidth("...", scale));
     if (keep > (int)capacity - 4)
         keep = (int)capacity - 4;
     while (keep > 0 && text[keep - 1] == ' ')
@@ -117,10 +132,15 @@ static void Ellipsize(char *out, size_t capacity, const char *text, int maxWidth
     memcpy(out + keep, "...", 4);
 }
 
-// Draws text word-wrapped to width pixels, at most maxLines lines (the last one ends
-// in "..." if the text goes on). Returns the y below the last line.
-static int DrawWrapped(gfxScreen_t screen, int x, int y, int width, int lineHeight, Color color,
-                       const char *text, int maxLines)
+static void Ellipsize(char *out, size_t capacity, const char *text, int maxWidth)
+{
+    EllipsizeScaled(out, capacity, text, maxWidth, 1);
+}
+
+// Draws text word-wrapped to width pixels at the given text scale, at most maxLines lines
+// (the last one ends in "..." if the text goes on). Returns the y below the last line.
+static int DrawWrappedScaled(gfxScreen_t screen, int x, int y, int width, int lineHeight, int scale,
+                             Color color, const char *text, int maxLines)
 {
     char line[160];
 
@@ -129,7 +149,7 @@ static int DrawWrapped(gfxScreen_t screen, int x, int y, int width, int lineHeig
         while (*text == ' ')
             text++;
         int length = (int)strlen(text);
-        int fit = Draw_TextFit(text, 1, width);
+        int fit = Draw_TextFit(text, scale, width);
         if (fit > (int)sizeof(line) - 1)
             fit = (int)sizeof(line) - 1;
         int take = fit;
@@ -143,17 +163,23 @@ static int DrawWrapped(gfxScreen_t screen, int x, int y, int width, int lineHeig
         if (take == 0)
             break;                  // not even one character fits
         if (n == maxLines - 1 && take < length)
-            Ellipsize(line, sizeof(line), text, width);
+            EllipsizeScaled(line, sizeof(line), text, width, scale);
         else
         {
             memcpy(line, text, take);
             line[take] = '\0';
         }
-        Draw_Text(screen, x, y, 1, color, line, 0);
+        Draw_Text(screen, x, y, scale, color, line, 0);
         y += lineHeight;
         text += take;
     }
     return y;
+}
+
+static int DrawWrapped(gfxScreen_t screen, int x, int y, int width, int lineHeight, Color color,
+                       const char *text, int maxLines)
+{
+    return DrawWrappedScaled(screen, x, y, width, lineHeight, 1, color, text, maxLines);
 }
 
 static void DrawProgressBar(gfxScreen_t screen, int x, int y, int w, int h, int unlocked, int total)
@@ -354,11 +380,19 @@ static void DrawTop(int selected)
     }
 }
 
-// One achievement's box: trophy | name, points / description.
+// One achievement's box: trophy | name, points / description. The selected one has a
+// white outline.
 static void DrawBox(int i, int y)
 {
     char text[24];
     bool unlocked = s_unlocked[i];
+
+    if (i == s_selected)
+    {
+        Draw_RoundRect(GFX_BOTTOM, SELECT_X, y, SELECT_W, BOX_H, SELECT_RADIUS, WHITE);
+        Draw_RoundRect(GFX_BOTTOM, SELECT_X + SELECT_LINE, y + SELECT_LINE, SELECT_W - 2 * SELECT_LINE,
+                       BOX_H - 2 * SELECT_LINE, SELECT_RADIUS - SELECT_LINE, BLACK);
+    }
 
     const u16 *icon = s_hasGameIcons ? (unlocked ? s_gameUnlocked : s_gameLocked)
                                      : (unlocked ? TROPHY_UNLOCKED : TROPHY_LOCKED);
@@ -417,6 +451,46 @@ static void DrawBoxes(const Game *g, int scroll, bool loaded)
         DrawScrollbar(GFX_BOTTOM, 3, PROGRESS_H, track, BOX_ROWS * BOX_H, scroll, s_count * BOX_H);
     else
         Draw_Rect(GFX_BOTTOM, 3, PROGRESS_H, 3, track, SCROLLBAR);
+}
+
+// The scroll (in whole boxes) that keeps the selected box on the screen, starting from scroll.
+static int ScrollToShow(int scroll)
+{
+    if (s_selected * BOX_H < scroll)
+        return s_selected * BOX_H;
+    if ((s_selected + 1) * BOX_H > scroll + LIST_H)
+        return (s_selected + 1) * BOX_H - LIST_H;
+    return scroll;
+}
+
+// Achievement i in full, for names and descriptions too long for its box: its trophy,
+// whether it's unlocked and its points, then the whole name and description (laid out as in
+// the game's list, menu.c).
+static void DrawDetails(int i)
+{
+    char text[32];
+    bool unlocked = s_unlocked[i];
+    const int x = DETAIL_MARGIN, width = BOTTOM_WIDTH - 2 * DETAIL_MARGIN;
+
+    const u16 *icon = s_hasGameIcons ? (unlocked ? s_gameUnlocked : s_gameLocked)
+                                     : (unlocked ? TROPHY_UNLOCKED : TROPHY_LOCKED);
+    Draw_Icon(GFX_BOTTOM, x, DETAIL_MARGIN, icon);
+    int textX = x + ICON_SIZE + 10;
+    Draw_Text(GFX_BOTTOM, textX, DETAIL_MARGIN + 4, 1, unlocked ? GREEN : GREY, unlocked ? "Unlocked" : "Locked", 0);
+    snprintf(text, sizeof(text), "%u pts", s_points[i]);
+    Draw_Text(GFX_BOTTOM, textX, DETAIL_MARGIN + 22, 1, unlocked ? GOLD : GREY, text, 0);
+    snprintf(text, sizeof(text), "%d of %d", i + 1, s_count);
+    Draw_Text(GFX_BOTTOM, BOTTOM_WIDTH - DETAIL_MARGIN - Draw_TextWidth(text, 1), DETAIL_MARGIN + 4, 1, GREY, text, 0);
+
+    int y = DrawWrappedScaled(GFX_BOTTOM, x, DETAIL_MARGIN + ICON_SIZE + 10, width, DETAIL_NAME_LINE, 1,
+                              unlocked ? GREEN : WHITE, s_names[i], 3);
+    const char *description = s_descriptions[i][0] != '\0' ? s_descriptions[i] : "No description.";
+    y += 4;
+    DrawWrapped(GFX_BOTTOM, x, y, width, DETAIL_LINE, LIGHT, description, (DETAIL_HINT_Y - 4 - y) / DETAIL_LINE);
+
+    Draw_Text(GFX_BOTTOM, x, DETAIL_HINT_Y, 1, HINT, "B: Back", 0);
+    const char *other = "Up/Down: Previous / Next";
+    Draw_Text(GFX_BOTTOM, BOTTOM_WIDTH - DETAIL_MARGIN - Draw_TextWidth(other, 1), DETAIL_HINT_Y, 1, HINT, other, 0);
 }
 
 // A message over the top screen, when the tracker couldn't be started or stopped.
@@ -544,6 +618,9 @@ int main(void)
     int     scroll = 0;             // how far the list is scrolled, in pixels
     int     touchY = 0;             // where the current drag started
     int     touchScroll = 0;        // and how far the list was scrolled then
+    bool    touchActive = false;    // a touch that began on the list is still down
+    bool    touchMoved = false;     // and it has moved: a drag, not a tap
+    bool    details = false;        // the selected achievement is shown in full
     int     redrawBottom = 0;       // like redraw, for changes to the list alone
     u64     repeatAt = 0;
     int     redraw = 2;             // both buffers of each screen
@@ -556,7 +633,7 @@ int main(void)
     while (aptMainLoop())
     {
         hidScanInput();
-        u32 down = hidKeysDown(), held = hidKeysHeld();
+        u32 down = hidKeysDown(), held = hidKeysHeld(), up = hidKeysUp();
         u32 dir = Direction(down, held, &repeatAt);
 
         if (down & KEY_START)
@@ -606,6 +683,8 @@ int main(void)
                 heroFor = -1;
                 heroAt = 0;
                 scroll = 0;
+                s_selected = 0;
+                details = false;
                 redraw = 2;
             }
             else if (down & KEY_B)
@@ -659,8 +738,37 @@ int main(void)
                 redraw = 2;
             }
 
-            if (s_gameCount > 0)
+            if (s_gameCount > 0 && details)
             {
+                // One achievement in full: B or a tap goes back to the list, Up/Down show the
+                // one before or after (the list follows, so it's on screen when you go back).
+                int was = s_selected;
+                if (dir & KEY_UP)
+                    s_selected--;
+                if (dir & KEY_DOWN)
+                    s_selected++;
+                s_selected = Clamp(s_selected, 0, s_count - 1);
+                if (s_selected != was)
+                {
+                    scroll = Clamp(ScrollToShow(scroll), 0, MaxScroll());
+                    redrawBottom = 2;
+                }
+                if (down & (KEY_B | KEY_TOUCH))
+                {
+                    details = false;
+                    redrawBottom = 2;
+                }
+            }
+            else if (s_gameCount > 0)
+            {
+                // A shows the selected achievement in full.
+                if ((down & KEY_A) && s_count > 0 && heroFor == game)
+                {
+                    details = true;
+                    touchActive = false;
+                    redrawBottom = 2;
+                }
+
                 int next = Clamp(game + ((dir & KEY_RIGHT) ? 1 : 0) - ((dir & KEY_LEFT) ? 1 : 0), 0, RowPositions() - 1);
                 if (next != game)
                 {
@@ -669,29 +777,64 @@ int main(void)
                     heroFor = -1;
                     heroAt = osGetTime() + HERO_DELAY_MS;
                     scroll = 0;
+                    s_selected = 0;
                     redraw = 2;
                 }
 
+                // Up/Down move the selection one box, L/R a page. The list scrolls (by whole
+                // boxes) only to keep the selected box on the screen.
                 int move = 0;
                 if (dir & KEY_UP)       move = -1;
                 if (dir & KEY_DOWN)     move = 1;
                 if (down & KEY_L)       move = -BOX_ROWS;
                 if (down & KEY_R)       move = BOX_ROWS;
                 int top = scroll;
-                if (move != 0)
-                    top = ((scroll + BOX_H / 2) / BOX_H + move) * BOX_H;    // lands on a whole box
+                if (move != 0 && s_count > 0)
+                {
+                    int was = s_selected;
+                    int firstShown = (scroll + BOX_H - 1) / BOX_H, lastShown = (scroll + LIST_H) / BOX_H - 1;
+                    bool page = move == BOX_ROWS || move == -BOX_ROWS;
+                    if (page)
+                        top = ((scroll + BOX_H / 2) / BOX_H + move) * BOX_H;
+                    if (!page && s_selected < firstShown)
+                        s_selected = firstShown;        // dragged off the screen: start from what's shown
+                    else if (!page && s_selected > lastShown)
+                        s_selected = lastShown;
+                    else
+                        s_selected += move;
+                    s_selected = Clamp(s_selected, 0, s_count - 1);
+                    top = ScrollToShow(top);
+                    if (s_selected != was)
+                        redrawBottom = 2;
+                }
 
-                // Dragging on the touch screen moves the list with the stylus.
-                if (held & KEY_TOUCH)
+                // Dragging on the touch screen moves the list with the stylus; a tap (a touch
+                // that hardly moves) on an achievement shows it in full.
+                if ((down & KEY_TOUCH) || ((held & KEY_TOUCH) && touchActive))
                 {
                     touchPosition touch;
                     hidTouchRead(&touch);
                     if (down & KEY_TOUCH)
                     {
+                        touchActive = true;
+                        touchMoved = false;
                         touchY = touch.py;
                         touchScroll = scroll;
                     }
+                    if (abs(touch.py - touchY) > TAP_SLOP)
+                        touchMoved = true;
                     top = touchScroll + touchY - touch.py;
+                }
+                if ((up & KEY_TOUCH) && touchActive)
+                {
+                    touchActive = false;
+                    int i = (scroll + touchY - PROGRESS_H) / BOX_H;
+                    if (!touchMoved && touchY >= PROGRESS_H && i < s_count && heroFor == game)
+                    {
+                        s_selected = i;
+                        details = true;
+                        redrawBottom = 2;
+                    }
                 }
 
                 top = Clamp(top, 0, MaxScroll());
@@ -759,7 +902,9 @@ int main(void)
                     Draw_Hero(s_hero, heroLevel);
                 if (top)
                     DrawTop(game);
-                if (bottom && game < s_gameCount)
+                if (bottom && game < s_gameCount && details && s_count > 0)
+                    DrawDetails(s_selected);
+                else if (bottom && game < s_gameCount)
                     DrawBoxes(&s_games[game], scroll, heroFor == game);
                 if (top && s_popup != POPUP_NONE)
                     DrawPopup();

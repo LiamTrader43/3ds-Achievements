@@ -16,6 +16,15 @@
 #define MAX_SHIFTS      8       // "shift" lines in a version.txt
 #define VERSION_CAPACITY 1024
 
+// Longest name and description kept, with the closing zero. Both the tracker's menu and the
+// app show them in full (A on an achievement); the app compiles this file with more room.
+#ifndef NAME_CAPACITY
+#define NAME_CAPACITY   64
+#endif
+#ifndef DESCRIPTION_CAPACITY
+#define DESCRIPTION_CAPACITY 256
+#endif
+
 typedef struct
 {
     char            id[32];
@@ -24,8 +33,8 @@ typedef struct
     bool            atLeast;
     uint32_t        expected;
     rc_trigger_t   *trigger;    // set instead for an "rc:" condition (malloc'd)
-    char            name[64];
-    char            description[128];
+    char            name[NAME_CAPACITY];
+    char            description[DESCRIPTION_CAPACITY];
     uint16_t        points;
     bool            unlocked;
     uint8_t         matches;

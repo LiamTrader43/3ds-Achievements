@@ -610,6 +610,51 @@ static inline Rgb IconPixel(const u16 *icon, u32 x, u32 y)
     return (Rgb){ (u8)(((v >> 11) & 31) << 3), (u8)(((v >> 5) & 63) << 2), (u8)((v & 31) << 3) };
 }
 
+// How much of pixel (x, y) of a w x h box with corners rounded at radius is inside it
+// (0-16), as the app's draw.c: 4x4 samples in the corners, whole elsewhere.
+static int RoundCoverage(int x, int y, int w, int h, int radius)
+{
+    if (x < 0 || y < 0 || x >= w || y >= h)
+        return 0;
+    int cx = x < radius ? radius : x >= w - radius ? w - radius : -1;
+    int cy = y < radius ? radius : y >= h - radius ? h - radius : -1;
+    if (cx < 0 || cy < 0)
+        return 16;
+
+    int limit = radius * 8 * radius * 8, inside = 0;
+    for (int sy = 0; sy < 4; sy++)
+        for (int sx = 0; sx < 4; sx++)
+        {
+            int dx = x * 8 + 2 * sx + 1 - cx * 8;
+            int dy = y * 8 + 2 * sy + 1 - cy * 8;
+            if (dx * dx + dy * dy <= limit)
+                inside++;
+        }
+    return inside;
+}
+
+// Blends an outline item's pixels in its column dx into column (the outer rounded box
+// minus the inner one, outline pixels in).
+static void OutlineColumn(const OverlayItem *it, int dx, Rgb *column)
+{
+    int w = it->width, h = it->height, t = it->outline, r = it->radius;
+    int inner = r > t ? r - t : 0;
+    // Between the corners and away from the sides, only the top and bottom lines.
+    bool straight = dx >= r && dx < w - r && dx >= t && dx < w - t;
+
+    for (int dy = 0; dy < h; dy++)
+    {
+        if (straight && dy == t)
+            dy = h - t;
+        int y = it->y + dy;
+        if (y < 0 || y >= SCREEN_HEIGHT)
+            continue;
+        int cover = RoundCoverage(dx, dy, w, h, r) - RoundCoverage(dx - t, dy - t, w - 2 * t, h - 2 * t, inner);
+        if (cover > 0)
+            column[y] = Mix(column[y], it->color, (u32)cover);
+    }
+}
+
 // Blends text item i's pixels in screen column x into column. Columns are drawn left
 // to right, and s_next/s_pen64 move along the text with them.
 static void TextColumn(const OverlayItem *it, u32 i, int x, Rgb *column)
@@ -681,6 +726,8 @@ static void DrawScreenKernel(ScreenArgs *a)
                             column[y] = IconPixel(it->icon, dx, row);
                     }
             }
+            else if (dx < it->width && it->outline > 0)
+                OutlineColumn(it, (int)dx, column);
             else if (dx < it->width)
                 for (int y = it->y < 0 ? 0 : it->y; y < it->y + (int)it->height && y < SCREEN_HEIGHT; y++)
                     column[y] = it->color;
