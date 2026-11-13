@@ -2,7 +2,7 @@
 
 Achievements for Nintendo 3DS games, on real hardware with [Luma3DS](https://github.com/LumaTeam/Luma3DS).
 
-A background module watches the running game's memory. When you earn an achievement, it saves the unlock, shows a banner on the bottom screen and turns the notification light gold. A companion app lists every game and achievement, and downloads new ones from this repository. Your games aren't modified.
+A background module watches the running game's memory. When you earn an achievement, it saves the unlock, shows a banner on the bottom screen and turns the notification light gold. A companion app lists every game and achievement, downloads new ones from this repository, and makes an image of your progress to share. Your games aren't modified.
 
 | The app | In-game (R + A + Left) |
 |---|---|
@@ -34,9 +34,12 @@ To update, copy a newer zip over the old files. Your unlocks are kept.
 | L / R | Jump a page |
 | SELECT | Turn the tracker on or off |
 | X | Allow or block achievements in patched games |
+| Y | Share the selected game's progress (A saves the image to the SD card, B goes back) |
 | START | Exit |
 
 In a game, press **R + A + Left** to pause and see your achievements. B or SELECT closes the list.
+
+**Sharing:** press Y to make an image of the selected game's progress. With the 3DS on Wi-Fi, scan the QR code on the bottom screen with a phone on the same network. A page opens with the image and a **Save image** button; on an iPhone, touch and hold the image to save it to Photos. The 3DS sends it itself, so nothing is uploaded anywhere. Press A to save the image on the SD card instead, in `/achievements/share/`.
 
 When you open the app on Wi-Fi, it checks this repository's `main` branch and asks before downloading new games or achievements.
 
@@ -44,7 +47,7 @@ Patches and mods can change how a game behaves, so while Luma's game patching is
 
 ## Reporting a bug
 
-Open an [issue](https://github.com/LiamTrader43/3ds-Achievements/issues) and **attach `/achievements/tracker.log` from your SD card**. The tracker writes it as you play: which games started, every unlock, and whether it could read the game's memory. It's usually the only way to tell what went wrong. For download problems, attach `/achievements/update.log` too. Neither contains personal information, only game titles, unlocks and technical details.
+Open an [issue](https://github.com/LiamTrader43/3ds-Achievements/issues) and **attach `/achievements/tracker.log` from your SD card**. The tracker writes it as you play: which games started, every unlock, and whether it could read the game's memory. It's usually the only way to tell what went wrong. For download problems, attach `/achievements/update.log` too. Neither contains personal information, only game titles, unlocks and technical details. For sharing problems, attach `/achievements/share.log`; besides technical details, it lists your 3DS's and phone's addresses on your home network.
 
 In the issue, include:
 
@@ -126,9 +129,10 @@ python tools/make_versions.py
 - [libctru](https://github.com/devkitPro/libctru) and devkitPro (zlib): 3DS system library and toolchain
 - [curl](https://curl.se/), Copyright (c) 1996 - 2023 Daniel Stenberg and contributors (curl license): downloads
 - [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) (Apache-2.0): HTTPS
-- [zlib](https://zlib.net/) (zlib): compression for curl
+- [zlib](https://zlib.net/) (zlib): compression for curl and the share image
+- [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) v1.8.0, Copyright (c) Project Nayuki (MIT): the share screen's QR code
 
-**Font:** [Inter](https://rsms.me/inter/), Copyright 2016 The Inter Project Authors (SIL Open Font License 1.1, see [assets/fonts/OFL.txt](assets/fonts/OFL.txt)): all text in the app, the banner and the in-game list.
+**Font:** [Inter](https://rsms.me/inter/), Copyright 2016 The Inter Project Authors (SIL Open Font License 1.1, see [assets/fonts/OFL.txt](assets/fonts/OFL.txt)): all text in the app, the banner, the in-game list and the share image.
 
 **Achievements:** the Ocarina of Time 3D names, descriptions and points come from the community's [RetroAchievements set](https://retroachievements.org/game/10113). The conditions were rewritten for the 3DS version.
 

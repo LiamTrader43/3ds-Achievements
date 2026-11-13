@@ -48,6 +48,9 @@ void    Draw_IconScaled(gfxScreen_t screen, int x, int y, int size, int radius, 
 // that's darker toward the bottom. fade: 0 (invisible) to 256 (fully faded in).
 void    Draw_Hero(const u8 *pixels, int fade);
 
+// A w x h RGB image (rows top to bottom) at (x, y).
+void    Draw_Image(gfxScreen_t screen, int x, int y, int w, int h, const u8 *rgb);
+
 // Pixel width of a screen.
 int     Draw_Width(gfxScreen_t screen);
 

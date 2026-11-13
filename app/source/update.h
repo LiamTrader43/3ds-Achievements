@@ -16,6 +16,9 @@ bool    Update_Poll(int *newGames, int *updatedGames);
 // Downloads everything Update_Poll found, calling progress before each file.
 Result  Update_Download(void (*progress)(int done, int total));
 
+// True once sockets are set up (Update_Start), for other users of the network.
+bool    Update_NetworkReady(void);
+
 // Stops a check that's still running. Call before exiting.
 void    Update_Stop(void);
 

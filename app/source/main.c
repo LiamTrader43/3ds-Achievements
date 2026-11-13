@@ -1,7 +1,8 @@
 // 3DS Achievements app: starts the background tracker sysmodule when it isn't
 // running yet, and shows every game with a definitions file in /achievements/ and
 // its achievements, without starting the game. Reads the same files as the
-// tracker. SELECT turns the tracker on or off.
+// tracker. SELECT turns the tracker on or off. Y shares the selected game's progress
+// as an image (share.c).
 //
 // Top screen: a row of the games' icons, the selected one largest on the left. Bottom screen: the highlighted game's
 // progress bar and achievements, one box each (trophy, name, description,
@@ -14,6 +15,7 @@
 #include "achievements.h"
 #include "draw.h"
 #include "games.h"
+#include "share.h"
 #include "tracker.h"
 #include "update.h"
 #include "trophy.h"
@@ -48,6 +50,8 @@ static const Color BLACK = { 0, 0, 0 };
 #define TILE_GROW_MS    160             // a tile changing between the two sizes
 #define CAMERA_EASE_MS  70              // lower = the row catches up faster
 #define TOP_HINT_Y      (SCREEN_HEIGHT - 13)
+#define NAME_Y          (TILE_MIDDLE + TILE_BIG / 2 + 8)    // the selected game's name
+#define SHARE_HINT_Y    (NAME_Y + LINE_H + 4)               // and "Y: Share" under it
 
 // Bottom screen: the opened game's unlock count and progress bar, then one box
 // per achievement.
@@ -320,7 +324,8 @@ static void DrawTop(int selected)
             nameX = TOP_WIDTH - MARGIN - Draw_TextWidth(name, 1);
         if (nameX < TILE_LEFT)
             nameX = TILE_LEFT;
-        Draw_Text(GFX_TOP, nameX, TILE_MIDDLE + TILE_BIG / 2 + 8, 1, WHITE, name, 0);
+        Draw_Text(GFX_TOP, nameX, NAME_Y, 1, WHITE, name, 0);
+        Draw_Text(GFX_TOP, nameX, SHARE_HINT_Y, 1, HINT, "Y: Share", 0);
     }
 }
 
@@ -520,6 +525,7 @@ int main(void)
     int     heroFor = -1;           // the game s_hero was last loaded for
     u64     heroAt = 0;             // when to load the selected game's background
     int     heroLevel = 0;          // how far the background has faded in, 0-256
+    bool    sharing = false;        // the share screen is open
     u64     lastFrame = osGetTime();
 
     while (aptMainLoop())
@@ -531,13 +537,32 @@ int main(void)
         if (down & KEY_START)
             break;
 
-        if (s_popup == POPUP_NONE && Update_Poll(&s_newGames, &s_updatedGames))
+        if (s_popup == POPUP_NONE && !sharing && Update_Poll(&s_newGames, &s_updatedGames))
         {
             s_popup = POPUP_UPDATE;
             redraw = 2;
         }
 
-        if (s_popup == POPUP_UPDATE)
+        if (sharing)
+        {
+            if (down & KEY_B)
+            {
+                Share_Close();
+                sharing = false;
+                redraw = 2;
+            }
+            else
+            {
+                if (down & KEY_A)
+                {
+                    Share_Save();
+                    redraw = 2;
+                }
+                if (Share_Poll())
+                    redraw = 2;
+            }
+        }
+        else if (s_popup == POPUP_UPDATE)
         {
             if (down & KEY_A)
             {
@@ -591,6 +616,21 @@ int main(void)
             {
                 Tracker_SetPatchedAllowed(!s_patchedAllowed);
                 s_patchedAllowed = Tracker_PatchedAllowed();    // what was actually saved
+                redraw = 2;
+            }
+
+            // Share: only once the selected game's achievements have loaded.
+            if ((down & KEY_Y) && game < s_gameCount && heroFor == game)
+            {
+                Draw_Begin(true);
+                if (heroLevel > 0)
+                    Draw_Hero(s_hero, heroLevel);
+                DrawTop(game);
+                Draw_Text(GFX_BOTTOM, (BOTTOM_WIDTH - Draw_TextWidth("Making the image...", 1)) / 2,
+                          (SCREEN_HEIGHT - LINE_H) / 2, 1, WHITE, "Making the image...", 0);
+                Draw_End();
+                const u16 *trophy = s_hasGameIcons ? s_gameUnlocked : TROPHY_UNLOCKED;
+                sharing = Share_Open(&s_games[game], s_heroReady ? s_hero : NULL, trophy);
                 redraw = 2;
             }
 
@@ -676,14 +716,22 @@ int main(void)
             bool top = redraw > 0;          // dragging the list leaves the top screen alone
 
             Draw_Begin(top);
-            if (top && heroLevel > 0)
-                Draw_Hero(s_hero, heroLevel);
-            if (top)
-                DrawTop(game);
-            if (game < s_gameCount)
-                DrawBoxes(&s_games[game], scroll, heroFor == game);
-            if (top && s_popup != POPUP_NONE)
-                DrawPopup();
+            if (sharing)
+            {
+                Share_DrawTop();
+                Share_DrawBottom();
+            }
+            else
+            {
+                if (top && heroLevel > 0)
+                    Draw_Hero(s_hero, heroLevel);
+                if (top)
+                    DrawTop(game);
+                if (game < s_gameCount)
+                    DrawBoxes(&s_games[game], scroll, heroFor == game);
+                if (top && s_popup != POPUP_NONE)
+                    DrawPopup();
+            }
             Draw_End();
             if (redraw > 0)
                 redraw--;
@@ -694,6 +742,8 @@ int main(void)
             gspWaitForVBlank();
     }
 
+    if (sharing)
+        Share_Close();
     Update_Stop();
     Draw_Exit();
     return 0;

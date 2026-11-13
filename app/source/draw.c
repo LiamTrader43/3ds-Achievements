@@ -227,3 +227,13 @@ void Draw_IconScaled(gfxScreen_t screen, int x, int y, int size, int radius, con
         }
     }
 }
+
+void Draw_Image(gfxScreen_t screen, int x, int y, int w, int h, const u8 *rgb)
+{
+    for (int row = 0; row < h; row++)
+        for (int col = 0; col < w; col++, rgb += 3)
+        {
+            Color c = { rgb[0], rgb[1], rgb[2] };
+            Plot(screen, x + col, y + row, c);
+        }
+}

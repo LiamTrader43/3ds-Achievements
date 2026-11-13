@@ -366,6 +366,11 @@ Result Update_Download(void (*progress)(int done, int total))
     return s_downloadResult;
 }
 
+bool Update_NetworkReady(void)
+{
+    return s_socReady;
+}
+
 void Update_Stop(void)
 {
     s_abort = true;
