@@ -34,6 +34,7 @@ static const Color SCROLLBAR = { 110, 110, 120 };
 static const Color RED = { 235, 70, 70 };
 static const Color SHINE = { 255, 255, 245 };       // the light running around the selected game's frame
 static const Color BLACK = { 0, 0, 0 };
+static const Color PILL = { 22, 22, 28 };           // behind each button hint
 
 #define MARGIN          8
 
@@ -50,9 +51,11 @@ static const Color BLACK = { 0, 0, 0 };
 #define TILE_SMALL      60
 #define TILE_GROW_MS    160             // a tile changing between the two sizes
 #define CAMERA_EASE_MS  70              // lower = the row catches up faster
-#define TOP_HINT_Y      (SCREEN_HEIGHT - 13)
 #define NAME_Y          (TILE_MIDDLE + TILE_BIG / 2 + 8)    // the selected game's name
-#define SHARE_HINT_Y    (NAME_Y + LINE_H + 4)               // and "Y: Share" under it
+#define PILL_H          21                                  // the button hints along the bottom,
+#define PILL_PAD        10                                  // each in a dark pill
+#define PILL_GAP        6
+#define PILL_Y          (SCREEN_HEIGHT - PILL_H - 4)
 
 // Bottom screen: the opened game's unlock count and progress bar, then one box
 // per achievement.
@@ -261,30 +264,46 @@ static bool AnimateRow(int selected, int milliseconds)
     return moving;
 }
 
-// One button hint ending in a setting's state, "on" in green or "off" in red,
-// with room for "off" either way so the hints after it don't move. Returns the next x.
-static int DrawSettingHint(int x, const char *label, bool on)
+// A setting's hint ending in its state, "on" in green or "off" in red, centred in a pill
+// wide enough for "off" so nothing moves when it changes.
+static int SettingWidth(const char *label)
 {
-    Draw_Text(GFX_TOP, x, TOP_HINT_Y, 1, HINT, label, 0);
-    x += Draw_TextWidth(label, 1);
-    Draw_Text(GFX_TOP, x, TOP_HINT_Y, 1, on ? GREEN : RED, on ? "on" : "off", 0);
-    return x + Draw_TextWidth("off   ", 1);
+    return Draw_TextWidth(label, 1) + Draw_TextWidth("off", 1);
 }
 
-// The top screen's last line, centered: the buttons, with both settings' states.
-static void DrawHints(void)
+static void DrawSetting(int x, int width, const char *label, bool on)
 {
-    static const char patched[] = "X: Patched games ", tracker[] = "SELECT: Tracker ", exit[] = "START: Exit";
-    int width = Draw_TextWidth(patched, 1) + Draw_TextWidth(tracker, 1) + 2 * Draw_TextWidth("off   ", 1) + Draw_TextWidth(exit, 1);
+    const char *state = on ? "on" : "off";
+    x += (width - Draw_TextWidth(label, 1) - Draw_TextWidth(state, 1)) / 2;
+    Draw_Text(GFX_TOP, x, PILL_Y + 4, 1, HINT, label, 0);
+    Draw_Text(GFX_TOP, x + Draw_TextWidth(label, 1), PILL_Y + 4, 1, on ? GREEN : RED, state, 0);
+}
 
-    int x = DrawSettingHint((TOP_WIDTH - width) / 2, patched, s_patchedAllowed);
-    x = DrawSettingHint(x, tracker, s_trackerRunning);
-    Draw_Text(GFX_TOP, x, TOP_HINT_Y, 1, HINT, exit, 0);
+// The top screen's last line: each button hint in its own dark pill, centred. "Y: Share"
+// only when a game is selected. (START still exits; it has no hint.)
+static void DrawHints(bool canShare)
+{
+    static const char patched[] = "X: Patched games ", tracker[] = "SELECT: Tracker ", share[] = "Y: Share";
+    int w0 = SettingWidth(patched) + 2 * PILL_PAD, w1 = SettingWidth(tracker) + 2 * PILL_PAD;
+    int w2 = canShare ? Draw_TextWidth(share, 1) + 2 * PILL_PAD : 0;
+    int x = (TOP_WIDTH - (w0 + w1 + PILL_GAP + (canShare ? w2 + PILL_GAP : 0))) / 2;
+
+    Draw_RoundRect(GFX_TOP, x, PILL_Y, w0, PILL_H, PILL_H / 2, PILL);
+    DrawSetting(x + PILL_PAD, w0 - 2 * PILL_PAD, patched, s_patchedAllowed);
+    x += w0 + PILL_GAP;
+    Draw_RoundRect(GFX_TOP, x, PILL_Y, w1, PILL_H, PILL_H / 2, PILL);
+    DrawSetting(x + PILL_PAD, w1 - 2 * PILL_PAD, tracker, s_trackerRunning);
+    x += w1 + PILL_GAP;
+    if (canShare)
+    {
+        Draw_RoundRect(GFX_TOP, x, PILL_Y, w2, PILL_H, PILL_H / 2, PILL);
+        Draw_Text(GFX_TOP, x + PILL_PAD, PILL_Y + 4, 1, HINT, share, 0);
+    }
 }
 
 static void DrawTop(int selected)
 {
-    DrawHints();
+    DrawHints(selected < s_gameCount);
 
     if (s_gameCount == 0)
     {
@@ -332,7 +351,6 @@ static void DrawTop(int selected)
         if (nameX < TILE_LEFT)
             nameX = TILE_LEFT;
         Draw_Text(GFX_TOP, nameX, NAME_Y, 1, WHITE, name, 0);
-        Draw_Text(GFX_TOP, nameX, SHARE_HINT_Y, 1, HINT, "Y: Share", 0);
     }
 }
 
