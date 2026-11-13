@@ -41,6 +41,10 @@ int     Draw_TextFit(const char *text, int scale, int width);
 // A 48x48 SMDH icon (RGB565 in 8x8 tiles, Z-order inside each tile).
 void    Draw_Icon(gfxScreen_t screen, int x, int y, const u16 *icon);
 
+// A trophy icon (the same format) whose pure black pixels, around its rounded square, are left
+// out, so it sits on any background.
+void    Draw_TrophyIcon(gfxScreen_t screen, int x, int y, const u16 *icon);
+
 // The same icon smoothly enlarged to size x size pixels (size > 48), with rounded corners.
 void    Draw_IconScaled(gfxScreen_t screen, int x, int y, int size, int radius, const u16 *icon);
 
@@ -63,6 +67,25 @@ bool    Draw_FrameShineAgain(void);
 
 // Forgets the frame (nothing is shining).
 void    Draw_FrameShineOff(void);
+
+// Draw_Text with a 1 px dark shadow below and to the right, for text over pictures.
+int     Draw_TextShadow(gfxScreen_t screen, int x, int y, int scale, Color color, const char *text, int maxWidth);
+
+// A soft shadow under a rounded box (x, y, w, h, radius), offsetY pixels lower, fading out
+// over blur pixels: darkens what's there by up to strength (of 256). Draw it before the box.
+void    Draw_Shadow(gfxScreen_t screen, int x, int y, int w, int h, int radius, int blur, int offsetY, int strength);
+
+// Darkens a rounded box's pixels by amount (0-256), edges smoothed.
+void    Draw_Darken(gfxScreen_t screen, int x, int y, int w, int h, int radius, int amount);
+
+// Only the outline of a rounded box, thickness pixels wide inside its edge, at alpha (0-16).
+void    Draw_RoundRing(gfxScreen_t screen, int x, int y, int w, int h, int radius, int thickness, Color color, int alpha);
+
+// Fills rows y0 to y1 (exclusive) with a vertical fade from top to bottom.
+void    Draw_Gradient(gfxScreen_t screen, int y0, int y1, Color top, Color bottom);
+
+// Mixes rows y0 to y1 toward that fade, keeping keep/256 of what's there (for fading in).
+void    Draw_FadeToGradient(gfxScreen_t screen, int y0, int y1, Color top, Color bottom, int keep);
 
 // Pixel width of a screen.
 int     Draw_Width(gfxScreen_t screen);

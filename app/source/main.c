@@ -35,8 +35,9 @@ static const Color DARK = { 50, 50, 58 };
 static const Color SCROLLBAR = { 110, 110, 120 };
 static const Color RED = { 235, 70, 70 };
 static const Color SHINE = { 255, 255, 245 };       // the light running around the selected game's frame
-static const Color BLACK = { 0, 0, 0 };
 static const Color PILL = { 22, 22, 28 };           // behind each button hint
+static const Color BG_TOP = { 12, 12, 16 };         // the bottom screen: a faint fade from this
+static const Color BG_BOTTOM = { 24, 24, 31 };      // to this
 
 #define MARGIN          8
 
@@ -58,6 +59,12 @@ static const Color PILL = { 22, 22, 28 };           // behind each button hint
 #define PILL_PAD        10                                  // each in a dark pill
 #define PILL_GAP        6
 #define PILL_Y          (SCREEN_HEIGHT - PILL_H - 4)
+#define TILE_DIM        90              // how much darker (of 256) the tiles that aren't selected are
+#define SHADOW_BLUR     10              // the selected tile's shadow: how far it fades out,
+#define SHADOW_DROP     4               // how much lower than the tile it is,
+#define SHADOW_STRENGTH 150             // and how dark (of 256) right under it
+#define SLOT_ALPHA      5               // an empty slot's outline (of 16)
+#define BOTTOM_FADE_MS  150             // the bottom screen fading in (a list loading, the full view)
 
 // Bottom screen: the opened game's unlock count and progress bar, then one box
 // per achievement.
@@ -74,6 +81,8 @@ static const Color PILL = { 22, 22, 28 };           // behind each button hint
 #define SELECT_LINE     2
 #define SELECT_RADIUS   8
 #define TAP_SLOP        6                                           // a touch moving less is a tap
+#define BAR_H           6                                           // the progress bar, rounded
+#define SCROLL_W        4                                           // the scrollbar, rounded
 
 // Bottom screen, one achievement in full (A).
 #define DETAIL_MARGIN   10
@@ -182,11 +191,17 @@ static int DrawWrapped(gfxScreen_t screen, int x, int y, int width, int lineHeig
     return DrawWrappedScaled(screen, x, y, width, lineHeight, 1, color, text, maxLines);
 }
 
+// A rounded bar, like the share image's: gold when everything is unlocked, else green.
 static void DrawProgressBar(gfxScreen_t screen, int x, int y, int w, int h, int unlocked, int total)
 {
-    Draw_Rect(screen, x, y, w, h, DARK);
-    if (total > 0)
-        Draw_Rect(screen, x, y, w * unlocked / total, h, unlocked == total ? GOLD : GREEN);
+    Draw_RoundRect(screen, x, y, w, h, h / 2, DARK);
+    if (total > 0 && unlocked > 0)
+    {
+        int fill = w * unlocked / total;
+        if (fill < h)
+            fill = h;               // a rounded bar needs at least its height
+        Draw_RoundRect(screen, x, y, fill, h, h / 2, unlocked == total ? GOLD : GREEN);
+    }
 }
 
 static void DrawScrollbar(gfxScreen_t screen, int x, int top, int track, int visible, int scroll, int count)
@@ -197,7 +212,7 @@ static void DrawScrollbar(gfxScreen_t screen, int x, int top, int track, int vis
     if (thumb < 12)
         thumb = 12;
     int y = top + (track - thumb) * scroll / (count - visible);
-    Draw_Rect(screen, x, y, 3, thumb, SCROLLBAR);
+    Draw_RoundRect(screen, x, y, SCROLL_W, thumb, SCROLL_W / 2, SCROLLBAR);
 }
 
 // A game's icon, or its title in a grey box when it isn't installed.
@@ -301,8 +316,8 @@ static void DrawSetting(int x, int width, const char *label, bool on)
 {
     const char *state = on ? "on" : "off";
     x += (width - Draw_TextWidth(label, 1) - Draw_TextWidth(state, 1)) / 2;
-    Draw_Text(GFX_TOP, x, PILL_Y + 4, 1, HINT, label, 0);
-    Draw_Text(GFX_TOP, x + Draw_TextWidth(label, 1), PILL_Y + 4, 1, on ? GREEN : RED, state, 0);
+    Draw_TextShadow(GFX_TOP, x, PILL_Y + 4, 1, HINT, label, 0);
+    Draw_TextShadow(GFX_TOP, x + Draw_TextWidth(label, 1), PILL_Y + 4, 1, on ? GREEN : RED, state, 0);
 }
 
 // The top screen's last line: each button hint in its own dark pill, centred. "Y: Share"
@@ -323,7 +338,7 @@ static void DrawHints(bool canShare)
     if (canShare)
     {
         Draw_RoundRect(GFX_TOP, x, PILL_Y, w2, PILL_H, PILL_H / 2, PILL);
-        Draw_Text(GFX_TOP, x + PILL_PAD, PILL_Y + 4, 1, HINT, share, 0);
+        Draw_TextShadow(GFX_TOP, x + PILL_PAD, PILL_Y + 4, 1, HINT, share, 0);
     }
 }
 
@@ -333,29 +348,50 @@ static void DrawTop(int selected)
 
     if (s_gameCount == 0)
     {
-        Draw_Text(GFX_TOP, MARGIN, MARGIN, 1, WHITE, "No games with achievements found.", 0);
-        Draw_Text(GFX_TOP, MARGIN, MARGIN + 16, 1, GREY, "Definitions go in /achievements/<TitleID>/definitions.txt", 0);
+        Draw_TextShadow(GFX_TOP, MARGIN, MARGIN, 1, WHITE, "No games with achievements found.", 0);
+        Draw_TextShadow(GFX_TOP, MARGIN, MARGIN + 16, 1, GREY, "Definitions go in /achievements/<TitleID>/definitions.txt", 0);
         return;
     }
 
-    // Slots past the last game are empty grey squares.
+    // Where the selected tile is, so its shadow goes down before any tile.
     int x = TILE_LEFT - s_camera / 16;
     int selectedX = x, selectedY = 0, selectedSize = 0;
     for (int i = 0; i < RowPositions() && x < TOP_WIDTH; i++)
     {
         int size = TileSize(i);
+        if (i == selected)
+            selectedX = x, selectedY = TILE_MIDDLE - size / 2, selectedSize = size;
+        x += size + TILE_GAP;
+    }
+    if (selectedSize > 0)
+        Draw_Shadow(GFX_TOP, selectedX - 2, selectedY - 2, selectedSize + 4, selectedSize + 4,
+                    TILE_RADIUS(selectedSize) + 2, SHADOW_BLUR, SHADOW_DROP, SHADOW_STRENGTH);
+
+    // The tiles: the others a little darker, so the selected one stands out. Slots past the
+    // last game are faint outlines.
+    x = TILE_LEFT - s_camera / 16;
+    for (int i = 0; i < RowPositions() && x < TOP_WIDTH; i++)
+    {
+        int size = TileSize(i), radius = TILE_RADIUS(size);
         int y = TILE_MIDDLE - size / 2;
 
-        if (i == selected)
-            selectedX = x, selectedY = y, selectedSize = size;
         if (x + size + 2 > 0)
         {
-            if (i == selected)
-                Draw_RoundRect(GFX_TOP, x - 2, y - 2, size + 4, size + 4, TILE_RADIUS(size) + 2, ACCENT);
             if (i < s_gameCount)
+            {
+                if (i == selected)
+                    Draw_RoundRect(GFX_TOP, x - 2, y - 2, size + 4, size + 4, radius + 2, ACCENT);
                 DrawTile(&s_games[i], x, y, size);
+            }
             else
-                Draw_RoundRect(GFX_TOP, x, y, size, size, TILE_RADIUS(size), DARK);
+            {
+                if (i == selected)
+                    Draw_RoundRing(GFX_TOP, x - 2, y - 2, size + 4, size + 4, radius + 2, 2, ACCENT, 16);
+                Draw_RoundRing(GFX_TOP, x, y, size, size, radius, 2, WHITE, SLOT_ALPHA);
+            }
+            // Dimmed as it shrinks away from being selected, so the change eases.
+            if (i < s_gameCount)
+                Draw_Darken(GFX_TOP, x, y, size, size, radius, TILE_DIM * (256 - s_tileScale[i]) / 256);
         }
         x += size + TILE_GAP;
     }
@@ -376,7 +412,7 @@ static void DrawTop(int selected)
             nameX = TOP_WIDTH - MARGIN - Draw_TextWidth(name, 1);
         if (nameX < TILE_LEFT)
             nameX = TILE_LEFT;
-        Draw_Text(GFX_TOP, nameX, NAME_Y, 1, WHITE, name, 0);
+        Draw_TextShadow(GFX_TOP, nameX, NAME_Y, 1, WHITE, name, 0);
     }
 }
 
@@ -388,15 +424,11 @@ static void DrawBox(int i, int y)
     bool unlocked = s_unlocked[i];
 
     if (i == s_selected)
-    {
-        Draw_RoundRect(GFX_BOTTOM, SELECT_X, y, SELECT_W, BOX_H, SELECT_RADIUS, WHITE);
-        Draw_RoundRect(GFX_BOTTOM, SELECT_X + SELECT_LINE, y + SELECT_LINE, SELECT_W - 2 * SELECT_LINE,
-                       BOX_H - 2 * SELECT_LINE, SELECT_RADIUS - SELECT_LINE, BLACK);
-    }
+        Draw_RoundRing(GFX_BOTTOM, SELECT_X, y, SELECT_W, BOX_H, SELECT_RADIUS, SELECT_LINE, WHITE, 16);
 
     const u16 *icon = s_hasGameIcons ? (unlocked ? s_gameUnlocked : s_gameLocked)
                                      : (unlocked ? TROPHY_UNLOCKED : TROPHY_LOCKED);
-    Draw_Icon(GFX_BOTTOM, BOX_ICON_X, y + (BOX_H - ICON_SIZE) / 2, icon);
+    Draw_TrophyIcon(GFX_BOTTOM, BOX_ICON_X, y + (BOX_H - ICON_SIZE) / 2, icon);
 
     snprintf(text, sizeof(text), "%u pts", s_points[i]);
     int pointsX = BOTTOM_WIDTH - MARGIN - Draw_TextWidth(text, 1);
@@ -422,12 +454,14 @@ static void DrawBoxes(const Game *g, int scroll, bool loaded)
 {
     char text[32];
 
-    // The boxes first: the one scrolling off the top slides under the header.
+    // A faint fade behind the list. The boxes first: the one scrolling off the top slides
+    // under the header.
+    Draw_Gradient(GFX_BOTTOM, PROGRESS_H, SCREEN_HEIGHT, BG_TOP, BG_BOTTOM);
     int first = scroll / BOX_H;
     int y = PROGRESS_H - scroll % BOX_H;
     for (int i = first; i < s_count && y < SCREEN_HEIGHT; i++, y += BOX_H)
         DrawBox(i, y);
-    Draw_Rect(GFX_BOTTOM, 0, 0, BOTTOM_WIDTH, PROGRESS_H, BLACK);
+    Draw_Rect(GFX_BOTTOM, 0, 0, BOTTOM_WIDTH, PROGRESS_H, BG_TOP);
 
     // Score on the right, total unlocks on the left, the progress bar between them.
     snprintf(text, sizeof(text), "%d/%d pts", g->earned, g->points);
@@ -435,7 +469,8 @@ static void DrawBoxes(const Game *g, int scroll, bool loaded)
     Draw_Text(GFX_BOTTOM, right, 5, 1, GOLD, text, 0);
     snprintf(text, sizeof(text), "%d/%d unlocked", g->unlocked, g->total);
     int w = Draw_Text(GFX_BOTTOM, MARGIN, 5, 1, g->unlocked == g->total ? GREEN : WHITE, text, 0);
-    DrawProgressBar(GFX_BOTTOM, MARGIN + w + 8, 8, right - 8 - (MARGIN + w + 8), 4, g->unlocked, g->total);
+    DrawProgressBar(GFX_BOTTOM, MARGIN + w + 8, 5 + (LINE_H - BAR_H) / 2 + 1, right - 8 - (MARGIN + w + 8), BAR_H,
+                    g->unlocked, g->total);
 
     if (s_count == 0)
     {
@@ -444,13 +479,13 @@ static void DrawBoxes(const Game *g, int scroll, bool loaded)
         return;
     }
 
-    // Scrollbar down the left edge.
-    int track = SCREEN_HEIGHT - PROGRESS_H;
-    Draw_Rect(GFX_BOTTOM, 3, PROGRESS_H, 3, track, DARK);
+    // Scrollbar down the left edge, rounded.
+    int track = SCREEN_HEIGHT - PROGRESS_H - 4;
+    Draw_RoundRect(GFX_BOTTOM, 3, PROGRESS_H + 2, SCROLL_W, track, SCROLL_W / 2, DARK);
     if (s_count > BOX_ROWS)
-        DrawScrollbar(GFX_BOTTOM, 3, PROGRESS_H, track, BOX_ROWS * BOX_H, scroll, s_count * BOX_H);
+        DrawScrollbar(GFX_BOTTOM, 3, PROGRESS_H + 2, track, BOX_ROWS * BOX_H, scroll, s_count * BOX_H);
     else
-        Draw_Rect(GFX_BOTTOM, 3, PROGRESS_H, 3, track, SCROLLBAR);
+        Draw_RoundRect(GFX_BOTTOM, 3, PROGRESS_H + 2, SCROLL_W, track, SCROLL_W / 2, SCROLLBAR);
 }
 
 // The scroll (in whole boxes) that keeps the selected box on the screen, starting from scroll.
@@ -472,9 +507,12 @@ static void DrawDetails(int i)
     bool unlocked = s_unlocked[i];
     const int x = DETAIL_MARGIN, width = BOTTOM_WIDTH - 2 * DETAIL_MARGIN;
 
+    Draw_Rect(GFX_BOTTOM, 0, 0, BOTTOM_WIDTH, PROGRESS_H, BG_TOP);      // the same background as the list
+    Draw_Gradient(GFX_BOTTOM, PROGRESS_H, SCREEN_HEIGHT, BG_TOP, BG_BOTTOM);
+
     const u16 *icon = s_hasGameIcons ? (unlocked ? s_gameUnlocked : s_gameLocked)
                                      : (unlocked ? TROPHY_UNLOCKED : TROPHY_LOCKED);
-    Draw_Icon(GFX_BOTTOM, x, DETAIL_MARGIN, icon);
+    Draw_TrophyIcon(GFX_BOTTOM, x, DETAIL_MARGIN, icon);
     int textX = x + ICON_SIZE + 10;
     Draw_Text(GFX_BOTTOM, textX, DETAIL_MARGIN + 4, 1, unlocked ? GREEN : GREY, unlocked ? "Unlocked" : "Locked", 0);
     snprintf(text, sizeof(text), "%u pts", s_points[i]);
@@ -621,6 +659,7 @@ int main(void)
     bool    touchActive = false;    // a touch that began on the list is still down
     bool    touchMoved = false;     // and it has moved: a drag, not a tap
     bool    details = false;        // the selected achievement is shown in full
+    int     bottomFade = 256;       // the bottom screen fading in (0-256): a list loading, the full view
     int     redrawBottom = 0;       // like redraw, for changes to the list alone
     u64     repeatAt = 0;
     int     redraw = 2;             // both buffers of each screen
@@ -756,6 +795,7 @@ int main(void)
                 if (down & (KEY_B | KEY_TOUCH))
                 {
                     details = false;
+                    bottomFade = 0;
                     redrawBottom = 2;
                 }
             }
@@ -765,6 +805,7 @@ int main(void)
                 if ((down & KEY_A) && s_count > 0 && heroFor == game)
                 {
                     details = true;
+                    bottomFade = 0;
                     touchActive = false;
                     redrawBottom = 2;
                 }
@@ -833,6 +874,7 @@ int main(void)
                     {
                         s_selected = i;
                         details = true;
+                        bottomFade = 0;
                         redrawBottom = 2;
                     }
                 }
@@ -855,6 +897,7 @@ int main(void)
             {
                 LoadGame(game);             // reads the progress file again, so it's current
                 s_heroReady = Games_LoadHero(s_games[game].titleId, s_hero);
+                bottomFade = 0;             // its list fades in
             }
             redraw = 2;
         }
@@ -876,6 +919,13 @@ int main(void)
                 int step = milliseconds * 256 / (target != 0 ? HERO_FADE_MS : HERO_OUT_MS);
                 heroLevel = Approach(heroLevel, target, step > 0 ? step : 1);
                 redraw = 2;
+            }
+
+            if (bottomFade < 256)
+            {
+                int step = milliseconds * 256 / BOTTOM_FADE_MS;
+                bottomFade = Approach(bottomFade, 256, step > 0 ? step : 1);
+                redrawBottom = 2;
             }
         }
 
@@ -906,6 +956,8 @@ int main(void)
                     DrawDetails(s_selected);
                 else if (bottom && game < s_gameCount)
                     DrawBoxes(&s_games[game], scroll, heroFor == game);
+                if (bottom && game < s_gameCount && bottomFade < 256)
+                    Draw_FadeToGradient(GFX_BOTTOM, 0, SCREEN_HEIGHT, BG_TOP, BG_BOTTOM, bottomFade);
                 if (top && s_popup != POPUP_NONE)
                     DrawPopup();
             }

@@ -194,6 +194,19 @@ void Draw_Icon(gfxScreen_t screen, int x, int y, const u16 *icon)
     }
 }
 
+void Draw_TrophyIcon(gfxScreen_t screen, int x, int y, const u16 *icon)
+{
+    for (int i = 0; i < ICON_SIZE * ICON_SIZE; i++)
+    {
+        if (icon[i] == 0)
+            continue;               // the black around the trophy's rounded square
+        int   px, py;
+        Color c;
+        IconPixel(icon, i, &px, &py, &c);
+        Plot(screen, x + px, y + py, c);
+    }
+}
+
 static inline u8 Mix(u8 a, u8 b, u8 c, u8 d, int wx, int wy)
 {
     int top = a * (256 - wx) + b * wx;
@@ -410,4 +423,118 @@ bool Draw_FrameShineAgain(void)
 void Draw_FrameShineOff(void)
 {
     s_shine.saved = false;
+}
+
+// Darkens pixel (x, y) to (256 - amount) / 256 of its brightness.
+static inline void Darken(gfxScreen_t screen, int x, int y, int amount)
+{
+    if (amount <= 0 || x < 0 || y < 0 || x >= Draw_Width(screen) || y >= SCREEN_HEIGHT)
+        return;
+    u8 *p = s_fb[screen] + (x * SCREEN_HEIGHT + (SCREEN_HEIGHT - 1 - y)) * 3;
+    int keep = 256 - (amount > 256 ? 256 : amount);
+    p[0] = (u8)(p[0] * keep >> 8);
+    p[1] = (u8)(p[1] * keep >> 8);
+    p[2] = (u8)(p[2] * keep >> 8);
+}
+
+int Draw_TextShadow(gfxScreen_t screen, int x, int y, int scale, Color color, const char *text, int maxWidth)
+{
+    static const Color SHADOW = { 0, 0, 0 };
+    Draw_Text(screen, x + 1, y + 1, scale, SHADOW, text, maxWidth > 0 ? maxWidth + 1 : 0);
+    return Draw_Text(screen, x, y, scale, color, text, maxWidth);
+}
+
+void Draw_Shadow(gfxScreen_t screen, int x, int y, int w, int h, int radius, int blur, int offsetY, int strength)
+{
+    y += offsetY;
+    for (int dy = -blur; dy < h + blur; dy++)
+        for (int dx = -blur; dx < w + blur; dx++)
+        {
+            // Distance outside the rounded box from the pixel's centre (0 inside it).
+            float cx = dx + 0.5f, cy = dy + 0.5f;
+            float ix = cx < radius ? radius : cx > w - radius ? w - radius : cx;
+            float iy = cy < radius ? radius : cy > h - radius ? h - radius : cy;
+            float d = sqrtf((cx - ix) * (cx - ix) + (cy - iy) * (cy - iy)) - radius;
+            if (d >= blur)
+                continue;
+            float fade = d <= 0.0f ? 1.0f : 1.0f - d / blur;
+            Darken(screen, x + dx, y + dy, (int)(strength * fade * fade));
+        }
+}
+
+void Draw_Darken(gfxScreen_t screen, int x, int y, int w, int h, int radius, int amount)
+{
+    for (int dx = 0; dx < w; dx++)
+        for (int dy = 0; dy < h; dy++)
+            Darken(screen, x + dx, y + dy, amount * Coverage(dx, dy, w, h, radius) / 16);
+}
+
+void Draw_RoundRing(gfxScreen_t screen, int x, int y, int w, int h, int radius, int thickness, Color color, int alpha)
+{
+    int inner = radius > thickness ? radius - thickness : 0;
+    for (int dx = 0; dx < w; dx++)
+    {
+        // Between the corners and away from the sides there's only the top and bottom.
+        bool straight = dx >= radius && dx < w - radius && dx >= thickness && dx < w - thickness;
+        for (int dy = 0; dy < h; dy++)
+        {
+            if (straight && dy == thickness)
+                dy = h - thickness;
+            int cover = Coverage(dx, dy, w, h, radius);
+            if (dx >= thickness && dy >= thickness && dx < w - thickness && dy < h - thickness)
+                cover -= Coverage(dx - thickness, dy - thickness, w - 2 * thickness, h - 2 * thickness, inner);
+            if (cover > 0)
+                Blend(screen, x + dx, y + dy, color, cover * alpha / 16);
+        }
+    }
+}
+
+// The colour of a vertical fade from top (row y0) to bottom (row y1) at row y.
+static inline Color GradientAt(int y, int y0, int y1, Color top, Color bottom)
+{
+    int span = y1 - y0 > 1 ? y1 - y0 - 1 : 1, t = y - y0;
+    return (Color){ (u8)(top.r + (bottom.r - top.r) * t / span), (u8)(top.g + (bottom.g - top.g) * t / span),
+                    (u8)(top.b + (bottom.b - top.b) * t / span) };
+}
+
+void Draw_Gradient(gfxScreen_t screen, int y0, int y1, Color top, Color bottom)
+{
+    u8 column[SCREEN_HEIGHT * 3];
+
+    if (y0 < 0)
+        y0 = 0;
+    if (y1 > SCREEN_HEIGHT)
+        y1 = SCREEN_HEIGHT;
+    if (y1 <= y0)
+        return;
+    // Columns are stored bottom row first, so one column is built and copied across.
+    for (int y = y0; y < y1; y++)
+    {
+        Color c = GradientAt(y, y0, y1, top, bottom);
+        u8 *p = column + (SCREEN_HEIGHT - 1 - y) * 3;
+        p[0] = c.b, p[1] = c.g, p[2] = c.r;
+    }
+    int from = (SCREEN_HEIGHT - y1) * 3, length = (y1 - y0) * 3;
+    for (int x = 0; x < Draw_Width(screen); x++)
+        memcpy(s_fb[screen] + x * SCREEN_HEIGHT * 3 + from, column + from, length);
+}
+
+void Draw_FadeToGradient(gfxScreen_t screen, int y0, int y1, Color top, Color bottom, int keep)
+{
+    if (keep >= 256)
+        return;
+    if (keep < 0)
+        keep = 0;
+    for (int y = y0 < 0 ? 0 : y0; y < y1 && y < SCREEN_HEIGHT; y++)
+    {
+        Color c = GradientAt(y, y0, y1, top, bottom);
+        int add[3] = { c.b * (256 - keep), c.g * (256 - keep), c.r * (256 - keep) };
+        u8 *p = s_fb[screen] + (SCREEN_HEIGHT - 1 - y) * 3;
+        for (int x = 0; x < Draw_Width(screen); x++, p += SCREEN_HEIGHT * 3)
+        {
+            p[0] = (u8)((p[0] * keep + add[0]) >> 8);
+            p[1] = (u8)((p[1] * keep + add[1]) >> 8);
+            p[2] = (u8)((p[2] * keep + add[2]) >> 8);
+        }
+    }
 }
