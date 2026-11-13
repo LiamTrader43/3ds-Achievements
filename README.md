@@ -4,6 +4,8 @@ Achievements for Nintendo 3DS games, on real hardware with [Luma3DS](https://git
 
 A background module watches the running game's memory. When you earn an achievement, it saves the unlock, shows a banner on the bottom screen and turns the notification light gold. A companion app lists every game and achievement, downloads new ones from this repository, and makes an image of your progress to share. Your games aren't modified.
 
+Questions, bug reports and news: join the [Discord server](https://discord.gg/MWZKkPytYc).
+
 | The app | One achievement in full (A) |
 |---|---|
 | <img src="assets/screenshots/app.png" alt="The app, with Ocarina of Time 3D selected, the button hints along the bottom of the top screen and its achievements listed on the bottom screen" width="400"> | <img src="assets/screenshots/details-app.png" alt="One achievement in full: Twins of Evil, locked, 10 points, 85 of 97, with its whole name and its long description" width="400"> |
@@ -53,7 +55,7 @@ Patches and mods can change how a game behaves, so while Luma's game patching is
 
 ## Reporting a bug
 
-Open an [issue](https://github.com/LiamTrader43/3ds-Achievements/issues) and **attach `/achievements/tracker.log` from your SD card**. The tracker writes it as you play: which games started, every unlock, and whether it could read the game's memory. It's usually the only way to tell what went wrong. For download problems, attach `/achievements/update.log` too. Neither contains personal information, only game titles, unlocks and technical details. For sharing problems, attach `/achievements/share.log`; besides technical details, it lists your 3DS's and phone's addresses on your home network.
+Open an [issue](https://github.com/LiamTrader43/3ds-Achievements/issues) or post in the bug report forum on [Discord](https://discord.gg/MWZKkPytYc), and **attach `/achievements/tracker.log` from your SD card**. The tracker writes it as you play: which games started, every unlock, and whether it could read the game's memory. It's usually the only way to tell what went wrong. For download problems, attach `/achievements/update.log` too. Neither contains personal information, only game titles, unlocks and technical details. For sharing problems, attach `/achievements/share.log`; besides technical details, it lists your 3DS's and phone's addresses on your home network.
 
 In the issue, include:
 
