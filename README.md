@@ -2,7 +2,7 @@
 
 Achievements for Nintendo 3DS games, on real hardware with [Luma3DS](https://github.com/LumaTeam/Luma3DS).
 
-A background module watches the running game's memory. When you earn an achievement, it saves the unlock, shows a banner on the bottom screen and turns the notification light gold. A companion app lists every game and achievement, downloads new ones from this repository, and makes an image of your progress to share. Your games aren't modified.
+A background module watches the running game's memory. When you earn an achievement, it saves the unlock, shows a banner on the bottom screen and turns the notification light gold. A companion app lists every game and achievement, in 3D on the top screen, downloads new ones from this repository, and makes an image of your progress to share. Your games aren't modified.
 
 Questions, bug reports and news: join the [Discord server](https://discord.gg/MWZKkPytYc).
 
@@ -39,6 +39,7 @@ To update, copy a newer zip over the old files. Your unlocks are kept.
 | SELECT | Turn the tracker on or off |
 | X | Allow or block achievements in patched games |
 | Y | Share the selected game's progress (A saves the image to the SD card, B goes back) |
+| 3D slider | Depth on the top screen: the game's art sits behind the screen and the selected game comes forward |
 | START | Exit |
 
 In a game, press **R + A + Left** to pause and see your achievements. It works like the app's list: Up/Down select an achievement, L/R (or Left/Right) jump a page, and A or a tap shows the selected one in full (B or a tap goes back). B or SELECT closes the list.
