@@ -101,30 +101,6 @@ static Result AddCoins(int add, int *added, int *coins)
     return res;
 }
 
-int Rewards_Coins(void)
-{
-    u32     id[3] = { MEDIATYPE_NAND, COIN_EXTDATA_ID, 0x00048000 };
-    FS_Path path = { PATH_BINARY, sizeof(id), id };
-    FS_Archive archive;
-    Handle  file;
-    int     coins = -1;
-
-    if (R_FAILED(FSUSER_OpenArchive(&archive, ARCHIVE_SHARED_EXTDATA, path)))
-        return -1;
-    if (R_SUCCEEDED(FSUSER_OpenFile(&file, archive, fsMakePath(PATH_ASCII, COIN_FILE), FS_OPEN_READ, 0)))
-    {
-        u8  data[COIN_FILE_SIZE];
-        u32 read = 0;
-        u64 size = 0;
-        if (R_SUCCEEDED(FSFILE_GetSize(file, &size)) && size == COIN_FILE_SIZE &&
-            R_SUCCEEDED(FSFILE_Read(file, &read, 0, data, sizeof(data))) && read == COIN_FILE_SIZE)
-            coins = data[COINS_OFFSET] | data[COINS_OFFSET + 1] << 8;
-        FSFILE_Close(file);
-    }
-    FSUSER_CloseArchive(archive);
-    return coins;
-}
-
 bool Rewards_Update(int points, Rewards *out)
 {
     int before, owed;

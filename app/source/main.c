@@ -129,7 +129,6 @@ static bool         s_patchedAllowed;
 static Popup        s_popup;
 static Result       s_popupResult;
 static Rewards      s_rewards;              // Play Coins given when the app opened
-static int          s_playCoins = -1;       // the system's Play Coins (-1: unknown), top right
 static bool         s_coinsWaiting;         // their popup comes after the one showing
 static int          s_newGames, s_updatedGames;
 static int          s_downloadDone, s_downloadTotal;
@@ -458,14 +457,6 @@ static void DrawTop(int selected)
 {
     Draw_Depth(0);
     BENCH_TIME(BENCH_HINTS, DrawHints(selected < s_gameCount));
-
-    // The system's Play Coins (they come from achievement points), top right.
-    if (s_playCoins >= 0)
-    {
-        char coins[32];
-        snprintf(coins, sizeof(coins), "Play Coins: %d", s_playCoins);
-        Draw_TextShadow(GFX_TOP, TOP_WIDTH - MARGIN - Draw_TextWidth(coins, 1), MARGIN, 1, GOLD, coins, 0);
-    }
 
     if (s_gameCount == 0)
     {
@@ -852,7 +843,6 @@ int main(void)
         else
             s_coinsWaiting = true;
     }
-    s_playCoins = s_rewards.coins >= 0 ? s_rewards.coins : Rewards_Coins();
 
     Update_Start();
 #endif

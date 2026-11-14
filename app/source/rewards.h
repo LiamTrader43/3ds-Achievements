@@ -28,7 +28,4 @@ typedef struct
 // any kept from before. True if there's something to tell: coins were earned or given.
 bool    Rewards_Update(int points, Rewards *out);
 
-// The system's Play Coins now, only read (-1 if they can't be).
-int     Rewards_Coins(void);
-
 #endif
