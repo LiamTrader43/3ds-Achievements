@@ -7,6 +7,7 @@
 
 #include <zlib.h>
 
+#include "hero.h"
 #include "share_font.h"
 
 // Layout, in pixels of the 720x720 image (the mock was drawn on a 240 grid, times 3).
@@ -134,7 +135,7 @@ static void DrawIcon(uint8_t *rgb, const uint16_t *icon, int x, int y, int size,
 // (55% at the top to 90% at the bottom) so the text stands out. Without one, a dark fade.
 // Each source row is widened once and kept for the three output rows it touches.
 #define CROP        240                 // the square taken from the middle of hero.bin
-#define CROP_LEFT   80
+#define CROP_LEFT   ((HERO_WIDTH - CROP) / 2)
 
 // Source position (in 1/256ths of a pixel, pixel centres lined up) of output pixel i.
 static int SourceAt(int i)
@@ -178,10 +179,10 @@ static void DrawBackground(uint8_t *rgb, const uint8_t *hero)
     // hero.bin is stored in columns, bottom row first, each B, G, R: take the square as rows of R, G, B.
     for (int sx = 0; sx < CROP; sx++)
     {
-        const uint8_t *column = hero + (CROP_LEFT + sx) * 240 * 3;
+        const uint8_t *column = hero + (CROP_LEFT + sx) * HERO_HEIGHT * 3;
         for (int sy = 0; sy < CROP; sy++)
         {
-            const uint8_t *p = column + (239 - sy) * 3;
+            const uint8_t *p = column + (HERO_HEIGHT - 1 - sy) * 3;
             uint8_t *q = crop + (sy * CROP + sx) * 3;
             q[0] = p[2], q[1] = p[1], q[2] = p[0];
         }

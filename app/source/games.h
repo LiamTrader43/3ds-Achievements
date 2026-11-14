@@ -7,11 +7,11 @@
 #include <3ds.h>
 
 #include "draw.h"
+#include "hero.h"
 
 #define MAX_GAMES   64
 #define MAX_RELEASES 4      // other releases (regions) of one game, from their version.txt
 #define TITLE_CHARS 64
-#define HERO_BYTES  (TOP_WIDTH * SCREEN_HEIGHT * 3)
 
 typedef struct
 {
@@ -33,7 +33,8 @@ typedef struct
 int     Games_Scan(Game *games, int capacity);
 
 // Reads /achievements/<TitleID>/hero.bin, the game's background (tools/hero_art.py
-// makes it), into pixels. False if the game doesn't have one.
+// makes it), into pixels (HERO_BYTES, the wide format of hero.h; an older screen-sized
+// file gets its edges mirrored into the margins). False if the game doesn't have one.
 bool    Games_LoadHero(u64 titleId, u8 *pixels);
 
 // Reads /achievements/<TitleID>/trophy.bin, the game's own achievement icons

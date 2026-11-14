@@ -106,6 +106,8 @@ python tools/hero_art.py background.png <TitleID>
 python tools/trophy_art.py <TitleID> unlocked.png locked.png
 ```
 
+Use a background at least 1.8 times as wide as it is tall: a little past each side of the screen comes into view with the 3D slider up.
+
 To contribute a game, open a pull request to `main`. Players get it automatically once it's merged.
 
 ## Building

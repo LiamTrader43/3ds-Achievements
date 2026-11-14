@@ -17,7 +17,7 @@ typedef struct
     const char     *name;           // the game's name
     const uint16_t *icon;           // its 48x48 SMDH icon (RGB565 in 8x8 tiles), or NULL
     const uint16_t *trophy;         // its unlocked-achievement icon, same format
-    const uint8_t  *hero;           // its 400x240 background (hero.bin: BGR8 in framebuffer order), or NULL
+    const uint8_t  *hero;           // its background (hero.bin in hero.h's wide format), or NULL
     int             unlocked, total;
 } ShareInfo;
 

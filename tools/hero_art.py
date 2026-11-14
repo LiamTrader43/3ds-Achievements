@@ -3,9 +3,12 @@
     python tools/hero_art.py <image> <TitleID> [game folder]
 
 Writes hero.bin in the game's folder (default: achievements/<TitleID>): the image cropped
-from the center to fill the 400x240 top screen, as raw BGR8 in the 3DS framebuffer's order
-(column by column from the left, each column bottom row first). The file goes in
-/achievements/<TitleID>/ on the SD card. Needs Pillow.
+from the center to fill the 400x240 top screen plus 16 more columns on each side, 432x240,
+as raw BGR8 in the 3DS framebuffer's order (column by column from the left, each column
+bottom row first). The extra columns come into view at the edge when the 3D slider is up
+(the background sits behind the screen, so one eye sees it moved sideways). Use an image at
+least 1.8 times as wide as it is tall, or it's cropped top and bottom to that. The file goes
+in /achievements/<TitleID>/ on the SD card. Needs Pillow.
 """
 import os
 import re
@@ -13,7 +16,8 @@ import sys
 
 from PIL import Image
 
-WIDTH, HEIGHT = 400, 240
+MARGIN = 16                         # app/source/hero.h: HERO_MARGIN
+WIDTH, HEIGHT = 400 + 2 * MARGIN, 240
 
 
 def main():

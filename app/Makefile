@@ -55,6 +55,13 @@ CFLAGS	:=	-g -Wall -O2 -mword-relocations \
 
 CFLAGS	+=	$(INCLUDE) -D__3DS__
 
+# make BENCH=1: a drawing benchmark instead of the app (app/source/bench.h).
+ifneq ($(BENCH),)
+TARGET	:=	achievements-bench
+BUILD	:=	build-bench
+CFLAGS	+=	-DBENCH
+endif
+
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 
 ASFLAGS	:=	-g $(ARCH)

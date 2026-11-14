@@ -4,3 +4,4 @@ build/
 *.smdh
 *.map
 *.cia
+build-bench/

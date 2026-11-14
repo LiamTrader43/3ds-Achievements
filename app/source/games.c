@@ -153,9 +153,28 @@ bool Games_LoadHero(u64 titleId, u8 *pixels)
     FILE *f = fopen(path, "rb");
     if (f == NULL)
         return false;
-    size_t read = fread(pixels, 1, HERO_BYTES, f);
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    const size_t column = HERO_HEIGHT * 3;
+    bool ok;
+    if (size == HERO_BYTES)
+        ok = fread(pixels, 1, HERO_BYTES, f) == HERO_BYTES;
+    else if (size == HERO_SCREEN_BYTES)
+    {
+        // An older, screen-sized background: in the middle, its edge columns mirrored outward.
+        ok = fread(pixels + HERO_MARGIN * column, 1, HERO_SCREEN_BYTES, f) == HERO_SCREEN_BYTES;
+        for (int i = 0; i < HERO_MARGIN; i++)
+        {
+            memcpy(pixels + (HERO_MARGIN - 1 - i) * column, pixels + (HERO_MARGIN + i) * column, column);
+            memcpy(pixels + (HERO_WIDTH - HERO_MARGIN + i) * column, pixels + (HERO_WIDTH - HERO_MARGIN - 1 - i) * column, column);
+        }
+    }
+    else
+        ok = false;
     fclose(f);
-    return read == HERO_BYTES;
+    return ok;
 }
 
 bool Games_LoadTrophies(u64 titleId, u16 *unlocked, u16 *locked)

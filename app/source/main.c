@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "achievements.h"
+#include "bench.h"
 #include "draw.h"
 #include "games.h"
 #include "share.h"
@@ -65,6 +66,14 @@ static const Color BG_BOTTOM = { 24, 24, 31 };      // to this
 #define SHADOW_STRENGTH 150             // and how dark (of 256) right under it
 #define SLOT_ALPHA      5               // an empty slot's outline (of 16)
 #define BOTTOM_FADE_MS  150             // the bottom screen fading in (a list loading, the full view)
+
+// 3D (top screen, with the slider up): how far each layer is in front of the screen (positive)
+// or behind it, as the gap between the eyes' images at full slider, in pixels. The other tiles,
+// the selected tile's shadow and the hints sit on the screen (0).
+#define DEPTH_HERO      -10             // the game's background, behind the screen
+_Static_assert(DEPTH_HERO >= -HERO_MARGIN && DEPTH_HERO <= HERO_MARGIN, "hero.bin's margins must cover the background's move");
+#define DEPTH_SELECTED  6               // the selected tile, its frame and name come forward
+#define DEPTH_POPUP     8               // popups in front of everything
 
 // Bottom screen: the opened game's unlock count and progress bar, then one box
 // per achievement.
@@ -121,6 +130,7 @@ static Result       s_popupResult;
 static int          s_newGames, s_updatedGames;
 static int          s_downloadDone, s_downloadTotal;
 static u8           s_hero[HERO_BYTES];     // the selected game's background
+static u8           s_heroDim[HERO_BYTES] __attribute__((aligned(4)));  // and as the top screen shows it
 static bool         s_heroReady;
 
 // Copies text cut to maxWidth pixels at the given text scale, ending in "..." if it was longer.
@@ -215,35 +225,117 @@ static void DrawScrollbar(gfxScreen_t screen, int x, int top, int track, int vis
     Draw_RoundRect(screen, x, y, SCROLL_W, thumb, SCROLL_W / 2, SCROLLBAR);
 }
 
-// A game's icon, or its title in a grey box when it isn't installed.
-static void DrawTile(const Game *g, int x, int y, int size)
+// A game's icon, or its title in a grey box when it isn't installed, darkened by dim (0-256),
+// and in a frame (DRAW_FRAME pixels around it) when frame isn't NULL. While it's moving
+// (changing size), it's drawn quickly from its largest image.
+static void DrawTile(const Game *g, int x, int y, int size, int dim, const Color *frame, bool moving)
 {
     int radius = TILE_RADIUS(size);
     int inset = radius / 2 > 4 ? radius / 2 : 4;    // keeps the title inside the rounded corners
 
     if (g->hasIcon)
     {
-        Draw_IconScaled(GFX_TOP, x, y, size, radius, g->icon);
+        Draw_IconScaled(GFX_TOP, x, y, size, radius, g->icon, dim, frame, moving ? TILE_BIG : 0);
         return;
     }
+    if (frame != NULL)
+        Draw_RoundRect(GFX_TOP, x - DRAW_FRAME, y - DRAW_FRAME, size + 2 * DRAW_FRAME, size + 2 * DRAW_FRAME,
+                       radius + DRAW_FRAME, *frame);
     Draw_RoundRect(GFX_TOP, x, y, size, size, radius, DARK);
     DrawWrapped(GFX_TOP, x + inset, y + inset, size - 2 * inset, LINE_H + 4, WHITE, g->title, (size - 2 * inset) / (LINE_H + 4));
+    Draw_Darken(GFX_TOP, x, y, size, size, radius, dim);
 }
 
-// Loads game i's achievements into s_* (and refreshes its counts).
-static void LoadGame(int i)
+// A game's achievements, trophies and background, read on a thread of their own so the
+// screens keep moving meanwhile (reading and parsing them takes a while on an Old 3DS).
+// Nothing else may use achievements.c while it runs. The background goes straight into
+// s_hero and s_heroDim, which aren't shown until the game is loaded.
+#define LOADER_STACK    0x10000
+typedef struct
 {
-    Game *g = &s_games[i];
+    int         game;
+    bool        loaded;                     // its definitions were read
+    bool        hasIcons, heroReady;
+    u16         unlocked[ICON_SIZE * ICON_SIZE], locked[ICON_SIZE * ICON_SIZE];
+    int         count;
+    const char *names[MAX_ACHIEVEMENTS], *descriptions[MAX_ACHIEVEMENTS];
+    uint16_t    points[MAX_ACHIEVEMENTS];
+    bool        isUnlocked[MAX_ACHIEVEMENTS];
+    int         gameUnlocked, total, earned, gamePoints;
+} Loaded;
+static Loaded        s_loaded;
+static Thread        s_loader;
+static volatile bool s_loaderDone;
 
-    s_hasGameIcons = Games_LoadTrophies(g->titleId, s_gameUnlocked, s_gameLocked);
-    s_count = 0;
-    if (!Achievements_Load(g->titleId))
-        return;
-    s_count = Achievements_List(s_names, s_unlocked, MAX_ACHIEVEMENTS);
-    Achievements_Descriptions(s_descriptions, MAX_ACHIEVEMENTS);
-    Achievements_Points(s_points, MAX_ACHIEVEMENTS);
-    Achievements_Progress(&g->unlocked, &g->total);
-    Achievements_Score(&g->earned, &g->points);
+static void LoadThread(void *arg)
+{
+    (void)arg;
+    Loaded *l = &s_loaded;
+    u64 titleId = s_games[l->game].titleId;
+
+    l->hasIcons = Games_LoadTrophies(titleId, l->unlocked, l->locked);
+    l->count = 0;
+    l->loaded = Achievements_Load(titleId);
+    if (l->loaded)
+    {
+        l->count = Achievements_List(l->names, l->isUnlocked, MAX_ACHIEVEMENTS);
+        Achievements_Descriptions(l->descriptions, MAX_ACHIEVEMENTS);
+        Achievements_Points(l->points, MAX_ACHIEVEMENTS);
+        Achievements_Progress(&l->gameUnlocked, &l->total);
+        Achievements_Score(&l->earned, &l->gamePoints);
+    }
+    l->heroReady = Games_LoadHero(titleId, s_hero);
+    if (l->heroReady)
+        Draw_DimHero(s_hero, s_heroDim);
+    __atomic_store_n(&s_loaderDone, true, __ATOMIC_RELEASE);
+}
+
+// Starts loading game i (reads the progress file again, so it's current). Below the main
+// thread's priority: it runs while the main thread waits for the screen.
+static void StartLoading(int i)
+{
+    s32 priority = 0x30;
+    s_loaded.game = i;
+    s_loaderDone = false;
+    svcGetThreadPriority(&priority, CUR_THREAD_HANDLE);
+    s_loader = threadCreate(LoadThread, NULL, LOADER_STACK, priority + 1, -2, false);
+    if (s_loader == NULL)
+        LoadThread(NULL);       // loaded right here instead
+}
+
+// True once the load has finished; wait: until it has.
+static bool LoadingDone(bool wait)
+{
+    if (s_loader != NULL)
+    {
+        if (!wait && !__atomic_load_n(&s_loaderDone, __ATOMIC_ACQUIRE))
+            return false;
+        threadJoin(s_loader, U64_MAX);
+        threadFree(s_loader);
+        s_loader = NULL;
+    }
+    return true;
+}
+
+// Shows what was loaded: the list in s_*, the counts in its Game.
+static void UseLoaded(void)
+{
+    const Loaded *l = &s_loaded;
+    Game *g = &s_games[l->game];
+
+    s_hasGameIcons = l->hasIcons;
+    memcpy(s_gameUnlocked, l->unlocked, sizeof(s_gameUnlocked));
+    memcpy(s_gameLocked, l->locked, sizeof(s_gameLocked));
+    memcpy(s_names, l->names, sizeof(s_names));
+    memcpy(s_descriptions, l->descriptions, sizeof(s_descriptions));
+    memcpy(s_points, l->points, sizeof(s_points));
+    memcpy(s_unlocked, l->isUnlocked, sizeof(s_unlocked));
+    s_count = l->count;
+    if (l->loaded)
+    {
+        g->unlocked = l->gameUnlocked, g->total = l->total;
+        g->earned = l->earned, g->points = l->gamePoints;
+    }
 }
 
 // Positions to scroll through: every game, and at least ROW_POSITIONS with empty squares.
@@ -325,26 +417,43 @@ static void DrawSetting(int x, int width, const char *label, bool on)
 static void DrawHints(bool canShare)
 {
     static const char patched[] = "X: Patched games ", tracker[] = "SELECT: Tracker ", share[] = "Y: Share";
+    static DrawStamp pills[3];              // the pills as last drawn, for the same hints
+    static int       pillsFor = -1;
     int w0 = SettingWidth(patched) + 2 * PILL_PAD, w1 = SettingWidth(tracker) + 2 * PILL_PAD;
     int w2 = canShare ? Draw_TextWidth(share, 1) + 2 * PILL_PAD : 0;
     int x = (TOP_WIDTH - (w0 + w1 + PILL_GAP + (canShare ? w2 + PILL_GAP : 0))) / 2;
+    int hints = (s_patchedAllowed ? 1 : 0) | (s_trackerRunning ? 2 : 0) | (canShare ? 4 : 0);
+
+    if (hints == pillsFor && Draw_StampAgain(&pills[0]) && Draw_StampAgain(&pills[1]) && (!canShare || Draw_StampAgain(&pills[2])))
+        return;
 
     Draw_RoundRect(GFX_TOP, x, PILL_Y, w0, PILL_H, PILL_H / 2, PILL);
     DrawSetting(x + PILL_PAD, w0 - 2 * PILL_PAD, patched, s_patchedAllowed);
+    Draw_StampKeep(&pills[0], GFX_TOP, x, PILL_Y, w0, PILL_H, PILL_H / 2, PILL);
     x += w0 + PILL_GAP;
     Draw_RoundRect(GFX_TOP, x, PILL_Y, w1, PILL_H, PILL_H / 2, PILL);
     DrawSetting(x + PILL_PAD, w1 - 2 * PILL_PAD, tracker, s_trackerRunning);
+    Draw_StampKeep(&pills[1], GFX_TOP, x, PILL_Y, w1, PILL_H, PILL_H / 2, PILL);
     x += w1 + PILL_GAP;
     if (canShare)
     {
         Draw_RoundRect(GFX_TOP, x, PILL_Y, w2, PILL_H, PILL_H / 2, PILL);
         Draw_TextShadow(GFX_TOP, x + PILL_PAD, PILL_Y + 4, 1, HINT, share, 0);
+        Draw_StampKeep(&pills[2], GFX_TOP, x, PILL_Y, w2, PILL_H, PILL_H / 2, PILL);
     }
+    pillsFor = hints;
+}
+
+// How far forward tile i comes in 3D: the selected one fully, easing along with its size.
+static int TileDepth(int i)
+{
+    return DEPTH_SELECTED * s_tileScale[i] / 256;
 }
 
 static void DrawTop(int selected)
 {
-    DrawHints(selected < s_gameCount);
+    Draw_Depth(0);
+    BENCH_TIME(BENCH_HINTS, DrawHints(selected < s_gameCount));
 
     if (s_gameCount == 0)
     {
@@ -363,13 +472,18 @@ static void DrawTop(int selected)
             selectedX = x, selectedY = TILE_MIDDLE - size / 2, selectedSize = size;
         x += size + TILE_GAP;
     }
+    // A game's tile and frame are solid over it; an empty slot's outline isn't.
     if (selectedSize > 0)
-        Draw_Shadow(GFX_TOP, selectedX - 2, selectedY - 2, selectedSize + 4, selectedSize + 4,
-                    TILE_RADIUS(selectedSize) + 2, SHADOW_BLUR, SHADOW_DROP, SHADOW_STRENGTH);
+        BENCH_TIME(BENCH_SHADOW, Draw_Shadow(GFX_TOP, selectedX - 2, selectedY - 2, selectedSize + 4, selectedSize + 4,
+                                             TILE_RADIUS(selectedSize) + 2, SHADOW_BLUR, SHADOW_DROP, SHADOW_STRENGTH,
+                                             selected < s_gameCount ? TileDepth(selected) : DRAW_UNCOVERED));
 
     // The tiles: the others a little darker, so the selected one stands out. Slots past the
     // last game are faint outlines.
     x = TILE_LEFT - s_camera / 16;
+#ifdef BENCH
+    u64 tilesStart = svcGetSystemTick();
+#endif
     for (int i = 0; i < RowPositions() && x < TOP_WIDTH; i++)
     {
         int size = TileSize(i), radius = TILE_RADIUS(size);
@@ -377,11 +491,13 @@ static void DrawTop(int selected)
 
         if (x + size + 2 > 0)
         {
+            Draw_Depth(TileDepth(i));
             if (i < s_gameCount)
             {
-                if (i == selected)
-                    Draw_RoundRect(GFX_TOP, x - 2, y - 2, size + 4, size + 4, radius + 2, ACCENT);
-                DrawTile(&s_games[i], x, y, size);
+                // Dimmed as it shrinks away from being selected, so the change eases. The
+                // selected one is in a gold frame.
+                bool moving = s_tileScale[i] != 0 && s_tileScale[i] != 256;   // growing or shrinking
+                DrawTile(&s_games[i], x, y, size, TILE_DIM * (256 - s_tileScale[i]) / 256, i == selected ? &ACCENT : NULL, moving);
             }
             else
             {
@@ -389,18 +505,19 @@ static void DrawTop(int selected)
                     Draw_RoundRing(GFX_TOP, x - 2, y - 2, size + 4, size + 4, radius + 2, 2, ACCENT, 16);
                 Draw_RoundRing(GFX_TOP, x, y, size, size, radius, 2, WHITE, SLOT_ALPHA);
             }
-            // Dimmed as it shrinks away from being selected, so the change eases.
-            if (i < s_gameCount)
-                Draw_Darken(GFX_TOP, x, y, size, size, radius, TILE_DIM * (256 - s_tileScale[i]) / 256);
         }
         x += size + TILE_GAP;
     }
+#ifdef BENCH
+    Bench_Add(BENCH_TILES, svcGetSystemTick() - tilesStart);
+#endif
 
     // The light running around the selected frame, once the tiles next to it are drawn (its
-    // glow reaches toward them).
+    // glow reaches toward them). It and the name are as far forward as the tile.
+    Draw_Depth(selected < RowPositions() ? TileDepth(selected) : 0);
     if (selectedSize > 0)
-        Draw_FrameShine(GFX_TOP, selectedX - 2, selectedY - 2, selectedSize + 4, selectedSize + 4,
-                        TILE_RADIUS(selectedSize) + 2, 2, ACCENT, SHINE);
+        BENCH_TIME(BENCH_LIGHT, Draw_FrameShine(GFX_TOP, selectedX - 2, selectedY - 2, selectedSize + 4, selectedSize + 4,
+                                                TILE_RADIUS(selectedSize) + 2, 2, ACCENT, SHINE));
 
     // The selected game's name under its tile, kept on the screen.
     if (selected < s_gameCount)
@@ -541,6 +658,7 @@ static void DrawPopup(void)
     const char *title, *button = "A: OK";
     char text[48];
 
+    Draw_Depth(DEPTH_POPUP);
     switch (s_popup)
     {
         case POPUP_START_FAILED:    title = "Couldn't start the tracker"; break;
@@ -592,6 +710,29 @@ static void DrawPopup(void)
     Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(button, 1)) / 2, y + h - 18, 1, HINT, button, 0);
 }
 
+// What the bottom screen shows: the list or one achievement in full, and where.
+typedef struct
+{
+    int  game, scroll, selected, count;
+    bool details, loaded;
+} BottomView;
+
+// The menu's top screen, once for each eye's image when 3D is on (the background goes into
+// both first).
+static void DrawTopScreen(int game, int heroLevel)
+{
+    if (heroLevel > 0)
+        BENCH_TIME(BENCH_HERO, Draw_Hero(s_heroDim, heroLevel, DEPTH_HERO));
+    for (int eye = 0; eye < Draw_Eyes(); eye++)
+    {
+        Draw_Eye(eye);
+        DrawTop(game);
+        if (s_popup != POPUP_NONE)
+            DrawPopup();
+    }
+    Draw_Eye(0);
+}
+
 // Shown while files download; nothing else on the screen is changing.
 static void ShowDownloadProgress(int done, int total)
 {
@@ -599,7 +740,11 @@ static void ShowDownloadProgress(int done, int total)
     s_downloadDone = done;
     s_downloadTotal = total;
     Draw_Begin(true, true);
-    DrawPopup();
+    for (int eye = 0; eye < Draw_Eyes(); eye++)
+    {
+        Draw_Eye(eye);
+        DrawPopup();
+    }
     Draw_End();
 }
 
@@ -638,6 +783,10 @@ int main(void)
         Draw_Text(GFX_TOP, MARGIN, MARGIN, 1, WHITE, "Loading...", 0);
         Draw_End();
     }
+#ifdef BENCH
+    // The benchmark leaves the tracker and the updater alone (their popups would stop the script).
+    s_gameCount = Games_Scan(s_games, MAX_GAMES);
+#else
     bool wanted = !Tracker_TurnedOff();
     Result startResult = wanted ? Tracker_Start() : 0;
     s_gameCount = Games_Scan(s_games, MAX_GAMES);
@@ -650,6 +799,7 @@ int main(void)
     }
 
     Update_Start();
+#endif
 
     s_tileScale[0] = 256;
     int     game = 0;
@@ -660,10 +810,13 @@ int main(void)
     bool    touchMoved = false;     // and it has moved: a drag, not a tap
     bool    details = false;        // the selected achievement is shown in full
     int     bottomFade = 256;       // the bottom screen fading in (0-256): a list loading, the full view
-    int     redrawBottom = 0;       // like redraw, for changes to the list alone
+    int     redraw = 2;             // both screens: the frames left to redraw (both buffers of each)
+    int     redrawTop = 0;          // like redraw, for the top screen alone (the row, the background, 3D, hints)
+    int     redrawBottom = 0;       // and for the bottom screen alone (the list)
     u64     repeatAt = 0;
-    int     redraw = 2;             // both buffers of each screen
     int     heroFor = -1;           // the game s_hero was last loaded for
+    bool    loading = false;        // a game is being loaded (s_loaded.game)
+    bool    fadeHeld = false;       // the bottom screen's fade starts on this frame: it doesn't move on yet
     u64     heroAt = 0;             // when to load the selected game's background
     int     heroLevel = 0;          // how far the background has faded in, 0-256
     bool    sharing = false;        // the share screen is open
@@ -673,6 +826,10 @@ int main(void)
     {
         hidScanInput();
         u32 down = hidKeysDown(), held = hidKeysHeld(), up = hidKeysUp();
+#ifdef BENCH
+        if (!Bench_Input(&down, &held, &up))
+            break;
+#endif
         u32 dir = Direction(down, held, &repeatAt);
 
         if (down & KEY_START)
@@ -681,7 +838,7 @@ int main(void)
         if (s_popup == POPUP_NONE && !sharing && Update_Poll(&s_newGames, &s_updatedGames))
         {
             s_popup = POPUP_UPDATE;
-            redraw = 2;
+            redrawTop = 2;
         }
 
         if (sharing)
@@ -707,6 +864,9 @@ int main(void)
         {
             if (down & KEY_A)
             {
+                // The files are about to change, and the games are read again after.
+                LoadingDone(true);
+                loading = false;
                 Result res = Update_Download(ShowDownloadProgress);
                 s_popup = R_FAILED(res) ? POPUP_UPDATE_FAILED : POPUP_NONE;
                 s_popupResult = res;
@@ -729,7 +889,7 @@ int main(void)
             else if (down & KEY_B)
             {
                 s_popup = POPUP_NONE;
-                redraw = 2;
+                redrawTop = 2;
             }
         }
         else if (s_popup != POPUP_NONE)
@@ -737,7 +897,7 @@ int main(void)
             if (down & (KEY_A | KEY_B))
             {
                 s_popup = POPUP_NONE;
-                redraw = 2;
+                redrawTop = 2;
             }
         }
         else
@@ -752,23 +912,21 @@ int main(void)
                     s_popup = on ? POPUP_START_FAILED : POPUP_STOP_FAILED;
                     s_popupResult = res;
                 }
-                redraw = 2;
+                redrawTop = 2;
             }
 
             if (down & KEY_X)
             {
                 Tracker_SetPatchedAllowed(!s_patchedAllowed);
                 s_patchedAllowed = Tracker_PatchedAllowed();    // what was actually saved
-                redraw = 2;
+                redrawTop = 2;
             }
 
             // Share: only once the selected game's achievements have loaded.
             if ((down & KEY_Y) && game < s_gameCount && heroFor == game)
             {
                 Draw_Begin(true, true);
-                if (heroLevel > 0)
-                    Draw_Hero(s_hero, heroLevel);
-                DrawTop(game);
+                DrawTopScreen(game, heroLevel);
                 Draw_Text(GFX_BOTTOM, (BOTTOM_WIDTH - Draw_TextWidth("Making the image...", 1)) / 2,
                           (SCREEN_HEIGHT - LINE_H) / 2, 1, WHITE, "Making the image...", 0);
                 Draw_End();
@@ -889,17 +1047,32 @@ int main(void)
         }
 
         // The old background finishes fading out before the next game is loaded over it.
-        if (s_gameCount > 0 && heroFor != game && osGetTime() >= heroAt && heroLevel == 0)
+        if (!loading && s_gameCount > 0 && heroFor != game && osGetTime() >= heroAt && heroLevel == 0)
         {
-            heroFor = game;
-            s_heroReady = false;
-            if (game < s_gameCount)         // the empty positions have nothing to load
+            if (game < s_gameCount)
             {
-                LoadGame(game);             // reads the progress file again, so it's current
-                s_heroReady = Games_LoadHero(s_games[game].titleId, s_hero);
-                bottomFade = 0;             // its list fades in
+                StartLoading(game);
+                loading = true;
             }
-            redraw = 2;
+            else
+            {
+                heroFor = game;             // the empty positions have nothing to load
+                s_heroReady = false;
+                redraw = 2;
+            }
+        }
+        if (loading && LoadingDone(false))
+        {
+            loading = false;
+            if (s_loaded.game == game)      // still selected (else the one that is loads next)
+            {
+                BENCH_TIME(BENCH_LOAD, UseLoaded());
+                heroFor = game;
+                s_heroReady = s_loaded.heroReady;
+                bottomFade = 0;             // its list fades in, from its first frame drawn
+                fadeHeld = true;
+                redraw = 2;
+            }
         }
 
         // Everything that eases: the row and the background.
@@ -911,34 +1084,52 @@ int main(void)
                 milliseconds = 100;         // after a pause, don't jump
 
             if (s_gameCount > 0 && AnimateRow(game, milliseconds))
-                redraw = 2;
+                redrawTop = 2;
 
             int target = s_heroReady && heroFor == game ? 256 : 0;
             if (heroLevel != target)
             {
                 int step = milliseconds * 256 / (target != 0 ? HERO_FADE_MS : HERO_OUT_MS);
                 heroLevel = Approach(heroLevel, target, step > 0 ? step : 1);
-                redraw = 2;
+                redrawTop = 2;
             }
 
             if (bottomFade < 256)
             {
                 int step = milliseconds * 256 / BOTTOM_FADE_MS;
-                bottomFade = Approach(bottomFade, 256, step > 0 ? step : 1);
+                if (!fadeHeld)
+                    bottomFade = Approach(bottomFade, 256, step > 0 ? step : 1);
+                fadeHeld = false;
                 redrawBottom = 2;
             }
         }
+
+        // 3D follows the slider on the menu; the share screen is a flat picture.
+#ifdef BENCH
+        float slider = Bench_Slider();
+#else
+        float slider = osGet3DSliderState();
+#endif
+        if (Draw_Stereo(sharing ? 0.0f : slider))
+            redrawTop = 2;
 
         // The light around the selected game's frame moves all the time. In a frame where
         // nothing else changed, only it is redrawn.
         // The share screen stays still: it shows the image as it's shared.
         bool shine = !sharing && s_gameCount > 0 && s_popup == POPUP_NONE;
-        if (redraw > 0 || redrawBottom > 0 || shine)
+        if (redraw > 0 || redrawTop > 0 || redrawBottom > 0 || shine)
         {
-            bool top = redraw > 0;
-            bool bottom = redraw > 0 || redrawBottom > 0;   // dragging the list leaves the top screen alone
+            bool top = redraw > 0 || redrawTop > 0;
+            bool bottom = redraw > 0 || redrawBottom > 0;
+            // The background and the list each set every pixel of their screen: no clearing first.
+            bool listShown = !sharing && game < s_gameCount;
+            int  topMode = !top ? DRAW_KEEP : !sharing && heroLevel > 0 ? DRAW_COVER : DRAW_CLEAR;
+            int  bottomMode = !bottom ? DRAW_KEEP : listShown ? DRAW_COVER : DRAW_CLEAR;
 
-            Draw_Begin(top, bottom);
+#ifdef BENCH
+            Bench_DrawStart();
+#endif
+            Draw_Begin(topMode, bottomMode);
             if (sharing)
             {
                 if (top)
@@ -948,24 +1139,60 @@ int main(void)
             }
             else
             {
-                if (top && heroLevel > 0)
-                    Draw_Hero(s_hero, heroLevel);
                 if (top)
-                    DrawTop(game);
-                if (bottom && game < s_gameCount && details && s_count > 0)
-                    DrawDetails(s_selected);
-                else if (bottom && game < s_gameCount)
-                    DrawBoxes(&s_games[game], scroll, heroFor == game);
-                if (bottom && game < s_gameCount && bottomFade < 256)
-                    Draw_FadeToGradient(GFX_BOTTOM, 0, SCREEN_HEIGHT, BG_TOP, BG_BOTTOM, bottomFade);
-                if (top && s_popup != POPUP_NONE)
-                    DrawPopup();
+                    DrawTopScreen(game, heroLevel);     // with any popup
+#ifdef BENCH
+                u64 bottomStart = svcGetSystemTick();
+#endif
+                // While the bottom screen fades in, the list (or full view) is drawn once and
+                // kept; each step of the fade is made from the kept copy.
+                static u8 kept[BOTTOM_WIDTH * SCREEN_HEIGHT * 3] __attribute__((aligned(4)));
+                static BottomView keptView;
+                static bool keptValid;
+                BottomView view;
+                memset(&view, 0, sizeof(view));     // compared whole, padding too
+                view.game = game, view.scroll = scroll, view.selected = s_selected, view.count = s_count;
+                view.details = details, view.loaded = heroFor == game;
+                bool sameView = keptValid && memcmp(&view, &keptView, sizeof(view)) == 0;
+                if (bottom && game < s_gameCount && (sameView || bottomFade < 256))
+                {
+                    if (!sameView)
+                    {
+                        Draw_Into(GFX_BOTTOM, kept);
+                        if (details && s_count > 0)
+                            DrawDetails(s_selected);
+                        else
+                            DrawBoxes(&s_games[game], scroll, heroFor == game);
+                        Draw_Into(GFX_BOTTOM, NULL);
+                        keptView = view, keptValid = true;
+                    }
+                    BENCH_TIME(BENCH_FADE, Draw_FadeToGradient(GFX_BOTTOM, 0, SCREEN_HEIGHT, BG_TOP, BG_BOTTOM, bottomFade, kept));
+                }
+                else
+                {
+                    if (bottom && game < s_gameCount && details && s_count > 0)
+                        DrawDetails(s_selected);
+                    else if (bottom && game < s_gameCount)
+                        DrawBoxes(&s_games[game], scroll, heroFor == game);
+                    keptValid = false;
+                }
+#ifdef BENCH
+                Bench_Add(BENCH_BOTTOM, svcGetSystemTick() - bottomStart);
+#endif
             }
             if (!top && shine)
-                Draw_FrameShineAgain();
+                BENCH_TIME(BENCH_LIGHT, Draw_FrameShineAgain());
+#ifdef BENCH
+            Bench_DrawDone();
             Draw_End();
+            Bench_EndDone();
+#else
+            Draw_End();
+#endif
             if (redraw > 0)
                 redraw--;
+            if (redrawTop > 0)
+                redrawTop--;
             if (redrawBottom > 0)
                 redrawBottom--;
         }
@@ -975,7 +1202,12 @@ int main(void)
 
     if (sharing)
         Share_Close();
+    LoadingDone(true);
+#ifdef BENCH
+    Bench_Report();
+#else
     Update_Stop();
+#endif
     Draw_Exit();
     return 0;
 }

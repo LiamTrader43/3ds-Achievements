@@ -8,9 +8,10 @@
 
 #include <curl/curl.h>
 
+#include "hero.h"
 #include "update_tree.h"
 
-#define OWNER_REPO      "LiamTrader43/3ds-Achievements"
+#define OWNER_REPO     "LiamTrader43/3ds-Achievements"
 #define BRANCH          "main"
 #define TREE_URL        "https://api.github.com/repos/" OWNER_REPO "/git/trees/" BRANCH "?recursive=1"
 #define RAW_URL         "https://raw.githubusercontent.com/" OWNER_REPO "/" BRANCH "/achievements"
@@ -18,6 +19,7 @@
 #define VERSIONS_PATH   DIRECTORY "/versions.txt"       // the GitHub ID of each file on the card
 #define LOG_PATH        DIRECTORY "/update.log"         // what the last check found
 #define BUFFER_SIZE     (320 * 1024)
+_Static_assert(HERO_BYTES < BUFFER_SIZE, "a background must fit in the download buffer");
 #define STACK_SIZE      0x20000     // the TLS handshake needs a lot of stack
 #define SOC_BUFFER_SIZE 0x100000
 #define CONNECT_SECONDS 15L
