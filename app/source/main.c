@@ -17,6 +17,7 @@
 #include "bench.h"
 #include "draw.h"
 #include "games.h"
+#include "rewards.h"
 #include "share.h"
 #include "tracker.h"
 #include "update.h"
@@ -120,13 +121,16 @@ static int          s_camera;
 typedef enum
 {
     POPUP_NONE, POPUP_START_FAILED, POPUP_STOP_FAILED,
-    POPUP_UPDATE, POPUP_DOWNLOADING, POPUP_UPDATE_FAILED
+    POPUP_UPDATE, POPUP_DOWNLOADING, POPUP_UPDATE_FAILED, POPUP_COINS
 } Popup;
 
 static bool         s_trackerRunning;
 static bool         s_patchedAllowed;
 static Popup        s_popup;
 static Result       s_popupResult;
+static Rewards      s_rewards;              // Play Coins given when the app opened
+static int          s_playCoins = -1;       // the system's Play Coins (-1: unknown), top right
+static bool         s_coinsWaiting;         // their popup comes after the one showing
 static int          s_newGames, s_updatedGames;
 static int          s_downloadDone, s_downloadTotal;
 static u8           s_hero[HERO_BYTES];     // the selected game's background
@@ -455,6 +459,14 @@ static void DrawTop(int selected)
     Draw_Depth(0);
     BENCH_TIME(BENCH_HINTS, DrawHints(selected < s_gameCount));
 
+    // The system's Play Coins (they come from achievement points), top right.
+    if (s_playCoins >= 0)
+    {
+        char coins[32];
+        snprintf(coins, sizeof(coins), "Play Coins: %d", s_playCoins);
+        Draw_TextShadow(GFX_TOP, TOP_WIDTH - MARGIN - Draw_TextWidth(coins, 1), MARGIN, 1, GOLD, coins, 0);
+    }
+
     if (s_gameCount == 0)
     {
         Draw_TextShadow(GFX_TOP, MARGIN, MARGIN, 1, WHITE, "No games with achievements found.", 0);
@@ -648,15 +660,38 @@ static void DrawDetails(int i)
     Draw_Text(GFX_BOTTOM, BOTTOM_WIDTH - DETAIL_MARGIN - Draw_TextWidth(other, 1), DETAIL_HINT_Y, 1, HINT, other, 0);
 }
 
+// Closes the popup showing; the Play Coins one comes next if it's waiting.
+static void ClosePopup(void)
+{
+    s_popup = s_coinsWaiting ? POPUP_COINS : POPUP_NONE;
+    s_coinsWaiting = false;
+}
+
+// What the Play Coins popup says under its title: what was earned, then what happened to it.
+static void CoinLines(char *first, char *second, size_t capacity)
+{
+    const Rewards *r = &s_rewards;
+    if (r->earned > 0)
+        snprintf(first, capacity, "%d achievement points: %d Play Coins", r->rewards * REWARD_POINTS, r->earned);
+    else
+        snprintf(first, capacity, "%d Play Coins kept from before", r->given);
+    if (R_FAILED(r->result))
+        snprintf(second, capacity, "Couldn't add them yet (0x%08lX). They're kept.", r->result);
+    else if (r->owed > 0)
+        snprintf(second, capacity, "You're at the limit of %d. %d more are kept.", PLAY_COINS_MAX, r->owed);
+    else
+        snprintf(second, capacity, "You now have %d Play Coins.", r->coins);
+}
+
 // A message over the top screen, when the tracker couldn't be started or stopped.
 static void DrawPopup(void)
 {
     static const Color PANEL = { 22, 22, 28 };
-    const bool small = s_popup == POPUP_UPDATE || s_popup == POPUP_DOWNLOADING;
+    const bool small = s_popup == POPUP_UPDATE || s_popup == POPUP_DOWNLOADING || s_popup == POPUP_COINS;
     const int w = 376, h = small ? 100 : 150;
     const int x = (TOP_WIDTH - w) / 2, y = (SCREEN_HEIGHT - h) / 2;
     const char *title, *button = "A: OK";
-    char text[48];
+    char text[64];
 
     Draw_Depth(DEPTH_POPUP);
     switch (s_popup)
@@ -665,6 +700,7 @@ static void DrawPopup(void)
         case POPUP_STOP_FAILED:     title = "Couldn't stop the tracker"; break;
         case POPUP_UPDATE:          title = "New achievements"; button = "A: Download   B: Later"; break;
         case POPUP_DOWNLOADING:     title = "Downloading"; button = ""; break;
+        case POPUP_COINS:           title = "Play Coins earned"; break;
         default:                    title = "Download failed"; break;
     }
 
@@ -687,6 +723,13 @@ static void DrawPopup(void)
         snprintf(text, sizeof(text), "File %d of %d", s_downloadDone + 1, s_downloadTotal);
         Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(text, 1)) / 2, y + 44, 1, GREY, text, 0);
         DrawProgressBar(GFX_TOP, x + 24, y + 66, w - 48, 6, s_downloadDone, s_downloadTotal);
+    }
+    else if (s_popup == POPUP_COINS)
+    {
+        char second[64];
+        CoinLines(text, second, sizeof(text));
+        Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(text, 1)) / 2, y + 42, 1, WHITE, text, 0);
+        Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(second, 1)) / 2, y + 59, 1, GREY, second, 0);
     }
     else
     {
@@ -798,6 +841,19 @@ int main(void)
         s_popupResult = startResult;
     }
 
+    // Play Coins for achievement points (only when the app opens; the tracker doesn't give them).
+    int pointsAll = 0;
+    for (int i = 0; i < s_gameCount; i++)
+        pointsAll += s_games[i].earned;
+    if (Rewards_Update(pointsAll, &s_rewards))
+    {
+        if (s_popup == POPUP_NONE)
+            s_popup = POPUP_COINS;
+        else
+            s_coinsWaiting = true;
+    }
+    s_playCoins = s_rewards.coins >= 0 ? s_rewards.coins : Rewards_Coins();
+
     Update_Start();
 #endif
 
@@ -868,7 +924,10 @@ int main(void)
                 LoadingDone(true);
                 loading = false;
                 Result res = Update_Download(ShowDownloadProgress);
-                s_popup = R_FAILED(res) ? POPUP_UPDATE_FAILED : POPUP_NONE;
+                if (R_FAILED(res))
+                    s_popup = POPUP_UPDATE_FAILED;
+                else
+                    ClosePopup();
                 s_popupResult = res;
 
                 // Whatever arrived shows up right away.
@@ -888,7 +947,7 @@ int main(void)
             }
             else if (down & KEY_B)
             {
-                s_popup = POPUP_NONE;
+                ClosePopup();
                 redrawTop = 2;
             }
         }
@@ -896,7 +955,7 @@ int main(void)
         {
             if (down & (KEY_A | KEY_B))
             {
-                s_popup = POPUP_NONE;
+                ClosePopup();
                 redrawTop = 2;
             }
         }
