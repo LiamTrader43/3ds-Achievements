@@ -4,9 +4,10 @@
 // tracker. SELECT turns the tracker on or off. Y shares the selected game's progress
 // as an image (share.c).
 //
-// Top screen: a row of the games' icons, the selected one largest on the left. Bottom screen: the highlighted game's
-// progress bar and achievements, one box each (trophy, name, description,
-// points; gold trophy, green name = unlocked).
+// Top screen: a row of the games' icons, the selected one largest on the left, then the
+// store's. Bottom screen: the highlighted game's progress bar and achievements, one box each
+// (trophy, name, description, points; gold trophy, green name = unlocked), or with the store
+// selected, what's for sale for Play Coins (store.c).
 #include <3ds.h>
 
 #include <stdio.h>
@@ -19,8 +20,10 @@
 #include "games.h"
 #include "rewards.h"
 #include "share.h"
+#include "store.h"
 #include "tracker.h"
 #include "update.h"
+#include "store_icon.h"
 #include "trophy.h"
 
 #define MAX_ACHIEVEMENTS    128     // the tracker's MAX_LINES
@@ -40,6 +43,8 @@ static const Color SHINE = { 255, 255, 245 };       // the light running around 
 static const Color PILL = { 22, 22, 28 };           // behind each button hint
 static const Color BG_TOP = { 12, 12, 16 };         // the bottom screen: a faint fade from this
 static const Color BG_BOTTOM = { 24, 24, 31 };      // to this
+static const Color COIN_RIM = { 232, 168, 24 };     // a Play Coin next to a number, as on the store's bag
+static const Color COIN_FACE = { 255, 222, 120 };
 
 #define MARGIN          8
 
@@ -93,6 +98,8 @@ _Static_assert(DEPTH_HERO >= -HERO_MARGIN && DEPTH_HERO <= HERO_MARGIN, "hero.bi
 #define TAP_SLOP        6                                           // a touch moving less is a tap
 #define BAR_H           6                                           // the progress bar, rounded
 #define SCROLL_W        4                                           // the scrollbar, rounded
+#define COIN_SIZE       11                                          // a coin before a number of Play Coins
+#define COIN_GAP        4
 
 // Bottom screen, one achievement in full (A).
 #define DETAIL_MARGIN   10
@@ -121,7 +128,8 @@ static int          s_camera;
 typedef enum
 {
     POPUP_NONE, POPUP_START_FAILED, POPUP_STOP_FAILED,
-    POPUP_UPDATE, POPUP_DOWNLOADING, POPUP_UPDATE_FAILED, POPUP_COINS
+    POPUP_UPDATE, POPUP_DOWNLOADING, POPUP_UPDATE_FAILED, POPUP_COINS,
+    POPUP_BUY, POPUP_BOUGHT, POPUP_NOT_ENOUGH, POPUP_BUY_FAILED     // the store
 } Popup;
 
 static bool         s_trackerRunning;
@@ -135,6 +143,13 @@ static int          s_downloadDone, s_downloadTotal;
 static u8           s_hero[HERO_BYTES];     // the selected game's background
 static u8           s_heroDim[HERO_BYTES] __attribute__((aligned(4)));  // and as the top screen shows it
 static bool         s_heroReady;
+
+// The store: its tile after the games, the system's Play Coins, and the item being bought.
+static Game         s_storeTile;
+static int          s_coins = -1;           // -1: couldn't be read (s_coinsResult)
+static Result       s_coinsResult;
+static int          s_buyItem;
+static int          s_paidOwed;             // coins kept from before, added after a purchase
 
 // Copies text cut to maxWidth pixels at the given text scale, ending in "..." if it was longer.
 static void EllipsizeScaled(char *out, size_t capacity, const char *text, int maxWidth, int scale)
@@ -341,10 +356,44 @@ static void UseLoaded(void)
     }
 }
 
-// Positions to scroll through: every game, and at least ROW_POSITIONS with empty squares.
+// The store's position: the last of the ROW_POSITIONS when there are fewer games (empty squares
+// between them and it), else the one after the last game.
+static int StorePosition(void)
+{
+    return s_gameCount < ROW_POSITIONS - 1 ? ROW_POSITIONS - 1 : s_gameCount;
+}
+
+// Positions to scroll through: every game, any empty squares, then the store.
 static int RowPositions(void)
 {
-    return s_gameCount > ROW_POSITIONS ? s_gameCount : ROW_POSITIONS;
+    return StorePosition() + 1;
+}
+
+// (There's no row, and so no store, without games.)
+static bool IsStore(int position)
+{
+    return s_gameCount > 0 && position == StorePosition();
+}
+
+// A Play Coin before a number, its top at y.
+static void DrawCoin(gfxScreen_t screen, int x, int y, bool bright)
+{
+    Draw_RoundRect(screen, x, y, COIN_SIZE, COIN_SIZE, COIN_SIZE / 2, bright ? COIN_RIM : GREY);
+    Draw_RoundRect(screen, x + 2, y + 2, COIN_SIZE - 4, COIN_SIZE - 4, (COIN_SIZE - 4) / 2, bright ? COIN_FACE : LIGHT);
+}
+
+// The store's background (hero.h's format): a warm glow behind the row, fading into the dark.
+static void MakeStoreBackground(u8 *pixels)
+{
+    for (int x = 0; x < HERO_WIDTH; x++)
+        for (int row = 0; row < HERO_HEIGHT; row++, pixels += 3)  // row 0 is the bottom of the screen
+        {
+            float dx = (x - HERO_WIDTH / 2) / 230.0f, dy = (HERO_HEIGHT - 1 - row - TILE_MIDDLE) / 120.0f;
+            float glow = 1.0f / (1.0f + 4.0f * (dx * dx + 2.0f * dy * dy));
+            pixels[0] = (u8)(10 + 70 * glow);       // BGR
+            pixels[1] = (u8)(18 + 170 * glow);
+            pixels[2] = (u8)(26 + 229 * glow);
+        }
 }
 
 static int TileSize(int position)
@@ -475,11 +524,11 @@ static void DrawTop(int selected)
             selectedX = x, selectedY = TILE_MIDDLE - size / 2, selectedSize = size;
         x += size + TILE_GAP;
     }
-    // A game's tile and frame are solid over it; an empty slot's outline isn't.
+    // A game's (or the store's) tile and frame are solid over it; an empty slot's outline isn't.
     if (selectedSize > 0)
         BENCH_TIME(BENCH_SHADOW, Draw_Shadow(GFX_TOP, selectedX - 2, selectedY - 2, selectedSize + 4, selectedSize + 4,
                                              TILE_RADIUS(selectedSize) + 2, SHADOW_BLUR, SHADOW_DROP, SHADOW_STRENGTH,
-                                             selected < s_gameCount ? TileDepth(selected) : DRAW_UNCOVERED));
+                                             selected < s_gameCount || IsStore(selected) ? TileDepth(selected) : DRAW_UNCOVERED));
 
     // The tiles: the others a little darker, so the selected one stands out. Slots past the
     // last game are faint outlines.
@@ -495,12 +544,13 @@ static void DrawTop(int selected)
         if (x + size + 2 > 0)
         {
             Draw_Depth(TileDepth(i));
-            if (i < s_gameCount)
+            if (i < s_gameCount || IsStore(i))
             {
                 // Dimmed as it shrinks away from being selected, so the change eases. The
-                // selected one is in a gold frame.
+                // selected one is in a gold frame. The store's tile is last.
                 bool moving = s_tileScale[i] != 0 && s_tileScale[i] != 256;   // growing or shrinking
-                DrawTile(&s_games[i], x, y, size, TILE_DIM * (256 - s_tileScale[i]) / 256, i == selected ? &ACCENT : NULL, moving);
+                DrawTile(i < s_gameCount ? &s_games[i] : &s_storeTile, x, y, size, TILE_DIM * (256 - s_tileScale[i]) / 256,
+                         i == selected ? &ACCENT : NULL, moving);
             }
             else
             {
@@ -533,6 +583,27 @@ static void DrawTop(int selected)
         if (nameX < TILE_LEFT)
             nameX = TILE_LEFT;
         Draw_TextShadow(GFX_TOP, nameX, NAME_Y, 1, WHITE, name, 0);
+    }
+    else if (IsStore(selected))
+    {
+        // "Store", then the Play Coins there are to spend.
+        char coins[32];
+        int  storeW = Draw_TextWidth("Store", 1), width = storeW;
+        snprintf(coins, sizeof(coins), "%d Play Coins", s_coins);
+        if (s_coins >= 0)
+            width += 12 + COIN_SIZE + COIN_GAP + Draw_TextWidth(coins, 1);
+        int nameX = selectedX;
+        if (nameX + width > TOP_WIDTH - MARGIN)
+            nameX = TOP_WIDTH - MARGIN - width;
+        if (nameX < TILE_LEFT)
+            nameX = TILE_LEFT;
+        Draw_TextShadow(GFX_TOP, nameX, NAME_Y, 1, WHITE, "Store", 0);
+        if (s_coins >= 0)
+        {
+            nameX += storeW + 12;
+            DrawCoin(GFX_TOP, nameX, NAME_Y + 1, true);
+            Draw_TextShadow(GFX_TOP, nameX + COIN_SIZE + COIN_GAP, NAME_Y, 1, GOLD, coins, 0);
+        }
     }
 }
 
@@ -651,6 +722,132 @@ static void DrawDetails(int i)
     Draw_Text(GFX_BOTTOM, BOTTOM_WIDTH - DETAIL_MARGIN - Draw_TextWidth(other, 1), DETAIL_HINT_Y, 1, HINT, other, 0);
 }
 
+// One item for sale, laid out like an achievement's box: icon | name, price / description.
+// Bought ones say so in green; ones there aren't enough coins for have a grey price.
+static void DrawStoreBox(int i, int y)
+{
+    const StoreItem *item = Store_Item(i);
+    bool owned = Store_Owned(i);
+    char text[24];
+    int  right = BOTTOM_WIDTH - MARGIN, priceX;
+
+    if (i == s_selected)
+        Draw_RoundRing(GFX_BOTTOM, SELECT_X, y, SELECT_W, BOX_H, SELECT_RADIUS, SELECT_LINE, WHITE, 16);
+    Draw_TrophyIcon(GFX_BOTTOM, BOX_ICON_X, y + (BOX_H - ICON_SIZE) / 2, item->icon != NULL ? item->icon : STORE_ITEM);
+
+    if (owned)
+    {
+        priceX = right - Draw_TextWidth("Owned", 1);
+        Draw_Text(GFX_BOTTOM, priceX, y + 6, 1, GREEN, "Owned", 0);
+    }
+    else
+    {
+        bool affordable = s_coins >= item->price;
+        snprintf(text, sizeof(text), "%d", item->price);
+        priceX = right - Draw_TextWidth(text, 1) - COIN_GAP - COIN_SIZE;
+        DrawCoin(GFX_BOTTOM, priceX, y + 7, affordable);
+        Draw_Text(GFX_BOTTOM, priceX + COIN_SIZE + COIN_GAP, y + 6, 1, affordable ? GOLD : GREY, text, 0);
+    }
+
+    char name[80];
+    Ellipsize(name, sizeof(name), item->name, priceX - 6 - BOX_TEXT_X);
+    Draw_Text(GFX_BOTTOM, BOX_TEXT_X, y + 6, 1, owned ? GREEN : WHITE, name, 0);
+    DrawWrapped(GFX_BOTTOM, BOX_TEXT_X, y + 24, BOX_TEXT_W, LINE_H + 2, GREY, item->description, 2);
+}
+
+// The store's bottom screen: the Play Coins to spend, then what's for sale (s_count items),
+// scrolled like the achievements.
+static void DrawStore(int scroll, bool loaded)
+{
+    char text[64];
+
+    Draw_Gradient(GFX_BOTTOM, PROGRESS_H, SCREEN_HEIGHT, BG_TOP, BG_BOTTOM);
+    int first = scroll / BOX_H;
+    int y = PROGRESS_H - scroll % BOX_H;
+    for (int i = first; i < s_count && y < SCREEN_HEIGHT; i++, y += BOX_H)
+        DrawStoreBox(i, y);
+    Draw_Rect(GFX_BOTTOM, 0, 0, BOTTOM_WIDTH, PROGRESS_H, BG_TOP);
+
+    if (s_coins >= 0)
+    {
+        DrawCoin(GFX_BOTTOM, MARGIN, 6, true);
+        snprintf(text, sizeof(text), "%d Play Coins", s_coins);
+        Draw_Text(GFX_BOTTOM, MARGIN + COIN_SIZE + COIN_GAP, 5, 1, GOLD, text, 0);
+    }
+    else if (loaded)
+        Draw_Text(GFX_BOTTOM, MARGIN, 5, 1, GREY, "Couldn't read your Play Coins", 0);
+    if (s_count > 0)
+        Draw_Text(GFX_BOTTOM, BOTTOM_WIDTH - MARGIN - Draw_TextWidth("A: Buy", 1), 5, 1, HINT, "A: Buy", 0);
+
+    if (s_count == 0)
+    {
+        if (loaded)
+        {
+            int below = DrawWrapped(GFX_BOTTOM, MARGIN, PROGRESS_H + 8, BOTTOM_WIDTH - 2 * MARGIN, LINE_H + 3, WHITE,
+                                    "Nothing for sale yet.", 1);
+            below = DrawWrapped(GFX_BOTTOM, MARGIN, below + 4, BOTTOM_WIDTH - 2 * MARGIN, LINE_H + 3, LIGHT,
+                                "Things to spend your Play Coins on will show up here in an update.", 3);
+            snprintf(text, sizeof(text), "Achievements earn %d for every %d points.", REWARD_COINS, REWARD_POINTS);
+            DrawWrapped(GFX_BOTTOM, MARGIN, below + 8, BOTTOM_WIDTH - 2 * MARGIN, LINE_H + 3, GREY, text, 2);
+        }
+        return;
+    }
+
+    int track = SCREEN_HEIGHT - PROGRESS_H - 4;
+    Draw_RoundRect(GFX_BOTTOM, 3, PROGRESS_H + 2, SCROLL_W, track, SCROLL_W / 2, DARK);
+    if (s_count > BOX_ROWS)
+        DrawScrollbar(GFX_BOTTOM, 3, PROGRESS_H + 2, track, BOX_ROWS * BOX_H, scroll, s_count * BOX_H);
+    else
+        Draw_RoundRect(GFX_BOTTOM, 3, PROGRESS_H + 2, SCROLL_W, track, SCROLL_W / 2, SCROLLBAR);
+}
+
+// The bottom screen for row position game: the store, one achievement in full, or the list.
+static void DrawBottom(int game, int scroll, bool details, bool loaded)
+{
+    if (IsStore(game))
+        DrawStore(scroll, loaded);
+    else if (details && s_count > 0)
+        DrawDetails(s_selected);
+    else
+        DrawBoxes(&s_games[game], scroll, loaded);
+}
+
+// A or a tap on item i: asks to buy it, or says why it can't be bought.
+static void OpenBuy(int i)
+{
+    const StoreItem *item = Store_Item(i);
+    if (item == NULL || Store_Owned(i))
+        return;
+    s_buyItem = i;
+    if (s_coins < 0)
+        s_coinsResult = Rewards_Coins(&s_coins);    // once more, in case it works now
+    if (s_coins < 0)
+    {
+        s_popupResult = s_coinsResult;
+        s_popup = POPUP_BUY_FAILED;
+    }
+    else
+        s_popup = s_coins >= item->price ? POPUP_BUY : POPUP_NOT_ENOUGH;
+}
+
+// A in the buy popup: buys it, then fills the room just made with coins kept from before.
+static void BuyNow(void)
+{
+    int coins = -1;
+    Result res = Store_Buy(s_buyItem, &coins);
+    if (coins >= 0)
+        s_coins = coins;
+    s_popupResult = res;
+    s_paidOwed = 0;
+    if (R_SUCCEEDED(res))
+    {
+        Rewards_PayOwed(&s_paidOwed, &s_coins);
+        s_popup = POPUP_BOUGHT;
+    }
+    else
+        s_popup = res == REWARDS_NOT_ENOUGH ? POPUP_NOT_ENOUGH : POPUP_BUY_FAILED;
+}
+
 // Closes the popup showing; the Play Coins one comes next if it's waiting.
 static void ClosePopup(void)
 {
@@ -678,11 +875,13 @@ static void CoinLines(char *first, char *second, size_t capacity)
 static void DrawPopup(void)
 {
     static const Color PANEL = { 22, 22, 28 };
-    const bool small = s_popup == POPUP_UPDATE || s_popup == POPUP_DOWNLOADING || s_popup == POPUP_COINS;
-    const int w = 376, h = small ? 100 : 150;
+    const bool tall = s_popup == POPUP_START_FAILED || s_popup == POPUP_STOP_FAILED || s_popup == POPUP_UPDATE_FAILED;
+    const bool failed = tall || s_popup == POPUP_BUY_FAILED;
+    const int w = 376, h = tall ? 150 : 100;
     const int x = (TOP_WIDTH - w) / 2, y = (SCREEN_HEIGHT - h) / 2;
     const char *title, *button = "A: OK";
-    char text[64];
+    const StoreItem *item = Store_Item(s_buyItem);
+    char text[64], name[80];
 
     Draw_Depth(DEPTH_POPUP);
     switch (s_popup)
@@ -692,10 +891,18 @@ static void DrawPopup(void)
         case POPUP_UPDATE:          title = "New achievements"; button = "A: Download   B: Later"; break;
         case POPUP_DOWNLOADING:     title = "Downloading"; button = ""; break;
         case POPUP_COINS:           title = "Play Coins earned"; break;
+        case POPUP_BUY:             title = name; button = "A: Buy   B: Cancel"; break;
+        case POPUP_BOUGHT:          title = name; break;
+        case POPUP_NOT_ENOUGH:      title = "Not enough Play Coins"; break;
+        case POPUP_BUY_FAILED:      title = "Couldn't buy it"; break;
         default:                    title = "Download failed"; break;
     }
+    if (item != NULL)
+        EllipsizeScaled(name, sizeof(name), item->name, w - 24, 2);
+    else
+        name[0] = '\0';
 
-    Draw_RoundRect(GFX_TOP, x - 2, y - 2, w + 4, h + 4, 12, small ? ACCENT : RED);
+    Draw_RoundRect(GFX_TOP, x - 2, y - 2, w + 4, h + 4, 12, failed ? RED : ACCENT);
     Draw_RoundRect(GFX_TOP, x, y, w, h, 10, PANEL);
     Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(title, 2)) / 2, y + 12, 2, WHITE, title, 0);
 
@@ -715,11 +922,40 @@ static void DrawPopup(void)
         Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(text, 1)) / 2, y + 44, 1, GREY, text, 0);
         DrawProgressBar(GFX_TOP, x + 24, y + 66, w - 48, 6, s_downloadDone, s_downloadTotal);
     }
-    else if (s_popup == POPUP_COINS)
+    else if (s_popup == POPUP_COINS || s_popup == POPUP_BUY || s_popup == POPUP_BOUGHT || s_popup == POPUP_NOT_ENOUGH
+             || s_popup == POPUP_BUY_FAILED)
     {
+        // Two lines under the title.
         char second[64];
-        CoinLines(text, second, sizeof(text));
-        Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(text, 1)) / 2, y + 42, 1, WHITE, text, 0);
+        Color color = WHITE;
+        int price = item != NULL ? item->price : 0;
+        switch (s_popup)
+        {
+            case POPUP_COINS:
+                CoinLines(text, second, sizeof(text));
+                break;
+            case POPUP_BUY:
+                snprintf(text, sizeof(text), "Buy it for %d Play Coins?", price);
+                snprintf(second, sizeof(second), "You have %d, and will have %d left.", s_coins, s_coins - price);
+                break;
+            case POPUP_BOUGHT:
+                color = GREEN;
+                snprintf(text, sizeof(text), "Bought for %d Play Coins.", price);
+                if (s_paidOwed > 0)
+                    snprintf(second, sizeof(second), "You have %d left, with %d kept from before.", s_coins, s_paidOwed);
+                else
+                    snprintf(second, sizeof(second), "You have %d Play Coins left.", s_coins);
+                break;
+            case POPUP_NOT_ENOUGH:
+                snprintf(text, sizeof(text), "It costs %d Play Coins, and you have %d.", price, s_coins);
+                snprintf(second, sizeof(second), "Achievements earn %d for every %d points.", REWARD_COINS, REWARD_POINTS);
+                break;
+            default:
+                snprintf(text, sizeof(text), "No Play Coins were spent.");
+                snprintf(second, sizeof(second), "Error 0x%08lX", s_popupResult);
+                break;
+        }
+        Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(text, 1)) / 2, y + 42, 1, color, text, 0);
         Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(second, 1)) / 2, y + 59, 1, GREY, second, 0);
     }
     else
@@ -748,6 +984,7 @@ static void DrawPopup(void)
 typedef struct
 {
     int  game, scroll, selected, count;
+    int  coins, owned;                      // the store's Play Coins and items bought
     bool details, loaded;
 } BottomView;
 
@@ -817,6 +1054,10 @@ int main(void)
         Draw_Text(GFX_TOP, MARGIN, MARGIN, 1, WHITE, "Loading...", 0);
         Draw_End();
     }
+    memcpy(s_storeTile.icon, STORE_TILE, sizeof(s_storeTile.icon));
+    s_storeTile.hasIcon = true;
+    strcpy(s_storeTile.title, "Store");
+    Store_Load();
 #ifdef BENCH
     // The benchmark leaves the tracker and the updater alone (their popups would stop the script).
     s_gameCount = Games_Scan(s_games, MAX_GAMES);
@@ -843,6 +1084,7 @@ int main(void)
         else
             s_coinsWaiting = true;
     }
+    s_coinsResult = Rewards_Coins(&s_coins);    // for the store's name in the row (read again there)
 
     Update_Start();
 #endif
@@ -941,6 +1183,19 @@ int main(void)
                 redrawTop = 2;
             }
         }
+        else if (s_popup == POPUP_BUY)
+        {
+            if (down & KEY_A)
+            {
+                BuyNow();
+                redraw = 2;                 // the list shows it bought
+            }
+            else if (down & KEY_B)
+            {
+                ClosePopup();
+                redrawTop = 2;
+            }
+        }
         else if (s_popup != POPUP_NONE)
         {
             if (down & (KEY_A | KEY_B))
@@ -1008,13 +1263,21 @@ int main(void)
             }
             else if (s_gameCount > 0)
             {
-                // A shows the selected achievement in full.
+                // A shows the selected achievement in full (in the store: buys the selected item).
                 if ((down & KEY_A) && s_count > 0 && heroFor == game)
                 {
-                    details = true;
-                    bottomFade = 0;
-                    touchActive = false;
-                    redrawBottom = 2;
+                    if (IsStore(game))
+                    {
+                        OpenBuy(s_selected);
+                        redrawTop = 2;
+                    }
+                    else
+                    {
+                        details = true;
+                        bottomFade = 0;
+                        touchActive = false;
+                        redrawBottom = 2;
+                    }
                 }
 
                 int next = Clamp(game + ((dir & KEY_RIGHT) ? 1 : 0) - ((dir & KEY_LEFT) ? 1 : 0), 0, RowPositions() - 1);
@@ -1080,9 +1343,17 @@ int main(void)
                     if (!touchMoved && touchY >= PROGRESS_H && i < s_count && heroFor == game)
                     {
                         s_selected = i;
-                        details = true;
-                        bottomFade = 0;
-                        redrawBottom = 2;
+                        if (IsStore(game))
+                        {
+                            OpenBuy(i);
+                            redraw = 2;
+                        }
+                        else
+                        {
+                            details = true;
+                            bottomFade = 0;
+                            redrawBottom = 2;
+                        }
                     }
                 }
 
@@ -1107,6 +1378,17 @@ int main(void)
             {
                 heroFor = game;             // the empty positions have nothing to load
                 s_heroReady = false;
+                if (IsStore(game))
+                {
+                    // The store: what's for sale, the Play Coins there are now, its own background.
+                    s_coinsResult = Rewards_Coins(&s_coins);
+                    s_count = Store_Count();
+                    MakeStoreBackground(s_hero);
+                    Draw_DimHero(s_hero, s_heroDim);
+                    s_heroReady = true;
+                    bottomFade = 0;
+                    fadeHeld = true;
+                }
                 redraw = 2;
             }
         }
@@ -1171,7 +1453,7 @@ int main(void)
             bool top = redraw > 0 || redrawTop > 0;
             bool bottom = redraw > 0 || redrawBottom > 0;
             // The background and the list each set every pixel of their screen: no clearing first.
-            bool listShown = !sharing && game < s_gameCount;
+            bool listShown = !sharing && (game < s_gameCount || IsStore(game));
             int  topMode = !top ? DRAW_KEEP : !sharing && heroLevel > 0 ? DRAW_COVER : DRAW_CLEAR;
             int  bottomMode = !bottom ? DRAW_KEEP : listShown ? DRAW_COVER : DRAW_CLEAR;
 
@@ -1202,16 +1484,15 @@ int main(void)
                 memset(&view, 0, sizeof(view));     // compared whole, padding too
                 view.game = game, view.scroll = scroll, view.selected = s_selected, view.count = s_count;
                 view.details = details, view.loaded = heroFor == game;
+                if (IsStore(game))
+                    view.coins = s_coins, view.owned = Store_OwnedCount();
                 bool sameView = keptValid && memcmp(&view, &keptView, sizeof(view)) == 0;
-                if (bottom && game < s_gameCount && (sameView || bottomFade < 256))
+                if (bottom && listShown && (sameView || bottomFade < 256))
                 {
                     if (!sameView)
                     {
                         Draw_Into(GFX_BOTTOM, kept);
-                        if (details && s_count > 0)
-                            DrawDetails(s_selected);
-                        else
-                            DrawBoxes(&s_games[game], scroll, heroFor == game);
+                        DrawBottom(game, scroll, details, heroFor == game);
                         Draw_Into(GFX_BOTTOM, NULL);
                         keptView = view, keptValid = true;
                     }
@@ -1219,10 +1500,8 @@ int main(void)
                 }
                 else
                 {
-                    if (bottom && game < s_gameCount && details && s_count > 0)
-                        DrawDetails(s_selected);
-                    else if (bottom && game < s_gameCount)
-                        DrawBoxes(&s_games[game], scroll, heroFor == game);
+                    if (bottom && listShown)
+                        DrawBottom(game, scroll, details, heroFor == game);
                     keptValid = false;
                 }
 #ifdef BENCH

@@ -52,21 +52,23 @@ static bool WriteRecord(int rewards, int owed)
     return rename(RECORD_TEMP, RECORD_PATH) == 0;
 }
 
-// Adds up to add Play Coins, never past PLAY_COINS_MAX: *added how many were, *coins the
-// total now (-1 if it couldn't be read). Only the two bytes of the total are written, and
-// only when something is added.
-static Result AddCoins(int add, int *added, int *coins)
+// Opens gamecoin.dat and reads the system's total into *coins (-1 if it can't be read). Then
+// add > 0 adds up to add coins, never past PLAY_COINS_MAX; spend > 0 takes that many, only if
+// there are enough (else REWARDS_NOT_ENOUGH and nothing changes). *changed: how many were
+// added or taken. Only the two bytes of the total are written, and only when they change.
+static Result ChangeCoins(int add, int spend, int *changed, int *coins)
 {
     u32     id[3] = { MEDIATYPE_NAND, COIN_EXTDATA_ID, 0x00048000 };
     FS_Path path = { PATH_BINARY, sizeof(id), id };
     FS_Archive archive;
     Handle  file;
 
-    *added = 0, *coins = -1;
+    *changed = 0, *coins = -1;
     Result res = FSUSER_OpenArchive(&archive, ARCHIVE_SHARED_EXTDATA, path);
     if (R_FAILED(res))
         return res;
-    res = FSUSER_OpenFile(&file, archive, fsMakePath(PATH_ASCII, COIN_FILE), FS_OPEN_READ | FS_OPEN_WRITE, 0);
+    u32 flags = add > 0 || spend > 0 ? FS_OPEN_READ | FS_OPEN_WRITE : FS_OPEN_READ;
+    res = FSUSER_OpenFile(&file, archive, fsMakePath(PATH_ASCII, COIN_FILE), flags, 0);
     if (R_SUCCEEDED(res))
     {
         u8  data[COIN_FILE_SIZE];
@@ -81,23 +83,58 @@ static Result AddCoins(int add, int *added, int *coins)
         {
             int now = data[COINS_OFFSET] | data[COINS_OFFSET + 1] << 8;
             int room = now < PLAY_COINS_MAX ? PLAY_COINS_MAX - now : 0;
-            int give = add < room ? add : room;
-            if (give > 0)
+            int change = add < room ? add : room;
+            if (spend > 0)
+                change = -spend;
+            if (now + change < 0)
+                res = REWARDS_NOT_ENOUGH;
+            else if (change != 0)
             {
-                u16 total = (u16)(now + give);
+                u16 total = (u16)(now + change);
                 u8  bytes[2] = { (u8)(total & 0xFF), (u8)(total >> 8) };
                 u32 written = 0;
                 res = FSFILE_Write(file, &written, COINS_OFFSET, bytes, sizeof(bytes), FS_WRITE_FLUSH);
                 if (R_SUCCEEDED(res) && written != sizeof(bytes))
                     res = MAKERESULT(RL_PERMANENT, RS_INVALIDSTATE, RM_APPLICATION, RD_INVALID_SIZE);
                 if (R_SUCCEEDED(res))
-                    now = total, *added = give;
+                    now = total, *changed = change > 0 ? change : -change;
             }
             *coins = now;
         }
         FSFILE_Close(file);
     }
     FSUSER_CloseArchive(archive);
+    return res;
+}
+
+Result Rewards_Coins(int *coins)
+{
+    int changed;
+    return ChangeCoins(0, 0, &changed, coins);
+}
+
+Result Rewards_Spend(int price, int *coins)
+{
+    int changed;
+    return ChangeCoins(0, price > 0 ? price : 0, &changed, coins);
+}
+
+Result Rewards_PayOwed(int *paid, int *coins)
+{
+    int rewards, owed, given = 0, now = -1;
+
+    *paid = 0;
+    ReadRecord(&rewards, &owed);
+    if (owed == 0)
+        return 0;
+    Result res = ChangeCoins(owed, 0, &given, &now);
+    if (now >= 0)
+        *coins = now;
+    if (given > 0)
+    {
+        *paid = given;
+        WriteRecord(rewards, owed - given);
+    }
     return res;
 }
 
@@ -124,7 +161,7 @@ bool Rewards_Update(int points, Rewards *out)
     // The coins first, then the record: if the record can't be written, the worst is a
     // reward given again, never one lost.
     int given = 0, coins = -1;
-    out->result = AddCoins(owed, &given, &coins);
+    out->result = ChangeCoins(owed, 0, &given, &coins);
     out->given = given;
     out->coins = coins;
     out->owed = owed - given;
