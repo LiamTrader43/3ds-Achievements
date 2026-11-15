@@ -66,6 +66,7 @@ static const Color BG_BOTTOM = { 24, 24, 31 };      // to this
 #define SHADOW_STRENGTH 150             // and how dark (of 256) right under it
 #define SLOT_ALPHA      5               // an empty slot's outline (of 16)
 #define BOTTOM_FADE_MS  150             // the bottom screen fading in (a list loading, the full view)
+#define RESTART_MS      2500            // "Updated" shows this long, then the app restarts
 
 // 3D (top screen, with the slider up): how far each layer is in front of the screen (positive)
 // or behind it, as the gap between the eyes' images at full slider, in pixels. The other tiles,
@@ -120,7 +121,8 @@ static int          s_camera;
 typedef enum
 {
     POPUP_NONE, POPUP_START_FAILED, POPUP_STOP_FAILED,
-    POPUP_UPDATE, POPUP_DOWNLOADING, POPUP_UPDATE_FAILED
+    POPUP_UPDATE, POPUP_DOWNLOADING, POPUP_UPDATE_FAILED,
+    POPUP_APP_UPDATE, POPUP_APP_DOWNLOADING, POPUP_APP_UPDATED, POPUP_APP_FAILED
 } Popup;
 
 static bool         s_trackerRunning;
@@ -129,6 +131,12 @@ static Popup        s_popup;
 static Result       s_popupResult;
 static int          s_newGames, s_updatedGames;
 static int          s_downloadDone, s_downloadTotal;
+static const char  *s_appVersion;           // a newer release of the app, or NULL
+static bool         s_gamesWaiting;         // game files to offer once the app update's popup closes
+static bool         s_appChanged;           // a failed app update still replaced something
+static bool         s_trackerNotRestarted;  // the tracker was updated but couldn't be restarted
+static bool         s_canRestart;           // after an app update: the new version starts by itself
+static u64          s_restartAt;            // and when the app closes for it
 static u8           s_hero[HERO_BYTES];     // the selected game's background
 static u8           s_heroDim[HERO_BYTES] __attribute__((aligned(4)));  // and as the top screen shows it
 static bool         s_heroReady;
@@ -652,11 +660,13 @@ static void DrawDetails(int i)
 static void DrawPopup(void)
 {
     static const Color PANEL = { 22, 22, 28 };
-    const bool small = s_popup == POPUP_UPDATE || s_popup == POPUP_DOWNLOADING;
-    const int w = 376, h = small ? 100 : 150;
+    const bool small = s_popup == POPUP_UPDATE || s_popup == POPUP_DOWNLOADING || s_popup == POPUP_APP_UPDATE ||
+                       s_popup == POPUP_APP_DOWNLOADING || s_popup == POPUP_APP_UPDATED;
+    const int updatedLines = 1 + !s_canRestart + s_trackerNotRestarted;
+    const int w = 376, h = s_popup == POPUP_APP_UPDATED ? 76 + 16 * (updatedLines - 1) : small ? 100 : 150;
     const int x = (TOP_WIDTH - w) / 2, y = (SCREEN_HEIGHT - h) / 2;
     const char *title, *button = "A: OK";
-    char text[48];
+    char text[64], heading[32];
 
     Draw_Depth(DEPTH_POPUP);
     switch (s_popup)
@@ -665,6 +675,14 @@ static void DrawPopup(void)
         case POPUP_STOP_FAILED:     title = "Couldn't stop the tracker"; break;
         case POPUP_UPDATE:          title = "New achievements"; button = "A: Download   B: Later"; break;
         case POPUP_DOWNLOADING:     title = "Downloading"; button = ""; break;
+        case POPUP_APP_UPDATE:      title = "App update"; button = "A: Update   B: Later"; break;
+        case POPUP_APP_DOWNLOADING: title = "Updating"; button = ""; break;
+        case POPUP_APP_UPDATED:
+            snprintf(heading, sizeof(heading), "Updated to %s", s_appVersion != NULL ? s_appVersion : "?");
+            title = heading;
+            button = "";        // nothing to choose: it restarts by itself
+            break;
+        case POPUP_APP_FAILED:      title = "Update failed"; button = "A: Retry   B: Later"; break;
         default:                    title = "Download failed"; break;
     }
 
@@ -688,6 +706,38 @@ static void DrawPopup(void)
         Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(text, 1)) / 2, y + 44, 1, GREY, text, 0);
         DrawProgressBar(GFX_TOP, x + 24, y + 66, w - 48, 6, s_downloadDone, s_downloadTotal);
     }
+    else if (s_popup == POPUP_APP_UPDATE)
+    {
+        snprintf(text, sizeof(text), "Version %s is out. You have %s.", s_appVersion != NULL ? s_appVersion : "?",
+                 Update_AppVersion());
+        Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(text, 1)) / 2, y + 40, 1, GREY, text, 0);
+        const char *what = "It updates the app and the tracker.";
+        Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(what, 1)) / 2, y + 56, 1, GREY, what, 0);
+    }
+    else if (s_popup == POPUP_APP_DOWNLOADING)
+    {
+        if (s_downloadTotal > 0)
+            snprintf(text, sizeof(text), "Downloading: %d of %d KB", s_downloadDone, s_downloadTotal);
+        else
+            snprintf(text, sizeof(text), "Installing...");
+        Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(text, 1)) / 2, y + 44, 1, GREY, text, 0);
+        DrawProgressBar(GFX_TOP, x + 24, y + 66, w - 48, 6, s_downloadTotal > 0 ? s_downloadDone : 1,
+                        s_downloadTotal > 0 ? s_downloadTotal : 1);
+    }
+    else if (s_popup == POPUP_APP_UPDATED)
+    {
+        // Without Luma's 3dsx loader a .3dsx can't open itself again: it only closes.
+        const char *lines[3];
+        int         n = 0;
+        lines[n++] = s_canRestart ? "The app will restart now." : "The app will close now.";
+        if (!s_canRestart)
+            lines[n++] = "Open it again to finish updating.";
+        if (s_trackerNotRestarted)
+            lines[n++] = "The tracker updates when you restart your 3DS.";
+        for (int i = 0; i < n; i++)
+            Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(lines[i], 1)) / 2, y + 46 + 16 * i, 1, i == 0 ? WHITE : GREY,
+                      lines[i], 0);
+    }
     else
     {
         snprintf(text, sizeof(text), "Error 0x%08lX", s_popupResult);
@@ -706,6 +756,14 @@ static void DrawPopup(void)
         Draw_Text(GFX_TOP, x + 12, y + 64, 1, WHITE, "Your achievements and progress are unchanged.", 0);
         Draw_Text(GFX_TOP, x + 12, y + 78, 1, GREY, "It will offer the download again next time you open", 0);
         Draw_Text(GFX_TOP, x + 12, y + 92, 1, GREY, "the app. Check your internet connection.", 0);
+    }
+    else if (s_popup == POPUP_APP_FAILED)
+    {
+        Draw_Text(GFX_TOP, x + 12, y + 64, 1, WHITE, s_appChanged ? "Only part of the update was installed." :
+                  "Nothing was changed.", 0);
+        Draw_Text(GFX_TOP, x + 12, y + 78, 1, GREY, "Check your internet connection and try again.", 0);
+        Draw_Text(GFX_TOP, x + 12, y + 92, 1, GREY, "If you leave it, it's offered again next time", 0);
+        Draw_Text(GFX_TOP, x + 12, y + 106, 1, GREY, "you open the app.", 0);
     }
     Draw_Text(GFX_TOP, (TOP_WIDTH - Draw_TextWidth(button, 1)) / 2, y + h - 18, 1, HINT, button, 0);
 }
@@ -734,9 +792,9 @@ static void DrawTopScreen(int game, int heroLevel)
 }
 
 // Shown while files download; nothing else on the screen is changing.
-static void ShowDownloadProgress(int done, int total)
+static void ShowProgress(Popup popup, int done, int total)
 {
-    s_popup = POPUP_DOWNLOADING;
+    s_popup = popup;
     s_downloadDone = done;
     s_downloadTotal = total;
     Draw_Begin(true, true);
@@ -746,6 +804,40 @@ static void ShowDownloadProgress(int done, int total)
         DrawPopup();
     }
     Draw_End();
+}
+
+static void ShowDownloadProgress(int done, int total)
+{
+    ShowProgress(POPUP_DOWNLOADING, done, total);
+}
+
+// The app's own update: KB downloaded of total, then total 0 while it installs.
+static void ShowAppProgress(int done, int total)
+{
+    ShowProgress(POPUP_APP_DOWNLOADING, done, total);
+}
+
+// Downloads and installs the newer app (again, after a failure), then says how it went.
+static void InstallAppUpdate(void)
+{
+    bool trackerChanged, changed;
+    Result res = Update_InstallApp(ShowAppProgress, &trackerChanged, &changed);
+    s_appChanged = s_appChanged || changed;     // an earlier try may have replaced something already
+
+    // The new tracker runs from now on, if the old one was running.
+    if (trackerChanged && s_trackerRunning)
+    {
+        if (R_FAILED(Tracker_Restart()) || !Tracker_Running())
+            s_trackerNotRestarted = true;
+        s_trackerRunning = Tracker_Running();
+    }
+    s_popup = R_SUCCEEDED(res) ? POPUP_APP_UPDATED : POPUP_APP_FAILED;
+    s_popupResult = res;
+    if (R_SUCCEEDED(res))
+    {
+        s_canRestart = Update_CanRestart();
+        s_restartAt = osGetTime() + RESTART_MS;
+    }
 }
 
 // The direction key pressed this frame, or held (repeating after 400 ms).
@@ -772,7 +864,7 @@ static int Clamp(int value, int low, int high)
     return value < low ? low : value > high ? high : value;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     Draw_Init();
 
@@ -785,6 +877,8 @@ int main(void)
     }
 #ifdef BENCH
     // The benchmark leaves the tracker and the updater alone (their popups would stop the script).
+    (void)argc;
+    (void)argv;
     s_gameCount = Games_Scan(s_games, MAX_GAMES);
 #else
     bool wanted = !Tracker_TurnedOff();
@@ -798,7 +892,7 @@ int main(void)
         s_popupResult = startResult;
     }
 
-    Update_Start();
+    Update_Start(argc > 0 ? argv[0] : NULL);    // the Homebrew Launcher passes the .3dsx's path
 #endif
 
     s_tileScale[0] = 256;
@@ -820,6 +914,7 @@ int main(void)
     u64     heroAt = 0;             // when to load the selected game's background
     int     heroLevel = 0;          // how far the background has faded in, 0-256
     bool    sharing = false;        // the share screen is open
+    bool    restart = false;        // the app was updated: its new version starts once it closes
     u64     lastFrame = osGetTime();
 
     while (aptMainLoop())
@@ -833,11 +928,22 @@ int main(void)
         u32 dir = Direction(down, held, &repeatAt);
 
         if (down & KEY_START)
-            break;
-
-        if (s_popup == POPUP_NONE && !sharing && Update_Poll(&s_newGames, &s_updatedGames))
         {
-            s_popup = POPUP_UPDATE;
+            restart = s_popup == POPUP_APP_UPDATED;
+            break;
+        }
+
+        // A newer app is offered first; new achievements after it, if it's put off.
+        if (s_popup == POPUP_NONE && !sharing && Update_Poll(&s_newGames, &s_updatedGames, &s_appVersion))
+        {
+            bool games = s_newGames + s_updatedGames > 0;
+            if (s_appVersion != NULL)
+            {
+                s_popup = POPUP_APP_UPDATE;
+                s_gamesWaiting = games;
+            }
+            else if (games)
+                s_popup = POPUP_UPDATE;
             redrawTop = 2;
         }
 
@@ -892,11 +998,37 @@ int main(void)
                 redrawTop = 2;
             }
         }
+        else if (s_popup == POPUP_APP_UPDATE || s_popup == POPUP_APP_FAILED)
+        {
+            if (down & KEY_A)                   // update, or try again
+            {
+                LoadingDone(true);
+                loading = false;
+                InstallAppUpdate();
+                redraw = 2;
+            }
+            else if (down & KEY_B)
+            {
+                s_popup = s_gamesWaiting ? POPUP_UPDATE : POPUP_NONE;
+                s_gamesWaiting = false;
+                redrawTop = 2;
+            }
+        }
+        else if (s_popup == POPUP_APP_UPDATED)
+        {
+            // The old version's still running: it closes, and the new one starts.
+            if ((down & KEY_A) || osGetTime() >= s_restartAt)
+            {
+                restart = true;
+                break;
+            }
+        }
         else if (s_popup != POPUP_NONE)
         {
             if (down & (KEY_A | KEY_B))
             {
-                s_popup = POPUP_NONE;
+                s_popup = s_gamesWaiting ? POPUP_UPDATE : POPUP_NONE;
+                s_gamesWaiting = false;
                 redrawTop = 2;
             }
         }
@@ -1204,9 +1336,15 @@ int main(void)
         Share_Close();
     LoadingDone(true);
 #ifdef BENCH
+    (void)restart;
     Bench_Report();
 #else
     Update_Stop();
+    // Not when the app was closed from the HOME Menu (the loop ends without restart): the
+    // system closes it then, and a .3dsx named to Luma's loader would open instead of the
+    // Homebrew Launcher next time.
+    if (restart)
+        Update_Restart();
 #endif
     Draw_Exit();
     return 0;
