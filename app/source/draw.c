@@ -34,6 +34,9 @@ static int s_dirty0[3], s_dirty1[3];
 
 static u8 s_cover16[256];   // a font alpha (0-255) as a coverage (0-16)
 
+// The rows drawing may touch (Draw_ClipRows): s_clipY0 to s_clipY1, exclusive.
+static int s_clipY0 = 0, s_clipY1 = SCREEN_HEIGHT;
+
 static void InitCorners(void);
 static void InitSolid(void);
 static void InitLight(void);
@@ -157,7 +160,7 @@ static inline u8 *Pixel(gfxScreen_t screen, int x, int y)
 {
     if (screen == GFX_TOP)
         x += s_shift;
-    if (x < 0 || y < 0 || x >= Draw_Width(screen) || y >= SCREEN_HEIGHT)
+    if (x < 0 || y < s_clipY0 || x >= Draw_Width(screen) || y >= s_clipY1)
         return NULL;
     return At(screen, x, y);
 }
@@ -270,16 +273,22 @@ static inline int Coverage(int x, int y, int w, int h, int radius)
     return radius <= CORNER_MAX ? s_corner[radius][cy][cx] : SlowCoverage(x, y, w, h, radius);
 }
 
-// The part of a w x h box at (x, y) that's on the screen, as offsets into the box:
-// columns *dx0 to *dx1, rows *dy0 to *dy1 (exclusive). x is already moved by the depth.
-// False if none of it is.
+// The part of a w x h box at (x, y) that's on the screen (and in the rows Draw_ClipRows
+// allows), as offsets into the box: columns *dx0 to *dx1, rows *dy0 to *dy1 (exclusive). x is
+// already moved by the depth. False if none of it is.
 static bool Clip(gfxScreen_t screen, int x, int y, int w, int h, int *dx0, int *dx1, int *dy0, int *dy1)
 {
     *dx0 = x < 0 ? -x : 0;
-    *dy0 = y < 0 ? -y : 0;
+    *dy0 = y < s_clipY0 ? s_clipY0 - y : 0;
     *dx1 = x + w > Draw_Width(screen) ? Draw_Width(screen) - x : w;
-    *dy1 = y + h > SCREEN_HEIGHT ? SCREEN_HEIGHT - y : h;
+    *dy1 = y + h > s_clipY1 ? s_clipY1 - y : h;
     return *dx0 < *dx1 && *dy0 < *dy1;
+}
+
+void Draw_ClipRows(int y0, int y1)
+{
+    s_clipY0 = y0 < 0 ? 0 : y0;
+    s_clipY1 = y1 > SCREEN_HEIGHT ? SCREEN_HEIGHT : y1;
 }
 
 static inline int Shifted(gfxScreen_t screen, int x)
@@ -304,6 +313,37 @@ void Draw_RoundRect(gfxScreen_t screen, int x, int y, int w, int h, int radius, 
                 Mixed(p, color, Coverage(dx, dy, w, h, radius));
             else
                 Put(p, color);
+        }
+    }
+}
+
+// The colour of a vertical fade from top (row y0) to bottom (row y1) at row y.
+static inline Color GradientAt(int y, int y0, int y1, Color top, Color bottom)
+{
+    int span = y1 - y0 > 1 ? y1 - y0 - 1 : 1, t = y - y0;
+    return (Color){ (u8)(top.r + (bottom.r - top.r) * t / span), (u8)(top.g + (bottom.g - top.g) * t / span),
+                    (u8)(top.b + (bottom.b - top.b) * t / span) };
+}
+
+void Draw_RoundRectGradient(gfxScreen_t screen, int x, int y, int w, int h, int radius, Color top, Color bottom)
+{
+    int   dx0, dx1, dy0, dy1;
+    Color rows[SCREEN_HEIGHT];
+    x = Shifted(screen, x);
+    if (!Clip(screen, x, y, w, h, &dx0, &dx1, &dy0, &dy1))
+        return;
+    for (int dy = dy0; dy < dy1; dy++)
+        rows[dy - dy0] = GradientAt(dy, 0, h, top, bottom);
+    for (int dx = dx0; dx < dx1; dx++)
+    {
+        bool cornerColumn = dx < radius || dx >= w - radius;
+        u8  *p = At(screen, x + dx, y + dy0);
+        for (int dy = dy0; dy < dy1; dy++, p -= 3)
+        {
+            if (cornerColumn && (dy < radius || dy >= h - radius))
+                Mixed(p, rows[dy - dy0], Coverage(dx, dy, w, h, radius));
+            else
+                Put(p, rows[dy - dy0]);
         }
     }
 }
@@ -1250,14 +1290,6 @@ bool Draw_StampAgain(const DrawStamp *s)
         }
     }
     return true;
-}
-
-// The colour of a vertical fade from top (row y0) to bottom (row y1) at row y.
-static inline Color GradientAt(int y, int y0, int y1, Color top, Color bottom)
-{
-    int span = y1 - y0 > 1 ? y1 - y0 - 1 : 1, t = y - y0;
-    return (Color){ (u8)(top.r + (bottom.r - top.r) * t / span), (u8)(top.g + (bottom.g - top.g) * t / span),
-                    (u8)(top.b + (bottom.b - top.b) * t / span) };
 }
 
 void Draw_Gradient(gfxScreen_t screen, int y0, int y1, Color top, Color bottom)

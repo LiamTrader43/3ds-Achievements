@@ -52,6 +52,13 @@ void    Draw_Rect(gfxScreen_t screen, int x, int y, int w, int h, Color color);
 // A rectangle with corners of the given radius, their edges smoothed.
 void    Draw_RoundRect(gfxScreen_t screen, int x, int y, int w, int h, int radius, Color color);
 
+// The same, filled with a vertical fade from top to bottom.
+void    Draw_RoundRectGradient(gfxScreen_t screen, int x, int y, int w, int h, int radius, Color top, Color bottom);
+
+// Drawing only touches rows y0 to y1 (exclusive) from now on, on either screen, until called
+// with 0 and SCREEN_HEIGHT. (Not the background, fades or the frame's light, which say their rows.)
+void    Draw_ClipRows(int y0, int y1);
+
 // Draws text at scale 1 or 2 in a line whose top is y, cut at maxWidth pixels
 // (0 = screen edge). Returns the width drawn.
 int     Draw_Text(gfxScreen_t screen, int x, int y, int scale, Color color, const char *text, int maxWidth);

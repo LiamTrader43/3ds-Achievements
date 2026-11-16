@@ -1,0 +1,94 @@
+#ifndef UI_H
+#define UI_H
+
+// What the app shows, shared by main.c, which changes it, and the themes (theme_*.c), which
+// draw it. Every theme shows the same things with the same controls; only the drawing differs.
+
+#include <3ds.h>
+#include <stdint.h>
+
+#include "draw.h"
+#include "games.h"
+#include "hero.h"
+
+#define MAX_ACHIEVEMENTS    128     // the tracker's MAX_LINES
+
+// The games found.
+extern Game         g_games[MAX_GAMES];
+extern int          g_gameCount;
+
+// The selected game's achievements, once loaded (g_count is 0 until then).
+extern const char  *g_names[MAX_ACHIEVEMENTS];
+extern const char  *g_descriptions[MAX_ACHIEVEMENTS];
+extern uint16_t     g_points[MAX_ACHIEVEMENTS];
+extern bool         g_unlocked[MAX_ACHIEVEMENTS];
+extern int          g_count;
+extern int          g_selected;             // the achievement Up/Down have selected
+extern u16          g_gameUnlocked[ICON_SIZE * ICON_SIZE], g_gameLocked[ICON_SIZE * ICON_SIZE];
+extern bool         g_hasGameIcons;         // this game has its own achievement icons
+
+// The selected game's background (hero.bin), and as the top screen shows it (Draw_DimHero).
+extern u8           g_hero[HERO_BYTES];
+extern u8           g_heroDim[HERO_BYTES];
+extern bool         g_heroReady;
+
+// The settings the hints show.
+extern bool         g_trackerRunning;
+extern bool         g_patchedAllowed;
+
+// The message over the top screen, if any.
+typedef enum
+{
+    POPUP_NONE, POPUP_START_FAILED, POPUP_STOP_FAILED,
+    POPUP_UPDATE, POPUP_DOWNLOADING, POPUP_UPDATE_FAILED,
+    POPUP_APP_UPDATE, POPUP_APP_DOWNLOADING, POPUP_APP_UPDATED, POPUP_APP_FAILED
+} Popup;
+
+extern Popup        g_popup;
+extern Result       g_popupResult;
+extern int          g_newGames, g_updatedGames;
+extern int          g_downloadDone, g_downloadTotal;
+extern const char  *g_appVersion;           // a newer release of the app, or NULL
+extern bool         g_appChanged;           // a failed app update still replaced something
+extern bool         g_trackerNotRestarted;  // the tracker was updated but couldn't be restarted
+extern bool         g_canRestart;           // after an app update: the new version starts by itself
+
+// What the popup says, for a theme to lay out. Short notices have a few centred lines;
+// problems have the error code, then lines explaining it.
+#define POPUP_LINES 4
+typedef struct
+{
+    const char *title;
+    bool        problem;                    // something failed
+    bool        centred;                    // the lines are short notices (else left-aligned, after the code)
+    bool        emphasizeFirst;             // the first line matters most
+    int         lineCount;
+    const char *lines[POPUP_LINES];
+    bool        showCode;                   // "Error 0x..." before the lines
+    Result      code;
+    bool        progress;                   // a bar: done of total
+    int         done, total;
+    const char *buttonA, *buttonB;          // what A and B do, or NULL (no button)
+    char        titleText[32], lineText[64];    // room for the title and first line when made up
+} PopupText;
+
+void    Ui_PopupText(PopupText *t);
+
+// The achievement trophy to draw: the game's own icons if it has them.
+const u16 *Ui_Trophy(bool unlocked);
+
+// Copies text cut to maxWidth pixels at the given text scale, ending in "..." if it was longer.
+void    Ui_EllipsizeScaled(char *out, size_t capacity, const char *text, int maxWidth, int scale);
+void    Ui_Ellipsize(char *out, size_t capacity, const char *text, int maxWidth);
+
+// Draws text word-wrapped to width pixels at the given text scale, at most maxLines lines
+// (the last one ends in "..." if the text goes on). Returns the y below the last line.
+int     Ui_DrawWrappedScaled(gfxScreen_t screen, int x, int y, int width, int lineHeight, int scale,
+                             Color color, const char *text, int maxLines);
+int     Ui_DrawWrapped(gfxScreen_t screen, int x, int y, int width, int lineHeight, Color color,
+                       const char *text, int maxLines);
+
+// Moves value toward target by at most step.
+int     Ui_Approach(int value, int target, int step);
+
+#endif
