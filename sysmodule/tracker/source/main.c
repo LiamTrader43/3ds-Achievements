@@ -12,10 +12,12 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "achievements.h"
 #include "gamemem.h"
+#include "heap.h"
 #include "menu.h"
 #include "overlay.h"
 
@@ -36,10 +38,9 @@ Result svcControlService(u32 op, Handle *out, const char *name);
 #define START_BANNER_MS     5000
 #define SMDH_SIZE           0x36C0
 
-#define HEAP_SIZE           0x40000         // 256 KB of the Base region (never the game's); halved until it fits
-
 extern char *fake_heap_start, *fake_heap_end;
 extern u32 __ctru_heap, __ctru_heap_size, __ctru_linear_heap, __ctru_linear_heap_size;
+extern u32 __stacksize__;       // libctru: the main thread's stack (32 KB), at the start of the heap area
 
 static Handle   g_game;
 static char     g_gameTitle[65];
@@ -55,56 +56,38 @@ typedef struct
     s32 lastFileResult;     // last FSUSER_OpenFileDirectly result
     u32 polls;
     u32 gameTitleLow;       // low half of the last running game's title ID
-    s32 heapResult;         // svcControlMemory result for the heap
-    u32 heapSize;           // heap actually allocated (0 = none)
-    u32 freeMemory;         // memory left in this process's resource limit before the heap
+    s32 heapResult;         // svcControlMemory result for the stack's pages
+    u32 heapSize;           // the stack's size if they were allocated (0 = none)
+    u32 freeMemory;         // memory left for the system modules at start (Heap_SystemFree)
 } TrackerStatus;
 
 enum { STAGE_HEAPS_ENTERED = 1, STAGE_HEAPS, STAGE_SRV, STAGE_FS, STAGE_MAIN, STAGE_LOGGED, STAGE_POLLING, STAGE_GAME };
 
 volatile TrackerStatus g_status = { { 0x54484341, 0x54415453 }, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
-// Memory still available under this process's resource limit.
-static u32 FreeMemory(void)
-{
-    Handle              limit;
-    ResourceLimitType   type = RESLIMIT_COMMIT;
-    s64                 max = 0, used = 0;
-
-    if (R_FAILED(svcGetResourceLimit(&limit, CUR_PROCESS_HANDLE)))
-        return 0;
-    svcGetResourceLimitLimitValues(&max, limit, &type, 1);
-    svcGetResourceLimitCurrentValues(&used, limit, &type, 1);
-    svcCloseHandle(limit);
-    return (u32)(max - used);
-}
-
-// Replaces libctru's default, which gives an app all the free memory in its
-// region (a linear heap size of 0 means "everything left"). This module shares
-// the Base region with the system, so taking it all crashed the console.
-// Best effort: a small normal heap if there's room, otherwise none (the
-// tracker never calls malloc itself). Never a linear heap.
+// Replaces libctru's default, which gives an app all the free memory in its region
+// (a linear heap size of 0 means "everything left"); taking it all crashed the
+// console. Only the main thread's stack, no heap yet (heap.c grows it when needed)
+// and never a linear heap.
+//
+// libctru's initSystem moves the main thread's stack to the start of the heap area
+// right after this returns ([fake_heap_start, + __stacksize__), 32 KB), and the heap
+// starts after it; so those pages must be there. (The old fixed 256 KB heap held it.)
 void __system_allocateHeaps(void)
 {
-    u32 address = 0x08000000, size = 0;
+    u32 address;
 
     g_status.stage = STAGE_HEAPS_ENTERED;
-    g_status.freeMemory = FreeMemory();
+    g_status.freeMemory = Heap_SystemFree();
+    g_status.heapResult = svcControlMemory(&address, HEAP_BASE, 0, __stacksize__, MEMOP_ALLOC, MEMPERM_READ | MEMPERM_WRITE);
+    g_status.heapSize = R_SUCCEEDED(g_status.heapResult) ? __stacksize__ : 0;
 
-    for (u32 want = HEAP_SIZE; want >= 0x1000 && size == 0; want /= 2)
-    {
-        g_status.heapResult = svcControlMemory(&address, 0x08000000, 0, want, MEMOP_ALLOC, MEMPERM_READ | MEMPERM_WRITE);
-        if (R_SUCCEEDED(g_status.heapResult))
-            size = want;
-    }
-    g_status.heapSize = size;
-
-    __ctru_heap = 0x08000000;
-    __ctru_heap_size = size;
+    __ctru_heap = HEAP_BASE;
+    __ctru_heap_size = __stacksize__;
     __ctru_linear_heap = 0;
     __ctru_linear_heap_size = 0;
-    fake_heap_start = (char *)0x08000000;
-    fake_heap_end = fake_heap_start + size;
+    fake_heap_start = (char *)HEAP_BASE;
+    fake_heap_end = fake_heap_start + __stacksize__;
 
     mappableInit(OS_MAP_AREA_BEGIN, OS_MAP_AREA_END);
     g_status.stage = STAGE_HEAPS;
@@ -394,10 +377,10 @@ static void CacheSmdh(u64 titleId, const u8 *smdh)
 
 static bool ReadGameTitle(u32 pid, u64 titleId, char *out, size_t capacity)
 {
-    static u8 smdh[SMDH_SIZE];
+    u8 *smdh = malloc(SMDH_SIZE);   // only while reading (14 KB)
 
     out[0] = '\0';
-    if (ReadSmdh(pid, titleId, smdh))
+    if (smdh != NULL && ReadSmdh(pid, titleId, smdh))
     {
         if (Achievements_Count() > 0)
             CacheSmdh(Achievements_GameId(), smdh);     // another release: the game's folder
@@ -415,6 +398,7 @@ static bool ReadGameTitle(u32 pid, u64 titleId, char *out, size_t capacity)
             out[n] = '\0';
         }
     }
+    free(smdh);
     if (out[0] != '\0')
         return true;
 
@@ -480,13 +464,15 @@ static const char *FindGamePatch(u64 titleId)
 
 // "<game>, <unlocked>/<total> achievements unlocked" (or why achievements are
 // off), the game's name cut with "..." to fit.
-static void ShowStartBanner(bool supported, bool patched)
+static void ShowStartBanner(bool supported, bool patched, bool noMemory)
 {
     char    suffix[48], title[96], message[160];
     int     unlocked, total;
 
     if (patched)
         snprintf(suffix, sizeof(suffix), ", patched, achievements off");
+    else if (noMemory)
+        snprintf(suffix, sizeof(suffix), ", achievements off: low memory");
     else if (supported)
     {
         Achievements_Progress(&unlocked, &total);
@@ -552,19 +538,35 @@ static bool FindApplication(u32 *pid, u64 *titleId)
     return false;
 }
 
+// The game closed (or another one started): everything it took goes back to the system.
+static void UnloadGame(void)
+{
+    bool tracked = Achievements_Count() > 0;
+
+    Achievements_Unload();
+    GameMem_Release();
+    Heap_Trim();
+    if (tracked)
+        Log("memory: game closed, heap back to %lu KB, %lu KB free", Heap_Size() / 1024, Heap_SystemFree() / 1024);
+}
+
 int main(void)
 {
     Handle  notification = 0;
     u64     loadedTitle = 0;
     bool    active = false;
     bool    patched = false;        // has definitions, but isn't tracked (see FindGamePatch)
+    bool    noMemory = false;       // couldn't be loaded: too little memory left (see heap.c)
     bool    haveTitle = false;      // from the SMDH, not the process name
     bool    startShown = false;     // this game's start banner
     u64     startAt = 0;
 
     g_status.stage = STAGE_MAIN;
+    Heap_Init();
     Log("tracker started");
-    Log("heap: %lu KB (%08lX), free memory %lu KB", g_status.heapSize / 1024, g_status.heapResult, g_status.freeMemory / 1024);
+    Log("memory: %lu KB free at start (limit %lu KB, Base region %lu KB now); stack %lu KB (%08lX); "
+        "no heap until a game with achievements runs", g_status.freeMemory / 1024, Heap_LimitFree() / 1024,
+        Heap_RegionFree() / 1024, g_status.heapSize / 1024, g_status.heapResult);
     g_status.stage = STAGE_LOGGED;
     Result res = srvEnableNotification(&notification);
     if (R_SUCCEEDED(res))
@@ -592,6 +594,8 @@ int main(void)
         u64 titleId;
         if (!FindApplication(&pid, &titleId) || IsHomebrewHost(titleId) || titleId == APP_TITLE_ID)     // not games
         {
+            if (loadedTitle != 0)
+                UnloadGame();
             loadedTitle = 0;
             active = false;
             continue;
@@ -602,8 +606,13 @@ int main(void)
 
         if (titleId != loadedTitle)
         {
+            if (loadedTitle != 0)
+                UnloadGame();
             loadedTitle = titleId;
+            Heap_TakeRefused();
             active = Achievements_Load(titleId);
+            u32 refused = Heap_TakeRefused();
+            noMemory = !active && refused > 0;    // it may have achievements: they couldn't be loaded
             haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
             Log("game %016llX (%s): %d achievement line(s)", (unsigned long long)titleId, g_gameTitle,
                 Achievements_Count());
@@ -615,6 +624,18 @@ int main(void)
                 active = false;     // the menu can still list its achievements
             if (patch != NULL)
                 Log("game is patched (%s): %s", patch, patched ? "not tracking" : "tracking, allowed in the app");
+
+            // What it took: its achievements, then the copies of its memory (GameMem_BeginPoll
+            // takes them again if they couldn't be had yet). Trimmed first: the file buffers
+            // and the title's icon data are freed by now, and malloc doesn't count free room
+            // at the heap's end when it grows it, so they'd make it ask for more than needed.
+            Heap_Trim();
+            bool copies = !active || GameMem_Acquire();
+            refused += Heap_TakeRefused();
+            if (Achievements_Count() > 0 || refused > 0)
+                Log("memory: heap %lu KB, %lu KB free%s", Heap_Size() / 1024, Heap_SystemFree() / 1024,
+                    noMemory ? "; not enough left to load this game's achievements"
+                    : !copies ? "; not enough left to read the game yet" : "");
             startShown = false;
             startAt = osGetTime() + START_DELAY_MS;
             g_statsWindows = 0;     // this game's first stats window gets logged
@@ -626,8 +647,11 @@ int main(void)
         if (!startShown && osGetTime() >= startAt && Menu_GameInFront(&applet))
         {
             if (!haveTitle)
+            {
                 haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
-            ShowStartBanner(active, patched);
+                Heap_Trim();
+            }
+            ShowStartBanner(active, patched, noMemory);
             startShown = true;
         }
 
@@ -645,6 +669,7 @@ int main(void)
                 Log("menu: couldn't pause the game (active applet %lX)", applet);
             else
                 Log("menu: touch %08lX", Menu_TouchResult());
+            Heap_Trim();            // the title's icon data, the menu's trophy icons
         }
         else
         {
