@@ -1,14 +1,17 @@
-// The "3ds" theme: like the 3DS's own System Settings. Cream screens. Top: a status bar
-// (tracker, clock, battery), an orange header, and the selected game in a sunken panel between
-// dotted lines, with yellow arrow tabs at the sides when there are more games. Bottom: the
-// achievements as white buttons in a sunken panel, grey tabs along the bottom edge. The
-// colours were measured from screenshots of System Settings.
+// The "3ds" theme: like the 3DS's own System Settings, in the console's system font. Cream
+// screens. Top: a status bar (tracker, clock, battery), an orange header, and the selected game
+// in a sunken panel between dotted lines, with yellow arrow tabs at the sides when there are
+// more games. Bottom: the achievements as white buttons in a sunken panel, grey tabs along the
+// bottom edge. The share screen: the image framed on the top screen, the QR code in a panel.
+// The colours were measured from screenshots of System Settings.
 #include "theme.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
 
+#include "share.h"
+#include "share_image.h"
 #include "ui.h"
 #include "update.h"
 
@@ -27,8 +30,10 @@ static const Color BUTTON_TOP = { 255, 253, 246 };      // a button: white fadin
 static const Color BUTTON_BOTTOM = { 220, 215, 193 };
 static const Color BUTTON_EDGE = { 160, 152, 108 };     // a darker line under it,
 static const Color BUTTON_SHADOW = { 199, 192, 141 };   // and a soft shadow under that
-static const Color TAB_TOP = { 152, 152, 152 };         // the grey tabs along the bottom
+static const Color TAB_TOP = { 152, 152, 152 };   // the grey tabs along the bottom
 static const Color TAB_BOTTOM = { 100, 100, 100 };
+static const Color TAB_PRESSED_TOP = { 112, 112, 112 }; // and while one is touched
+static const Color TAB_PRESSED_BOTTOM = { 72, 72, 72 };
 static const Color GLYPH = { 110, 104, 86 };            // a button's name in a dark circle or pill
 static const Color GLYPH_TEXT = { 250, 248, 236 };
 static const Color CURSOR = { 50, 175, 235 };           // around the selected achievement
@@ -79,8 +84,11 @@ static const Color DIALOG_EDGE = { 190, 182, 130 };
 #define LIST_ROWS       4
 #define ITEM_ICON       32
 #define ITEM_TEXT_X     (ITEM_X + 8 + ITEM_ICON + 8)
-#define BAR_Y           212                         // the tabs along the bottom
-#define TAB_W           106
+#define BAR_Y           212                         // the strip along the bottom: the page number,
+#define TAB_W           92                          // and a tab in each corner
+#define TAB_H           22
+#define TAB_Y           (SCREEN_HEIGHT - TAB_H)
+#define TAB_GLYPH       13                          // the button's name, in a circle this big
 
 // ---- Pieces
 
@@ -131,37 +139,82 @@ static void DrawProgress(gfxScreen_t screen, int x, int y, int w, int h, int don
 // A triangle pointing left (dir < 0) or right, centred on (cx, cy), size pixels from tip to base.
 static void DrawArrow(gfxScreen_t screen, int cx, int cy, int size, int dir, Color color)
 {
+    // Each row from the flat side; the middle row reaches the tip.
     for (int dy = -size; dy <= size; dy++)
     {
         int w = size - (dy < 0 ? -dy : dy) + 1;
-        int x = dir < 0 ? cx - size / 2 : cx + size / 2 - w + 1;
+        int x = dir < 0 ? cx + size / 2 - w + 1 : cx - size / 2;
         Draw_Rect(screen, x, cy + dy, w, 1, color);
     }
 }
 
 // "5/97" as System Settings shows a page: the first number large, both in the muted colour,
-// right-aligned to right.
-static void DrawPage(gfxScreen_t screen, int right, int y, int n, int count)
+// centred on centre.
+static void DrawPage(gfxScreen_t screen, int centre, int y, int n, int count)
 {
     char big[12], small[12];
     snprintf(big, sizeof(big), "%d", n);
     snprintf(small, sizeof(small), "/%d", count);
-    int ws = Draw_TextWidth(small, 1), wb = Draw_TextWidth(big, 2);
-    Draw_Text(screen, right - ws - wb, y, 2, MUTED, big, 0);
-    Draw_Text(screen, right - ws, y + 10, 1, MUTED, small, 0);
+    int ws = Draw_TextWidth(small, 1), wb = Draw_TextWidth(big, 2), x = centre - (wb + ws) / 2;
+    Draw_Text(screen, x, y, 2, MUTED, big, 0);
+    Draw_Text(screen, x + wb, y + 10, 1, MUTED, small, 0);
 }
 
-// The grey tab at the bottom-left corner: a button's name and what it does there.
-static void DrawTab(const char *button, const char *label)
+// The prompts (g_tabs) as small grey tabs in the bottom corners, both TAB_W x TAB_H, flush with
+// the screen's edges with the inner top corner round: the button's name in a white circle and
+// what it does, centred. A tab being touched is darker.
+static void DrawTabs(void)
 {
-    Draw_RoundRectGradient(GFX_BOTTOM, -14, BAR_Y, TAB_W + 14, SCREEN_HEIGHT - BAR_Y + 14, 14, TAB_TOP, TAB_BOTTOM);
-    int x = 10 + DrawGlyph(GFX_BOTTOM, 10, BAR_Y + 7, button, WHITE, TAB_BOTTOM);
-    Draw_Text(GFX_BOTTOM, x + 6, BAR_Y + 8, 1, WHITE, label, 0);
+    const int radius = TAB_H / 2;
+    for (int side = TAB_LEFT; side <= TAB_RIGHT; side++)
+    {
+        const UiTab *t = &g_tabs[side];
+        if (t->key == 0)
+            continue;
+        bool  pressed = g_tabPressed == side;
+        Color dark = pressed ? TAB_PRESSED_BOTTOM : TAB_BOTTOM;
+        int   x = side == TAB_LEFT ? 0 : BOTTOM_WIDTH - TAB_W;
+        Draw_RoundRectGradient(GFX_BOTTOM, side == TAB_LEFT ? x - radius : x, TAB_Y, TAB_W + radius, TAB_H + radius, radius,
+                               pressed ? TAB_PRESSED_TOP : TAB_TOP, dark);
+        int lw = Draw_TextWidth(t->label, 1), gx = x + (TAB_W - TAB_GLYPH - 4 - lw) / 2;
+        int gy = TAB_Y + (TAB_H - TAB_GLYPH) / 2;
+        Draw_RoundRect(GFX_BOTTOM, gx, gy, TAB_GLYPH, TAB_GLYPH, TAB_GLYPH / 2, WHITE);
+        Draw_Text(GFX_BOTTOM, gx + (TAB_GLYPH - Draw_TextWidth(t->button, 1)) / 2, gy + 1, 1, dark, t->button, 0);
+        Draw_Text(GFX_BOTTOM, gx + TAB_GLYPH + 4, gy + 1, 1, WHITE, t->label, 0);
+    }
 }
 
 static void CentredText(gfxScreen_t screen, int y, int scale, Color color, const char *text)
 {
     Draw_Text(screen, (Draw_Width(screen) - Draw_TextWidth(text, scale)) / 2, y, scale, color, text, 0);
+}
+
+// Text word-wrapped to width pixels, each line centred on the screen. Returns the y below it.
+static int CentredWrapped(gfxScreen_t screen, int y, int width, int lineHeight, Color color, const char *text)
+{
+    char line[160];
+    while (*text != '\0')
+    {
+        while (*text == ' ')
+            text++;
+        int length = (int)strlen(text), take = Draw_TextFit(text, 1, width);
+        take = take > (int)sizeof(line) - 1 ? (int)sizeof(line) - 1 : take;
+        if (take < length)
+        {
+            int end = take;
+            while (end > 0 && text[end] != ' ')
+                end--;              // back to the end of a word
+            take = end > 0 ? end : take;
+        }
+        if (take == 0)
+            break;
+        memcpy(line, text, take);
+        line[take] = '\0';
+        CentredText(screen, y, 1, color, line);
+        y += lineHeight;
+        text += take;
+    }
+    return y;
 }
 
 // ---- Status bar: the tracker, the date and time, the battery
@@ -291,6 +344,66 @@ static void DrawLegend(void)
     Draw_Text(GFX_TOP, TOP_WIDTH - 14 - Draw_TextWidth(version, 1), LEGEND_Y + 1, 1, TEXT, version, 0);
 }
 
+// While a game is being chosen: a row of the games' icons, ROW_SHOWN at a time, the highlighted
+// one larger with a shadow and the blue cursor around it; its name and unlocks under the row.
+// The row scrolls with the selection; the arrow tabs show when there are games past either end.
+#define ROW_ICON        56
+#define ROW_ICON_BIG    72
+#define ROW_GAP         14
+#define ROW_SHOWN       5
+#define ROW_MIDDLE      (TOP_PANEL_Y + 46)      // the icons are centred on this row
+#define ROW_CAPTION_Y   (TOP_PANEL_Y + 92)
+
+// A game's icon (or a "?" square) at size in a white frame; the highlighted one with a shadow and
+// the blue cursor around it.
+static void DrawRowIcon(const Game *g, int x, int y, int size, bool highlighted)
+{
+    int radius = size / 8;
+    if (highlighted)
+        Draw_Shadow(GFX_TOP, x - 2, y - 2, size + 4, size + 4, radius + 2, 6, 3, 90, 0);
+    if (g->hasIcon)
+        Draw_IconScaled(GFX_TOP, x, y, size, radius, g->icon, 0, &WHITE, 0);
+    else
+    {
+        Draw_RoundRect(GFX_TOP, x - 2, y - 2, size + 4, size + 4, radius + 2, WHITE);
+        Draw_RoundRect(GFX_TOP, x, y, size, size, radius, TRACK);
+        Draw_Text(GFX_TOP, x + (size - Draw_TextWidth("?", 1)) / 2, y + size / 2 - 7, 1, WHITE, "?", 0);
+    }
+    if (highlighted)
+        Draw_RoundRing(GFX_TOP, x - 5, y - 5, size + 10, size + 10, radius + 5, 3, CURSOR, 16);
+}
+
+static void DrawGameRow(int selected)
+{
+    char text[72];
+
+    // The first game shown keeps the selection in the middle where it can.
+    int first = selected - ROW_SHOWN / 2, last = g_gameCount - ROW_SHOWN;
+    first = first > last ? last : first;
+    first = first < 0 ? 0 : first;
+    int shown = g_gameCount - first < ROW_SHOWN ? g_gameCount - first : ROW_SHOWN, width = 0;
+    for (int i = first; i < first + shown; i++)
+        width += (i == selected ? ROW_ICON_BIG : ROW_ICON) + (i > first ? ROW_GAP : 0);
+    int x = (TOP_WIDTH - width) / 2;
+    for (int i = first; i < first + shown; i++)
+    {
+        int size = i == selected ? ROW_ICON_BIG : ROW_ICON;
+        DrawRowIcon(&g_games[i], x, ROW_MIDDLE - size / 2, size, i == selected);
+        x += size + ROW_GAP;
+    }
+
+    const Game *g = &g_games[selected];
+    Ui_EllipsizeScaled(text, sizeof(text), g->title, TOP_PANEL_W - 24, 2);
+    CentredText(GFX_TOP, ROW_CAPTION_Y, 2, TITLE, text);
+    snprintf(text, sizeof(text), "%d of %d achievements unlocked", g->unlocked, g->total);
+    CentredText(GFX_TOP, ROW_CAPTION_Y + 23, 1, SOFT, text);
+
+    if (first > 0)
+        DrawSideArrow(-1);
+    if (first + shown < g_gameCount)
+        DrawSideArrow(1);
+}
+
 static void DrawTop(int selected, int heroLevel)
 {
     (void)heroLevel;
@@ -307,6 +420,11 @@ static void DrawTop(int selected, int heroLevel)
     {
         CentredText(GFX_TOP, TOP_PANEL_Y + 52, 1, TEXT, "No games with achievements found.");
         CentredText(GFX_TOP, TOP_PANEL_Y + 72, 1, SOFT, "Definitions go in /achievements/<TitleID>/definitions.txt");
+        return;
+    }
+    if (g_picking)
+    {
+        DrawGameRow(selected);      // several games at once while one is being chosen
         return;
     }
     DrawGame(&g_games[selected], selected);
@@ -339,10 +457,8 @@ static void DrawItem(int i, int y)
     Draw_Text(GFX_BOTTOM, ITEM_TEXT_X, y + 22, 1, SOFT, text, 0);
 }
 
-static void DrawList(const Game *g, int scroll, bool loaded)
+static void DrawList(int scroll, bool loaded)
 {
-    char text[32];
-
     CentredText(GFX_BOTTOM, LIST_TITLE_Y, 1, TITLE, "Achievements");
     Draw_RoundRect(GFX_BOTTOM, LIST_PANEL_X, LIST_PANEL_Y, LIST_PANEL_W, LIST_PANEL_H, 10, PANEL);
 
@@ -362,13 +478,65 @@ static void DrawList(const Game *g, int scroll, bool loaded)
         Draw_ClipRows(0, SCREEN_HEIGHT);
     }
 
-    // Along the bottom: Share, the points, which achievement is selected.
-    if (loaded)
-        DrawTab("Y", "Share");
-    snprintf(text, sizeof(text), "%d/%d pts", g->earned, g->points);
-    Draw_Text(GFX_BOTTOM, TAB_W + (BOTTOM_WIDTH - TAB_W - 70 - Draw_TextWidth(text, 1)) / 2, BAR_Y + 12, 1, MUTED, text, 0);
+    // Along the bottom: back to the games, which achievement is selected, Share.
     if (g_count > 0)
-        DrawPage(GFX_BOTTOM, BOTTOM_WIDTH - 8, BAR_Y, g_selected + 1, g_count);
+        DrawPage(GFX_BOTTOM, BOTTOM_WIDTH / 2, BAR_Y, g_selected + 1, g_count);
+    DrawTabs();
+}
+
+// A stat in the panel: its label on the left, its value on the right, a bar under them.
+static void DrawStat(int y, const char *label, int done, int total)
+{
+    char text[32];
+    const int x = LIST_PANEL_X + 12, w = LIST_PANEL_W - 24;
+    snprintf(text, sizeof(text), "%d / %d", done, total);
+    Draw_Text(GFX_BOTTOM, x, y, 1, TEXT, label, 0);
+    Draw_Text(GFX_BOTTOM, x + w - Draw_TextWidth(text, 1), y, 1, TITLE, text, 0);
+    DrawProgress(GFX_BOTTOM, x, y + 18, w, 10, done, total);
+}
+
+// While a game is being chosen: the highlighted game's stats (its unlocks and points, the
+// latest unlocks), then every game's added up.
+static void DrawStats(int game, bool loaded)
+{
+    char     text[96];
+    UiTotals all;
+    const int x = LIST_PANEL_X + 12, w = LIST_PANEL_W - 24;
+    const Game *g = &g_games[game];
+
+    CentredText(GFX_BOTTOM, LIST_TITLE_Y, 1, TITLE, "Stats");
+    Draw_RoundRect(GFX_BOTTOM, LIST_PANEL_X, LIST_PANEL_Y, LIST_PANEL_W, LIST_PANEL_H, 10, PANEL);
+    DrawStat(LIST_PANEL_Y + 8, "Achievements", g->unlocked, g->total);
+    DrawStat(LIST_PANEL_Y + 42, "Points", g->earned, g->points);
+
+    // The latest unlocks, newest first.
+    int y = LIST_PANEL_Y + 78;
+    Draw_Text(GFX_BOTTOM, x, y, 1, SOFT, "Recently unlocked", 0);
+    if (!loaded)
+        Draw_Text(GFX_BOTTOM, x, y + 18, 1, SOFT, "Loading...", 0);
+    else if (g_recentCount == 0)
+        Draw_Text(GFX_BOTTOM, x, y + 18, 1, SOFT, "None yet.", 0);
+    for (int k = 0; loaded && k < g_recentCount; k++)
+    {
+        int i = g_recent[k], ry = y + 17 + 21 * k;
+        Draw_IconScaled(GFX_BOTTOM, x, ry, 18, 3, Ui_Trophy(true), 0, NULL, 0);
+        snprintf(text, sizeof(text), "%u pts", g_points[i]);
+        int bw = Draw_TextWidth(text, 1) + 10, bx = x + w - bw;
+        DrawBadge(GFX_BOTTOM, bx, ry + 1, text, BADGE);
+        char name[80];
+        Ui_Ellipsize(name, sizeof(name), g_names[i], bx - 8 - (x + 26));
+        Draw_Text(GFX_BOTTOM, x + 26, ry + 2, 1, TEXT, name, 0);
+    }
+
+    // Every game.
+    Ui_Totals(&all);
+    y = LIST_PANEL_Y + LIST_PANEL_H - 20;
+    Draw_Text(GFX_BOTTOM, x, y, 1, TEXT, "All games", 0);
+    snprintf(text, sizeof(text), "%d / %d (%d of %d complete)", all.unlocked, all.total, all.complete, g_gameCount);
+    Draw_Text(GFX_BOTTOM, x + w - Draw_TextWidth(text, 1), y, 1, TITLE, text, 0);
+
+    DrawPage(GFX_BOTTOM, BOTTOM_WIDTH / 2, BAR_Y, game + 1, g_gameCount);
+    DrawTabs();
 }
 
 // The selected achievement in full.
@@ -391,8 +559,8 @@ static void DrawDetails(void)
     y += 6;
     Ui_DrawWrapped(GFX_BOTTOM, x, y, width, LINE_H + 3, TEXT, description, (LIST_PANEL_Y + LIST_PANEL_H - 6 - y) / (LINE_H + 3));
 
-    DrawTab("B", "Back");
-    DrawPage(GFX_BOTTOM, BOTTOM_WIDTH - 8, BAR_Y, i + 1, g_count);
+    DrawPage(GFX_BOTTOM, BOTTOM_WIDTH / 2, BAR_Y, i + 1, g_count);
+    DrawTabs();
 }
 
 static void DrawBottom(int game, int scroll, bool details, bool loaded)
@@ -400,10 +568,12 @@ static void DrawBottom(int game, int scroll, bool details, bool loaded)
     Draw_Rect(GFX_BOTTOM, 0, 0, BOTTOM_WIDTH, SCREEN_HEIGHT, CREAM);
     if (game >= g_gameCount)
         Draw_RoundRect(GFX_BOTTOM, LIST_PANEL_X, LIST_PANEL_Y, LIST_PANEL_W, LIST_PANEL_H, 10, PANEL);
+    else if (g_picking)
+        DrawStats(game, loaded);
     else if (details)
         DrawDetails();
     else
-        DrawList(&g_games[game], scroll, loaded);
+        DrawList(scroll, loaded);
 }
 
 // ---- Popups: a dialog box over the dimmed top screen, its choices as buttons
@@ -471,6 +641,119 @@ static void DrawPopup(bool alone)
         DrawDialogButton((TOP_WIDTH - bw) / 2, by, bw, "A", t.buttonA);
 }
 
+// ---- The share screen: the image framed on the top screen; the QR code (or why there isn't
+// one) in a panel on the bottom, Back and Save to SD as tabs.
+
+#define SHARE_SHOWN     184             // the image's size on the top screen
+#define SHARE_Y         49
+#define QR_QUIET        4               // light modules around the code, as the standard asks
+#define QR_MOST         132             // most pixels the code (with its margin) may take
+static const Color GOOD = { 70, 150, 40 };
+static const Color BAD = { 200, 60, 40 };
+static const Color QR_DARK = { 40, 36, 28 };
+
+// size x size RGB pixels from from x from ones, smoothly (each from the four nearest).
+static void ScaleImage(const u8 *rgb, int from, u8 *out, int size)
+{
+    for (int y = 0; y < size; y++)
+    {
+        int sy = ((2 * y + 1) * from * 128) / size - 128;
+        sy = sy < 0 ? 0 : sy;
+        int y0 = sy >> 8, y1 = y0 + 1 < from ? y0 + 1 : y0, wy = sy & 255;
+        for (int x = 0; x < size; x++, out += 3)
+        {
+            int sx = ((2 * x + 1) * from * 128) / size - 128;
+            sx = sx < 0 ? 0 : sx;
+            int x0 = sx >> 8, x1 = x0 + 1 < from ? x0 + 1 : x0, wx = sx & 255;
+            const u8 *a = rgb + (y0 * from + x0) * 3, *b = rgb + (y0 * from + x1) * 3;
+            const u8 *c = rgb + (y1 * from + x0) * 3, *d = rgb + (y1 * from + x1) * 3;
+            for (int k = 0; k < 3; k++)
+            {
+                int top = a[k] * (256 - wx) + b[k] * wx, bottom = c[k] * (256 - wx) + d[k] * wx;
+                out[k] = (u8)((top * (256 - wy) + bottom * wy) >> 16);
+            }
+        }
+    }
+}
+
+static void DrawShareTop(void)
+{
+    static u8 shown[SHARE_SHOWN * SHARE_SHOWN * 3];
+    ShareView v;
+    Share_View(&v);
+
+    Draw_Depth(0);
+    Draw_Rect(GFX_TOP, 0, 0, TOP_WIDTH, SCREEN_HEIGHT, CREAM);
+    DrawStatusBar();
+    CentredText(GFX_TOP, HEADER_Y, 1, ORANGE, "Share");
+    DrawDots(DOTS1_Y);
+
+    const int x = (TOP_WIDTH - SHARE_SHOWN) / 2;
+    Draw_Shadow(GFX_TOP, x - 3, SHARE_Y - 3, SHARE_SHOWN + 6, SHARE_SHOWN + 6, 6, 6, 3, 90, 0);
+    Draw_RoundRect(GFX_TOP, x - 3, SHARE_Y - 3, SHARE_SHOWN + 6, SHARE_SHOWN + 6, 6, WHITE);
+    ScaleImage(v.preview, SHARE_PREVIEW, shown, SHARE_SHOWN);
+    Draw_Image(GFX_TOP, x, SHARE_Y, SHARE_SHOWN, SHARE_SHOWN, shown);
+}
+
+static void DrawShareBottom(void)
+{
+    const int top = 6, bottom = LIST_PANEL_Y + LIST_PANEL_H, width = LIST_PANEL_W - 36;
+    ShareView v;
+    Share_View(&v);
+    Color tone = v.tone == SHARE_GOOD ? GOOD : v.tone == SHARE_BAD ? BAD : SOFT;
+
+    Draw_Rect(GFX_BOTTOM, 0, 0, BOTTOM_WIDTH, SCREEN_HEIGHT, CREAM);
+    Draw_RoundRect(GFX_BOTTOM, LIST_PANEL_X, top, LIST_PANEL_W, bottom - top, 10, PANEL);
+
+    switch (v.state)
+    {
+        case SHARE_OPENING:
+            CentredText(GFX_BOTTOM, (top + bottom - LINE_H) / 2, 1, TEXT, "Making the image...");
+            return;
+        case SHARE_SERVING:
+        {
+            int total = v.qrSize + 2 * QR_QUIET;
+            int module = QR_MOST / total > 4 ? 4 : QR_MOST / total;
+            int box = total * module, x = (BOTTOM_WIDTH - box) / 2, y = top + 6;
+            Draw_RoundRect(GFX_BOTTOM, x, y, box, box, 6, WHITE);
+            for (int my = 0; my < v.qrSize; my++)
+                for (int mx = 0; mx < v.qrSize; mx++)
+                    if (Share_QrModule(mx, my))
+                        Draw_Rect(GFX_BOTTOM, x + (QR_QUIET + mx) * module, y + (QR_QUIET + my) * module, module, module, QR_DARK);
+            int ty = y + box + 6;
+            CentredText(GFX_BOTTOM, ty, 1, TEXT, "Scan with a phone on the same Wi-Fi");
+            CentredText(GFX_BOTTOM, ty + 16, 1, SOFT, v.url);
+            if (v.status[0] != '\0')
+                CentredText(GFX_BOTTOM, ty + 34, 1, tone, v.status);
+            break;
+        }
+        case SHARE_MAKING:
+            CentredText(GFX_BOTTOM, 90, 1, TEXT, "Getting the image ready...");
+            if (v.status[0] != '\0')
+                CentredText(GFX_BOTTOM, 114, 1, tone, v.status);
+            break;
+        case SHARE_NO_MEMORY:
+            CentredText(GFX_BOTTOM, top + 20, 2, TITLE, "Couldn't make the image");
+            CentredWrapped(GFX_BOTTOM, top + 64, width, 16, TEXT, "There wasn't enough memory for it.");
+            DrawTabs();
+            return;
+        default:
+        {
+            bool failed = v.state == SHARE_SERVER_FAILED;
+            CentredText(GFX_BOTTOM, top + 20, 2, TITLE, failed ? "Couldn't start sharing" : "No Wi-Fi connection");
+            int y = CentredWrapped(GFX_BOTTOM, top + 62, width, 16, TEXT, failed ?
+                                   "See /achievements/share.log for why." :
+                                   "Connect the 3DS to Wi-Fi to send the image to your phone. It's sent from the 3DS "
+                                   "itself, so the phone must be on the same network.");
+            y = CentredWrapped(GFX_BOTTOM, y + 12, width, 16, SOFT, "Press A to save it to the SD card instead.");
+            if (v.status[0] != '\0')
+                CentredText(GFX_BOTTOM, y + 8, 1, tone, v.status);
+            break;
+        }
+    }
+    DrawTabs();
+}
+
 // ---- The rest
 
 static void DrawLoading(void)
@@ -501,10 +784,14 @@ const Theme THEME_3DS =
 {
     .id = "3ds",
     .name = "3DS",
+    .font = DRAW_FONT_SYSTEM,
     .listTop = LIST_TOP,
     .listHeight = LIST_ROWS * ITEM_PITCH,
     .boxHeight = ITEM_PITCH,
+    .tabWidth = TAB_W,
+    .tabTop = TAB_Y,
     .minPositions = 1,
+    .gameList = true,
     .fadeTop = CREAM_RGB,
     .fadeBottom = CREAM_RGB,
     .drawLoading = DrawLoading,
@@ -517,4 +804,6 @@ const Theme THEME_3DS =
     .drawBottom = DrawBottom,
     .drawIdle = NULL,
     .topChanged = TopChanged,
+    .drawShareTop = DrawShareTop,
+    .drawShareBottom = DrawShareBottom,
 };

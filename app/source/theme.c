@@ -25,14 +25,16 @@ void Theme_Load(void)
     FILE *file = fopen(THEME_PATH, "r");
 
     g_theme = &THEME_MODERN;
-    if (file == NULL)
-        return;
-    if (fgets(line, sizeof(line), file) != NULL)
+    if (file != NULL)
     {
-        line[strcspn(line, " \t\r\n")] = '\0';
-        const Theme *theme = Theme_Find(line);
-        if (theme != NULL)
-            g_theme = theme;
+        if (fgets(line, sizeof(line), file) != NULL)
+        {
+            line[strcspn(line, " \t\r\n")] = '\0';
+            const Theme *theme = Theme_Find(line);
+            if (theme != NULL)
+                g_theme = theme;
+        }
+        fclose(file);
     }
-    fclose(file);
+    Draw_SetFont(g_theme->font);
 }

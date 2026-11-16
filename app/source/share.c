@@ -19,15 +19,6 @@
 #define NETWORK_CHECK_MS 1000           // without Wi-Fi, look again this often
 #define ENCODER_STACK   0x8000
 #define QR_MAX_VERSION  10
-#define QR_QUIET        4               // light modules around the code, as the standard asks
-#define QR_HEIGHT       170             // most pixels the code (with its margin) may take
-
-static const Color WHITE = { 255, 255, 255 };
-static const Color GREY = { 140, 140, 150 };
-static const Color HINT = { 255, 209, 102 };
-static const Color GREEN = { 50, 205, 50 };
-static const Color RED = { 235, 70, 70 };
-static const Color BLACK = { 0, 0, 0 };
 
 // The page the QR code opens: the image and a button to save it. It comes from the 3DS
 // over plain http, where phones don't offer their share sheet, so saving is a download
@@ -66,6 +57,7 @@ static u8      *s_rgb;                  // the drawn image, until it's been made
 static Thread   s_encoder;              // makes the PNG in the background
 static volatile bool s_encoded;         // and has finished
 static u64      s_encodeMs;
+static bool     s_open;                 // between Share_Open and Share_Close
 static bool     s_ready;                // the PNG is made: it can be served and saved
 static bool     s_saveWanted;           // A was pressed before it was ready
 static char     s_page[sizeof(PAGE) + 1024];
@@ -80,7 +72,7 @@ static bool     s_hasQr;
 static u64      s_checkAt;
 static int      s_shownSent;
 static char     s_status[48];           // the latest thing that happened
-static Color    s_statusColor;
+static ShareTone s_tone;
 
 static void LogLine(const char *line)
 {
@@ -102,10 +94,10 @@ static void Log(const char *format, ...)
     LogLine(line);
 }
 
-static void Status(Color color, const char *text)
+static void Status(ShareTone tone, const char *text)
 {
     snprintf(s_status, sizeof(s_status), "%s", text);
-    s_statusColor = color;
+    s_tone = tone;
 }
 
 // The game's name as a file name: letters, digits and a few safe marks.
@@ -282,6 +274,7 @@ bool Share_Open(const Game *g, const u8 *hero, const u16 *trophy)
     s_serving = s_serverFailed = s_hasQr = false;
     s_shownSent = 0;
     s_status[0] = '\0';
+    s_open = true;
 
     // The PNG (the slow part) is made in the background, so the screen shows right away.
     s_rgb = rgb;
@@ -307,7 +300,7 @@ bool Share_Save(void)
         if (s_rgb != NULL)          // still being made: save as soon as it's ready
         {
             s_saveWanted = true;
-            Status(GREY, "Saving...");
+            Status(SHARE_NEUTRAL, "Saving...");
         }
         return false;
     }
@@ -325,9 +318,9 @@ bool Share_Save(void)
         ok = false;
     Log("%s %s", ok ? "saved to" : "couldn't save", path);
     if (ok)
-        Status(GREEN, "Saved to the SD card: " SAVE_FOLDER);
+        Status(SHARE_GOOD, "Saved to the SD card: " SAVE_FOLDER);
     else
-        Status(RED, "Couldn't save to the SD card");
+        Status(SHARE_BAD, "Couldn't save to the SD card");
     return ok;
 }
 
@@ -343,78 +336,37 @@ bool Share_Poll(void)
     if (s_serving && ShareServer_Sent() != s_shownSent)
     {
         s_shownSent = ShareServer_Sent();
-        Status(GREEN, "Sent to your phone");
+        Status(SHARE_GOOD, "Sent to your phone");
         changed = true;
     }
     return changed;
 }
 
-// The image exactly as it's shared: still, with no light running around the icon.
-void Share_DrawTop(void)
+void Share_View(ShareView *view)
 {
-    Draw_Image(GFX_TOP, (TOP_WIDTH - SHARE_PREVIEW) / 2, 0, SHARE_PREVIEW, SHARE_PREVIEW, s_preview);
-}
-
-static void Centered(int y, Color color, const char *text)
-{
-    Draw_Text(GFX_BOTTOM, (BOTTOM_WIDTH - Draw_TextWidth(text, 1)) / 2, y, 1, color, text, 0);
-}
-
-void Share_DrawBottom(void)
-{
-    const int hintY = SCREEN_HEIGHT - 16;
-
-    if (s_hasQr)
+    memset(view, 0, sizeof(*view));
+    view->preview = s_preview;
+    view->status = s_status;
+    view->tone = s_tone;
+    if (!s_open)
+        view->state = SHARE_OPENING;
+    else if (s_hasQr)
     {
-        int size = qrcodegen_getSize(s_qr), total = size + 2 * QR_QUIET;
-        int module = QR_HEIGHT / total > 6 ? 6 : QR_HEIGHT / total;
-        int box = total * module, x = (BOTTOM_WIDTH - box) / 2, y = 4;
-
-        Draw_Rect(GFX_BOTTOM, x, y, box, box, WHITE);
-        for (int my = 0; my < size; my++)
-            for (int mx = 0; mx < size; mx++)
-                if (qrcodegen_getModule(s_qr, mx, my))
-                    Draw_Rect(GFX_BOTTOM, x + (QR_QUIET + mx) * module, y + (QR_QUIET + my) * module, module, module, BLACK);
-
-        int ty = y + box + 5;
-        Centered(ty, WHITE, "Scan with a phone on the same Wi-Fi");
-        Centered(ty + 15, GREY, s_url);
-        if (s_status[0] != '\0')
-            Centered(ty + 34, s_statusColor, s_status);
+        view->state = SHARE_SERVING;
+        view->url = s_url;
+        view->qrSize = qrcodegen_getSize(s_qr);
     }
     else if (s_rgb != NULL)
-    {
-        Centered(100, WHITE, "Getting the image ready...");
-        if (s_status[0] != '\0')
-            Centered(124, s_statusColor, s_status);
-    }
+        view->state = SHARE_MAKING;
     else if (!s_ready)
-    {
-        const char *title = "Couldn't make the image";
-        Draw_Text(GFX_BOTTOM, (BOTTOM_WIDTH - Draw_TextWidth(title, 2)) / 2, 24, 2, RED, title, 0);
-        Centered(70, GREY, "There wasn't enough memory for it.");
-        Draw_Text(GFX_BOTTOM, 8, hintY, 1, HINT, "B: Back", 0);
-        return;
-    }
+        view->state = SHARE_NO_MEMORY;
     else
-    {
-        const char *title = s_serverFailed ? "Couldn't start sharing" : "No Wi-Fi connection";
-        Draw_Text(GFX_BOTTOM, (BOTTOM_WIDTH - Draw_TextWidth(title, 2)) / 2, 24, 2, s_serverFailed ? RED : WHITE, title, 0);
-        if (s_serverFailed)
-            Centered(70, GREY, "See /achievements/share.log for why.");
-        else
-        {
-            Centered(70, GREY, "Connect the 3DS to Wi-Fi to send the image");
-            Centered(85, GREY, "to your phone. It's sent from the 3DS itself,");
-            Centered(100, GREY, "so the phone must be on the same network.");
-        }
-        Centered(136, GREY, "Press A to save it to the SD card instead.");
-        if (s_status[0] != '\0')
-            Centered(160, s_statusColor, s_status);
-    }
+        view->state = s_serverFailed ? SHARE_SERVER_FAILED : SHARE_NO_WIFI;
+}
 
-    int x = 8 + Draw_Text(GFX_BOTTOM, 8, hintY, 1, HINT, "A: Save to SD", 0);
-    Draw_Text(GFX_BOTTOM, x + 12, hintY, 1, HINT, "B: Back", 0);
+bool Share_QrModule(int x, int y)
+{
+    return s_hasQr && qrcodegen_getModule(s_qr, x, y);
 }
 
 void Share_Close(void)
@@ -426,6 +378,7 @@ void Share_Close(void)
         Log("closed: sent %d time%s", ShareServer_Sent(), ShareServer_Sent() == 1 ? "" : "s");
     }
     s_serving = false;
+    s_open = false;
     free(s_png);
     s_png = NULL;
 }

@@ -9,6 +9,7 @@
 
 Game        g_games[MAX_GAMES];
 int         g_gameCount;
+bool        g_picking;
 
 const char *g_names[MAX_ACHIEVEMENTS];
 const char *g_descriptions[MAX_ACHIEVEMENTS];
@@ -18,6 +19,8 @@ int         g_count;
 int         g_selected;
 u16         g_gameUnlocked[ICON_SIZE * ICON_SIZE], g_gameLocked[ICON_SIZE * ICON_SIZE];
 bool        g_hasGameIcons;
+int         g_recent[RECENT_MAX];
+int         g_recentCount;
 
 u8          g_hero[HERO_BYTES];
 u8          g_heroDim[HERO_BYTES] __attribute__((aligned(4)));
@@ -34,6 +37,9 @@ const char *g_appVersion;
 bool        g_appChanged;
 bool        g_trackerNotRestarted;
 bool        g_canRestart;
+
+UiTab       g_tabs[2];
+int         g_tabPressed = -1;
 
 static void Line(PopupText *t, const char *text)
 {
@@ -214,6 +220,19 @@ int Ui_DrawWrapped(gfxScreen_t screen, int x, int y, int width, int lineHeight, 
                    const char *text, int maxLines)
 {
     return Ui_DrawWrappedScaled(screen, x, y, width, lineHeight, 1, color, text, maxLines);
+}
+
+void Ui_Totals(UiTotals *t)
+{
+    memset(t, 0, sizeof(*t));
+    for (int i = 0; i < g_gameCount; i++)
+    {
+        const Game *g = &g_games[i];
+        t->unlocked += g->unlocked, t->total += g->total;
+        t->earned += g->earned, t->points += g->points;
+        if (g->total > 0 && g->unlocked == g->total)
+            t->complete++;
+    }
 }
 
 int Ui_Approach(int value, int target, int step)

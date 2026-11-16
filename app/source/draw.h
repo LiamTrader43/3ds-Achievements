@@ -59,6 +59,13 @@ void    Draw_RoundRectGradient(gfxScreen_t screen, int x, int y, int w, int h, i
 // with 0 and SCREEN_HEIGHT. (Not the background, fades or the frame's light, which say their rows.)
 void    Draw_ClipRows(int y0, int y1);
 
+// Faces text can be in: Inter (the app's own) or the 3DS's system font.
+enum { DRAW_FONT_INTER = 0, DRAW_FONT_SYSTEM = 1 };
+
+// Text is drawn in this face from now on. The system font is read from the console the first
+// time it's asked for (Inter if it can't be). Returns the face used.
+int     Draw_SetFont(int font);
+
 // Draws text at scale 1 or 2 in a line whose top is y, cut at maxWidth pixels
 // (0 = screen edge). Returns the width drawn.
 int     Draw_Text(gfxScreen_t screen, int x, int y, int scale, Color color, const char *text, int maxWidth);

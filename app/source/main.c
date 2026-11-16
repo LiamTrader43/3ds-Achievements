@@ -50,10 +50,56 @@ typedef struct
     uint16_t    points[MAX_ACHIEVEMENTS];
     bool        isUnlocked[MAX_ACHIEVEMENTS];
     int         gameUnlocked, total, earned, gamePoints;
+    int         recent[RECENT_MAX], recentCount;
 } Loaded;
 static Loaded        s_loaded;
 static Thread        s_loader;
 static volatile bool s_loaderDone;
+
+// The loaded game's most recently unlocked achievements, newest first, as indices into its
+// list: each unlock is appended to progress.txt, so its last lines are the latest.
+static int RecentUnlocks(const bool *unlocked, int count, int *recent)
+{
+    static char text[8192];
+    const char *ids[MAX_ACHIEVEMENTS];
+    char        path[64];
+    uint32_t    length = 0;
+    int         n = 0;
+
+    snprintf(path, sizeof(path), "/achievements/%016llX/progress.txt", (unsigned long long)Achievements_GameId());
+    if (Achievements_Ids(ids, MAX_ACHIEVEMENTS) != count || !Platform_ReadFile(path, text, sizeof(text) - 1, &length))
+        return 0;
+    for (int end = (int)length; end > 0 && n < RECENT_MAX; )
+    {
+        // The line before end, without its spaces.
+        int start = end - 1;
+        while (start > 0 && text[start - 1] != '\n')
+            start--;
+        int lineEnd = end;
+        end = start > 0 ? start - 1 : 0;
+        while (lineEnd > start && (text[lineEnd - 1] == '\n' || text[lineEnd - 1] == '\r' || text[lineEnd - 1] == ' ' ||
+                                   text[lineEnd - 1] == '\t'))
+            lineEnd--;
+        while (start < lineEnd && (text[start] == ' ' || text[start] == '\t'))
+            start++;
+        if (lineEnd == start)
+            continue;
+
+        for (int i = 0; i < count; i++)
+        {
+            if (!unlocked[i] || strlen(ids[i]) != (size_t)(lineEnd - start) ||
+                memcmp(ids[i], text + start, (size_t)(lineEnd - start)) != 0)
+                continue;
+            bool seen = false;
+            for (int k = 0; k < n; k++)
+                seen = seen || recent[k] == i;
+            if (!seen)
+                recent[n++] = i;
+            break;
+        }
+    }
+    return n;
+}
 
 static void LoadThread(void *arg)
 {
@@ -62,7 +108,7 @@ static void LoadThread(void *arg)
     u64 titleId = g_games[l->game].titleId;
 
     l->hasIcons = Games_LoadTrophies(titleId, l->unlocked, l->locked);
-    l->count = 0;
+    l->count = l->recentCount = 0;
     l->loaded = Achievements_Load(titleId);
     if (l->loaded)
     {
@@ -71,6 +117,7 @@ static void LoadThread(void *arg)
         Achievements_Points(l->points, MAX_ACHIEVEMENTS);
         Achievements_Progress(&l->gameUnlocked, &l->total);
         Achievements_Score(&l->earned, &l->gamePoints);
+        l->recentCount = RecentUnlocks(l->isUnlocked, l->count, l->recent);
     }
     l->heroReady = Games_LoadHero(titleId, g_hero);
     if (l->heroReady)
@@ -118,6 +165,8 @@ static void UseLoaded(void)
     memcpy(g_descriptions, l->descriptions, sizeof(g_descriptions));
     memcpy(g_points, l->points, sizeof(g_points));
     memcpy(g_unlocked, l->isUnlocked, sizeof(g_unlocked));
+    memcpy(g_recent, l->recent, sizeof(g_recent));
+    g_recentCount = l->recentCount;
     g_count = l->count;
     if (l->loaded)
     {
@@ -155,13 +204,56 @@ static int ScrollToShow(int scroll)
     return scroll;
 }
 
-
-// What the bottom screen shows: the list or one achievement in full, and where.
+// What the bottom screen shows: a game's stats, its achievements or one in full, and where.
 typedef struct
 {
-    int  game, scroll, selected, count;
-    bool details, loaded;
+    int  game, scroll, selected, count, tabPressed;
+    bool details, loaded, picking;
 } BottomView;
+
+// The tabs the bottom screen shows (g_tabs) for what's on it: the share screen, position game
+// (an empty one has none), its stats while one is being chosen, its achievements, or one in full.
+static void SetTabs(bool sharing, bool details, int game, bool loaded)
+{
+    static const UiTab BACK = { KEY_B, "B", "Back" }, OPEN = { KEY_A, "A", "Open" };
+    static const UiTab SHARE = { KEY_Y, "Y", "Share" }, SAVE = { KEY_A, "A", "Save to SD" };
+
+    memset(g_tabs, 0, sizeof(g_tabs));
+    if (sharing)
+    {
+        ShareView v;
+        Share_View(&v);
+        if (v.state != SHARE_OPENING)
+            g_tabs[TAB_LEFT] = BACK;
+        if (v.state != SHARE_OPENING && v.state != SHARE_NO_MEMORY)
+            g_tabs[TAB_RIGHT] = SAVE;
+    }
+    else if (game >= g_gameCount)
+        return;
+    else if (g_picking)
+        g_tabs[TAB_RIGHT] = OPEN;
+    else if (details)
+        g_tabs[TAB_LEFT] = BACK;
+    else
+    {
+        if (g_theme->gameList)
+            g_tabs[TAB_LEFT] = BACK;
+        if (loaded)
+            g_tabs[TAB_RIGHT] = SHARE;
+    }
+}
+
+// The tab at (x, y) on the bottom screen, or -1.
+static int TabAt(int x, int y)
+{
+    if (y < g_theme->tabTop)
+        return -1;
+    if (x < g_theme->tabWidth && g_tabs[TAB_LEFT].key != 0)
+        return TAB_LEFT;
+    if (x >= BOTTOM_WIDTH - g_theme->tabWidth && g_tabs[TAB_RIGHT].key != 0)
+        return TAB_RIGHT;
+    return -1;
+}
 
 // The menu's top screen, once for each eye's image when 3D is on (the background goes into
 // both first).
@@ -286,6 +378,7 @@ int main(int argc, char **argv)
 #endif
 
     g_theme->reset();
+    g_picking = g_theme->gameList;  // such a theme starts on the list of games
     int     game = 0;
     int     scroll = 0;             // how far the list is scrolled, in pixels
     int     touchY = 0;             // where the current drag started
@@ -305,6 +398,8 @@ int main(int argc, char **argv)
     int     heroLevel = 0;          // how far the background has faded in, 0-256
     bool    sharing = false;        // the share screen is open
     bool    restart = false;        // the app was updated: its new version starts once it closes
+    int     tabTouch = -1;          // the tab a touch began on, or -1
+    bool    tabInside = false;      // and the touch is still on it
     u64     lastFrame = osGetTime();
 
     while (aptMainLoop())
@@ -315,6 +410,44 @@ int main(int argc, char **argv)
         if (!Bench_Input(&down, &held, &up))
             break;
 #endif
+
+        // A tap on a tab presses its button: when the touch that began on it lets go still on
+        // it. Meanwhile the touch is the tab's, not the list's. Not under a popup.
+        if (g_popup != POPUP_NONE)
+            tabTouch = -1;
+        else
+        {
+            SetTabs(sharing, details, game, heroFor == game);
+            touchPosition touch;
+            if ((down & KEY_TOUCH) && tabTouch < 0)
+            {
+                hidTouchRead(&touch);
+                tabTouch = TabAt(touch.px, touch.py);
+                tabInside = true;
+            }
+            if (tabTouch >= 0)
+            {
+                if (held & KEY_TOUCH)
+                {
+                    hidTouchRead(&touch);
+                    tabInside = TabAt(touch.px, touch.py) == tabTouch;
+                }
+                if (up & KEY_TOUCH)
+                {
+                    if (tabInside)
+                        down |= g_tabs[tabTouch].key;
+                    tabTouch = -1;
+                }
+                down &= ~KEY_TOUCH, held &= ~KEY_TOUCH, up &= ~KEY_TOUCH;
+            }
+        }
+        int pressed = tabTouch >= 0 && tabInside ? tabTouch : -1;
+        if (pressed != g_tabPressed)
+        {
+            g_tabPressed = pressed;
+            redrawBottom = 2;
+        }
+
         u32 dir = Direction(down, held, &repeatAt);
 
         if (down & KEY_START)
@@ -378,6 +511,7 @@ int main(int argc, char **argv)
                 scroll = 0;
                 g_selected = 0;
                 details = false;
+                g_picking = g_theme->gameList;
                 redraw = 2;
             }
             else if (down & KEY_B)
@@ -447,15 +581,37 @@ int main(int argc, char **argv)
             {
                 Draw_Begin(true, true);
                 DrawTopScreen(game, heroLevel);
-                static const Color WHITE = { 255, 255, 255 };   // as on the share screen
-                Draw_Text(GFX_BOTTOM, (BOTTOM_WIDTH - Draw_TextWidth("Making the image...", 1)) / 2,
-                          (SCREEN_HEIGHT - LINE_H) / 2, 1, WHITE, "Making the image...", 0);
+                g_theme->drawShareBottom();     // not open yet: the image is being made
                 Draw_End();
                 sharing = Share_Open(&g_games[game], g_heroReady ? g_hero : NULL, Ui_Trophy(true));
                 redraw = 2;
             }
 
-            if (g_gameCount > 0 && details)
+            if (g_gameCount > 0 && g_picking)
+            {
+                // Choosing a game: Left/Right go along the games, the bottom screen shows the
+                // highlighted one's stats, A opens it.
+                if ((down & KEY_A) && game < g_gameCount)
+                {
+                    g_picking = false;
+                    details = false;
+                    bottomFade = 0;
+                    redraw = 2;
+                }
+                int next = Clamp(game + ((dir & KEY_RIGHT) ? 1 : 0) - ((dir & KEY_LEFT) ? 1 : 0), 0, RowPositions() - 1);
+                if (next != game)
+                {
+                    game = next;
+                    g_count = 0;                // its achievements load once the selection settles
+                    g_recentCount = 0;
+                    heroFor = -1;
+                    heroAt = osGetTime() + HERO_DELAY_MS;
+                    scroll = 0;
+                    g_selected = 0;
+                    redraw = 2;
+                }
+            }
+            else if (g_gameCount > 0 && details)
             {
                 // One achievement in full: B or a tap goes back to the list, Up/Down show the
                 // one before or after (the list follows, so it's on screen when you go back).
@@ -477,6 +633,14 @@ int main(int argc, char **argv)
                     redrawBottom = 2;
                 }
             }
+            else if (g_gameCount > 0 && g_theme->gameList && (down & KEY_B))
+            {
+                // Back to choosing a game.
+                g_picking = true;
+                touchActive = false;
+                bottomFade = 0;
+                redraw = 2;
+            }
             else if (g_gameCount > 0)
             {
                 // A shows the selected achievement in full.
@@ -493,6 +657,7 @@ int main(int argc, char **argv)
                 {
                     game = next;
                     g_count = 0;                // the list loads once the selection settles
+                    g_recentCount = 0;
                     heroFor = -1;
                     heroAt = osGetTime() + HERO_DELAY_MS;
                     scroll = 0;
@@ -591,8 +756,11 @@ int main(int argc, char **argv)
                 BENCH_TIME(BENCH_LOAD, UseLoaded());
                 heroFor = game;
                 g_heroReady = s_loaded.heroReady;
-                bottomFade = 0;             // its list fades in, from its first frame drawn
-                fadeHeld = true;
+                if (!g_picking)
+                {
+                    bottomFade = 0;         // its list fades in, from its first frame drawn
+                    fadeHeld = true;
+                }
                 redraw = 2;
             }
         }
@@ -652,13 +820,14 @@ int main(int argc, char **argv)
 #ifdef BENCH
             Bench_DrawStart();
 #endif
+            SetTabs(sharing, details, game, heroFor == game);
             Draw_Begin(topMode, bottomMode);
             if (sharing)
             {
                 if (top)
-                    Share_DrawTop();
+                    g_theme->drawShareTop();
                 if (bottom)
-                    Share_DrawBottom();
+                    g_theme->drawShareBottom();
             }
             else
             {
@@ -675,14 +844,15 @@ int main(int argc, char **argv)
                 BottomView view;
                 memset(&view, 0, sizeof(view));     // compared whole, padding too
                 view.game = game, view.scroll = scroll, view.selected = g_selected, view.count = g_count;
-                view.details = details, view.loaded = heroFor == game;
+                view.details = details, view.loaded = heroFor == game, view.picking = g_picking;
+                view.tabPressed = g_tabPressed;
                 bool sameView = keptValid && memcmp(&view, &keptView, sizeof(view)) == 0;
                 if (bottom && game < g_gameCount && (sameView || bottomFade < 256))
                 {
                     if (!sameView)
                     {
                         Draw_Into(GFX_BOTTOM, kept);
-                        g_theme->drawBottom(game, scroll, details && g_count > 0, heroFor == game);
+                        g_theme->drawBottom(game, view.scroll, details && g_count > 0, heroFor == game);
                         Draw_Into(GFX_BOTTOM, NULL);
                         keptView = view, keptValid = true;
                     }
@@ -692,7 +862,7 @@ int main(int argc, char **argv)
                 else
                 {
                     if (bottom)
-                        g_theme->drawBottom(game, scroll, details && g_count > 0, heroFor == game);
+                        g_theme->drawBottom(game, view.scroll, details && g_count > 0, heroFor == game);
                     keptValid = false;
                 }
 #ifdef BENCH

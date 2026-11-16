@@ -58,6 +58,10 @@ int     Achievements_List(const char **names, bool *unlocked, int capacity);
 // ("" when the line has none). Used by the achievement viewer app.
 int     Achievements_Descriptions(const char **descriptions, int capacity);
 
+// Each achievement's ID, in the same order as Achievements_List() (the app matches them
+// with progress.txt, which lists unlocks in the order they happened).
+int     Achievements_Ids(const char **ids, int capacity);
+
 // Each achievement's points, in the same order as Achievements_List().
 int     Achievements_Points(uint16_t *points, int capacity);
 

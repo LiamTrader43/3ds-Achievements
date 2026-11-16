@@ -17,6 +17,10 @@
 extern Game         g_games[MAX_GAMES];
 extern int          g_gameCount;
 
+// A game is being chosen: none is open yet, so the bottom screen shows the highlighted game's
+// stats instead of its achievements (themes with Theme.gameList).
+extern bool         g_picking;
+
 // The selected game's achievements, once loaded (g_count is 0 until then).
 extern const char  *g_names[MAX_ACHIEVEMENTS];
 extern const char  *g_descriptions[MAX_ACHIEVEMENTS];
@@ -26,6 +30,11 @@ extern int          g_count;
 extern int          g_selected;             // the achievement Up/Down have selected
 extern u16          g_gameUnlocked[ICON_SIZE * ICON_SIZE], g_gameLocked[ICON_SIZE * ICON_SIZE];
 extern bool         g_hasGameIcons;         // this game has its own achievement icons
+
+// Its most recently unlocked achievements, newest first: indices into g_names.
+#define RECENT_MAX  3
+extern int          g_recent[RECENT_MAX];
+extern int          g_recentCount;
 
 // The selected game's background (hero.bin), and as the top screen shows it (Draw_DimHero).
 extern u8           g_hero[HERO_BYTES];
@@ -87,6 +96,29 @@ int     Ui_DrawWrappedScaled(gfxScreen_t screen, int x, int y, int width, int li
                              Color color, const char *text, int maxLines);
 int     Ui_DrawWrapped(gfxScreen_t screen, int x, int y, int width, int lineHeight, Color color,
                        const char *text, int maxLines);
+
+// Every game's achievements added up.
+typedef struct
+{
+    int unlocked, total;            // achievements
+    int earned, points;
+    int complete;                   // games with every achievement unlocked
+} UiTotals;
+
+void    Ui_Totals(UiTotals *t);
+
+// The button prompts in the bottom screen's corners: a button's name and what it does there
+// (key 0: none). main.c says which are shown; every theme shows them in the bottom-left and
+// bottom-right corners, each its own way. A tap on one (the theme's Theme.tabWidth x tabTop
+// area) presses its button.
+enum { TAB_LEFT, TAB_RIGHT };
+typedef struct
+{
+    u32         key;                // KEY_A, KEY_B...
+    const char *button, *label;     // "B", "Back"
+} UiTab;
+extern UiTab        g_tabs[2];
+extern int          g_tabPressed;   // the prompt a finger is on, or -1
 
 // Moves value toward target by at most step.
 int     Ui_Approach(int value, int target, int step);

@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "bench.h"
@@ -362,11 +363,158 @@ void Draw_Rect(gfxScreen_t screen, int x, int y, int w, int h, Color color)
     }
 }
 
+// ---- Text faces: Inter (font_inter.h), or the 3DS's own system font, which libctru maps from
+// the console's shared memory. That one is drawn once into glyph images like Inter's, at the
+// two sizes text comes in, so text is drawn the same way in either.
+
+typedef struct
+{
+    const FontGlyph     *glyphs;    // ' ' to '~'
+    const unsigned char *alpha;     // their images, 0-255 per pixel
+} Face;
+
+static const Face INTER[2] = { { font13_glyphs, font13_alpha }, { font26_glyphs, font26_alpha } };
+static Face s_faces[2] = { { font13_glyphs, font13_alpha }, { font26_glyphs, font26_alpha } };     // scale 1, 2
+
+// The system font at scale 1 and 2: how much smaller than it's stored (its capitals are 19
+// pixels tall: about 9.5 at scale 1, as System Settings' lists show them), and how far below
+// the line's top the baseline goes (where Inter's is, so text sits where it did).
+static const float SYSTEM_SCALE[2] = { 0.5f, 0.8f };
+static const int   SYSTEM_BASELINE[2] = { 10, 20 };
+#define FACE_GLYPHS 95
+static FontGlyph      s_systemGlyphs[2][FACE_GLYPHS];
+static unsigned char *s_systemAlpha[2];
+static int            s_systemState;    // 0: not tried yet, 1: ready, -1: couldn't be read
+
+// Coverage (0-15) of texel (x, y) of a font sheet: 8x8 tiles, each in Z-order.
+static int SheetTexel(const TGLP_s *t, int sheet, int x, int y)
+{
+    const u8 *data = t->sheetData + sheet * t->sheetSize;
+    int tile = (y >> 3) * (t->sheetWidth >> 3) + (x >> 3), lx = x & 7, ly = y & 7;
+    int i = tile * 64 + ((lx & 1) | ((ly & 1) << 1) | ((lx & 2) << 1) | ((ly & 2) << 2) | ((lx & 4) << 2) | ((ly & 4) << 3));
+    if (t->sheetFmt == GPU_A8)
+        return data[i] >> 4;
+    u8 b = data[i >> 1];
+    return (i & 1) ? b >> 4 : b & 15;
+}
+
+// Draws the system font's ' ' to '~' at size (0: scale 1, 1: scale 2) into glyph images.
+static bool BuildSystemFace(CFNT_s *font, int size)
+{
+    const TGLP_s *t = fontGetGlyphInfo(font);
+    const float   s = SYSTEM_SCALE[size];
+    const int     maxW = (int)(t->cellWidth * s) + 3, maxH = (int)(t->cellHeight * s) + 3;
+    unsigned char *alpha = malloc(FACE_GLYPHS * maxW * maxH), *cell = malloc(maxW * maxH);
+    unsigned int  used = 0;
+
+    if (alpha == NULL || cell == NULL)
+    {
+        free(alpha);
+        free(cell);
+        return false;
+    }
+    for (int c = 32; c < 32 + FACE_GLYPHS; c++)
+    {
+        int index = fontGlyphIndexFromCodePoint(font, c);
+        const charWidthInfo_s *w = fontGetCharWidthInfo(font, index);
+        int per = t->nRows * t->nLines, sheet = index / per, at = index % per;
+        int sx0 = (at % t->nRows) * (t->cellWidth + 1) + 1, sy0 = (at / t->nRows) * (t->cellHeight + 1) + 1;
+
+        // The glyph's cell, scaled, with its left edge where the character says from the pen and
+        // the baseline at SYSTEM_BASELINE; each pixel the average of 16 points in it.
+        float left = w->left * s, top = SYSTEM_BASELINE[size] - t->baselinePos * s;
+        int   x0 = (int)floorf(left), y0 = (int)floorf(top);
+        float fx = left - x0, fy = top - y0;
+        int   cw = (int)ceilf(fx + w->glyphWidth * s), ch = (int)ceilf(fy + t->cellHeight * s);
+        cw = cw > maxW ? maxW : cw;
+        ch = ch > maxH ? maxH : ch;
+        int minX = cw, maxX = -1, minY = ch, maxY = -1;
+        for (int oy = 0; oy < ch; oy++)
+            for (int ox = 0; ox < cw; ox++)
+            {
+                int sum = 0;
+                for (int sy = 0; sy < 4; sy++)
+                {
+                    float gy = (oy + (sy + 0.5f) / 4 - fy) / s;
+                    if (gy < 0 || gy >= t->cellHeight)
+                        continue;
+                    for (int sx = 0; sx < 4; sx++)
+                    {
+                        float gx = (ox + (sx + 0.5f) / 4 - fx) / s;
+                        if (gx >= 0 && gx < w->glyphWidth)
+                            sum += SheetTexel(t, sheet, sx0 + (int)gx, sy0 + (int)gy);
+                    }
+                }
+                int a = sum * 255 / (16 * 15);
+                cell[oy * cw + ox] = (unsigned char)a;
+                if (a != 0)
+                {
+                    minX = ox < minX ? ox : minX, maxX = ox > maxX ? ox : maxX;
+                    minY = oy < minY ? oy : minY, maxY = oy > maxY ? oy : maxY;
+                }
+            }
+
+        // Kept trimmed to what has ink.
+        FontGlyph *g = &s_systemGlyphs[size][c - 32];
+        unsigned short advance = (unsigned short)lroundf(w->charWidth * s * 64);
+        if (maxX < 0)
+        {
+            *g = (FontGlyph){ 0, 0, 0, 0, advance, (unsigned short)used };
+            continue;
+        }
+        int gw = maxX - minX + 1, gh = maxY - minY + 1;
+        if (used + gw * gh > 0xFFFF)
+        {
+            free(alpha);
+            free(cell);
+            return false;           // more than a glyph's offset can reach
+        }
+        for (int row = 0; row < gh; row++)
+            memcpy(alpha + used + row * gw, cell + (minY + row) * cw + minX, gw);
+        *g = (FontGlyph){ (signed char)(x0 + minX), (signed char)(y0 + minY), (unsigned char)gw, (unsigned char)gh,
+                          advance, (unsigned short)used };
+        used += gw * gh;
+    }
+    free(cell);
+    s_systemAlpha[size] = alpha;
+    return true;
+}
+
+// The system font's faces, made the first time they're asked for.
+static bool SystemFontReady(void)
+{
+    if (s_systemState == 0)
+    {
+        s_systemState = -1;
+        if (R_SUCCEEDED(fontEnsureMapped()))
+        {
+            CFNT_s       *font = fontGetSystemFont();
+            const TGLP_s *t = font != NULL ? fontGetGlyphInfo(font) : NULL;
+            if (t != NULL && (t->sheetFmt == GPU_A4 || t->sheetFmt == GPU_A8) && BuildSystemFace(font, 0) &&
+                BuildSystemFace(font, 1))
+                s_systemState = 1;
+        }
+    }
+    return s_systemState > 0;
+}
+
+int Draw_SetFont(int font)
+{
+    if (font == DRAW_FONT_SYSTEM && SystemFontReady())
+    {
+        for (int i = 0; i < 2; i++)
+            s_faces[i] = (Face){ s_systemGlyphs[i], s_systemAlpha[i] };
+        return DRAW_FONT_SYSTEM;
+    }
+    s_faces[0] = INTER[0], s_faces[1] = INTER[1];
+    return DRAW_FONT_INTER;
+}
+
 static const FontGlyph *Glyph(int scale, unsigned char c)
 {
     if (c < 32 || c > 126)
         c = '?';
-    return scale >= 2 ? &font26_glyphs[c - 32] : &font13_glyphs[c - 32];
+    return &s_faces[scale >= 2 ? 1 : 0].glyphs[c - 32];
 }
 
 // The pen moves in 1/64 pixels; a position is rounded to the nearest pixel.
@@ -405,7 +553,7 @@ int Draw_Text(gfxScreen_t screen, int x, int y, int scale, Color color, const ch
         const FontGlyph *g = Glyph(scale, (unsigned char)*s);
         if (Pixels(pen64 + g->adv64) > limit)
             break;
-        const unsigned char *alpha = (scale >= 2 ? font26_alpha : font13_alpha) + g->off;
+        const unsigned char *alpha = s_faces[scale >= 2 ? 1 : 0].alpha + g->off;
         int gx = Shifted(screen, Pixels(pen64) + g->x), gy = y + g->y, dx0, dx1, dy0, dy1;
         if (Clip(screen, gx, gy, g->w, g->h, &dx0, &dx1, &dy0, &dy1))
             for (int col = dx0; col < dx1; col++)

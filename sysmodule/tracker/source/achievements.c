@@ -581,6 +581,15 @@ int Achievements_Descriptions(const char **descriptions, int capacity)
     return n;
 }
 
+int Achievements_Ids(const char **ids, int capacity)
+{
+    int n = 0;
+    for (int i = 0; i < g_count && n < capacity; i++)
+        if (IsFirstLine(i))
+            ids[n++] = g_ach[i].id;
+    return n;
+}
+
 int Achievements_Points(uint16_t *points, int capacity)
 {
     int n = 0;

@@ -16,12 +16,19 @@ typedef struct
 {
     const char *id;             // in theme.txt
     const char *name;           // what it's called
+    int         font;           // the text's face (DRAW_FONT_*)
 
     // The bottom screen's list of achievements, for scrolling, the selection and taps: boxes
     // boxHeight apart from listTop down, shown in listHeight pixels.
     int     listTop, listHeight, boxHeight;
+    // The button prompts' tap areas (g_tabs): tabWidth pixels from each side, from row tabTop down.
+    int     tabWidth, tabTop;
     // Left/Right go through at least this many positions, empty past the last game.
     int     minPositions;
+    // The app opens with no game open (g_picking): Left/Right go through the games and the
+    // bottom screen shows the highlighted one's stats; A opens it (its achievements), B goes
+    // back. Without it, the selected game's achievements are always shown.
+    bool    gameList;
     // The bottom screen fades in from this fade (a list loading, the full view opening).
     Color   fadeTop, fadeBottom;
 
@@ -43,7 +50,8 @@ typedef struct
     void    (*drawPopup)(bool alone);
     // The bottom screen, setting every pixel: position game's achievements scrolled by scroll
     // pixels, or with details the selected one in full. loaded: its achievements were read
-    // (g_count can be 0). game can be an empty position past the last game.
+    // (g_count can be 0). game can be an empty position past the last game. With g_picking:
+    // game's stats.
     void    (*drawBottom)(int game, int scroll, bool details, bool loaded);
     // A frame with nothing else redrawn and no popup: moves what keeps moving (or NULL if
     // nothing does). False if there was nothing to move.
@@ -51,6 +59,11 @@ typedef struct
     // True when something on the top screen changed by itself (a clock) and it must be
     // redrawn (or NULL if nothing does).
     bool    (*topChanged)(void);
+    // The share screen (Share_View says what to show), each setting every pixel of its
+    // screen. The bottom is also drawn once before the share screen opens (SHARE_OPENING),
+    // while the image is made.
+    void    (*drawShareTop)(void);
+    void    (*drawShareBottom)(void);
 } Theme;
 
 extern const Theme  THEME_MODERN, THEME_3DS;
