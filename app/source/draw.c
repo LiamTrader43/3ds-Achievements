@@ -732,6 +732,105 @@ void Draw_TrophyIcon(gfxScreen_t screen, int x, int y, const u16 *icon)
     }
 }
 
+// Trophies drawn smaller than the art: each pixel the average of the part of the art it covers,
+// the black around the trophy's rounded square see-through, so the corners and edges come out
+// smooth (a bilinear tile would blend that black into the edge). The last few kept.
+#define TROPHY_SLOTS    4
+#define TROPHY_TAPS     8               // source pixels along one side of an output pixel, at most
+typedef struct
+{
+    const u16  *icon;
+    u32         sample, used;
+    int         size;
+    u8          bgra[ICON_SIZE * ICON_SIZE][4];     // [y * size + x]: B, G, R, how much is trophy (of 255)
+} ScaledTrophy;
+static ScaledTrophy s_trophies[TROPHY_SLOTS];
+
+static const ScaledTrophy *ScaleTrophy(const u16 *icon, int size)
+{
+    u32 sample = IconSample(icon);
+    ScaledTrophy *slot = NULL;
+    for (int i = 0; i < TROPHY_SLOTS; i++)
+    {
+        ScaledTrophy *t = &s_trophies[i];
+        if (t->icon == icon && t->sample == sample && t->size == size)
+        {
+            t->used = ++s_clock;
+            return t;
+        }
+        if (slot == NULL || t->used < slot->used)
+            slot = t;
+    }
+
+    // Along each side: the art's pixels under output pixel o and how much of each (256ths).
+    const DecodedIcon *d = Decode(icon);
+    u8  first[ICON_SIZE], taps[ICON_SIZE];
+    u16 weight[ICON_SIZE][TROPHY_TAPS];
+    for (int o = 0; o < size; o++)
+    {
+        int a = o * ICON_SIZE * 256 / size, b = (o + 1) * ICON_SIZE * 256 / size;
+        first[o] = (u8)(a >> 8);
+        taps[o] = 0;
+        for (int s = a >> 8; s * 256 < b && taps[o] < TROPHY_TAPS; s++)
+        {
+            int lo = a > s * 256 ? a : s * 256, hi = b < (s + 1) * 256 ? b : (s + 1) * 256;
+            weight[o][taps[o]++] = (u16)(hi - lo);
+        }
+    }
+    slot->icon = icon, slot->sample = sample, slot->used = ++s_clock, slot->size = size;
+    for (int oy = 0; oy < size; oy++)
+        for (int ox = 0; ox < size; ox++)
+        {
+            u32 b = 0, g = 0, r = 0, covered = 0, all = 0;
+            for (int ty = 0; ty < taps[oy]; ty++)
+                for (int tx = 0; tx < taps[ox]; tx++)
+                {
+                    u32 w = (u32)weight[oy][ty] * weight[ox][tx];
+                    int sy = first[oy] + ty, sx = first[ox] + tx;
+                    all += w;
+                    if (d->black[sy][sx])
+                        continue;
+                    Color c = d->image[sy][sx];
+                    b += c.b * w, g += c.g * w, r += c.r * w, covered += w;
+                }
+            u8 *out = slot->bgra[oy * size + ox];
+            out[0] = covered ? (u8)(b / covered) : 0;
+            out[1] = covered ? (u8)(g / covered) : 0;
+            out[2] = covered ? (u8)(r / covered) : 0;
+            out[3] = all ? (u8)(covered * 255 / all) : 0;
+        }
+    return slot;
+}
+
+void Draw_TrophyScaled(gfxScreen_t screen, int x, int y, int size, const u16 *icon)
+{
+    if (size >= ICON_SIZE)
+    {
+        Draw_TrophyIcon(screen, x, y, icon);
+        return;
+    }
+    if (size < ICON_SIZE / TROPHY_TAPS + 1)
+        return;
+    const ScaledTrophy *t = ScaleTrophy(icon, size);
+    int dx0, dx1, dy0, dy1;
+    x = Shifted(screen, x);
+    if (!Clip(screen, x, y, size, size, &dx0, &dx1, &dy0, &dy1))
+        return;
+    for (int dx = dx0; dx < dx1; dx++)
+    {
+        u8 *p = At(screen, x + dx, y + dy0);
+        for (int dy = dy0; dy < dy1; dy++, p -= 3)
+        {
+            const u8 *s = t->bgra[dy * size + dx];
+            int a = s[3];
+            if (a == 0)
+                continue;
+            for (int k = 0; k < 3; k++)
+                p[k] = (u8)((p[k] * (255 - a) + s[k] * a + 127) / 255);
+        }
+    }
+}
+
 // Scaled tiles, the last few drawn: the static ones and both eyes' copies of a moving one
 // are drawn from here. The rounded corners, dimming and frame are added as each is drawn.
 #define TILE_MAX        128

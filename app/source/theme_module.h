@@ -64,6 +64,7 @@ extern const ThemeApi *theme_api;
 #define strftime                (theme_api->strftime)
 #define time                    (theme_api->time)
 #define gmtime                  (theme_api->gmtime)
+#define Draw_TrophyScaled       (theme_api->Draw_TrophyScaled)
 
 #define g_games                 (*theme_api->g_games)
 #define g_gameCount             (*theme_api->g_gameCount)

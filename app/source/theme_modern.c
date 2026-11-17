@@ -6,11 +6,13 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "bench.h"
 #include "share.h"
 #include "share_image.h"
 #include "ui.h"
+#include "update.h"
 
 // Colours, as in the tracker's menu and banner.
 static const Color ACCENT = { 255, 209, 102 };       // the logo's yellow
@@ -48,6 +50,7 @@ static const Color BG_BOTTOM = BG_BOTTOM_RGB;
 #define PILL_PAD        10                                  // each in a dark pill
 #define PILL_GAP        6
 #define PILL_Y          (SCREEN_HEIGHT - PILL_H - 4)
+#define STATUS_Y        4                                   // the status bar's pills along the top
 #define TILE_DIM        90              // how much darker (of 256) the tiles that aren't selected are
 #define SHADOW_BLUR     10              // the selected tile's shadow: how far it fades out,
 #define SHADOW_DROP     4               // how much lower than the tile it is,
@@ -199,30 +202,113 @@ static bool AnimateRow(int selected, int milliseconds)
     return moving;
 }
 
-// The top screen's last line: each button hint in its own dark pill, centred. "Y: Share" only
-// when a game is selected. (START still exits; it has no hint.)
+// A dark pill with something on it, kept (Draw_StampKeep) so the same thing at the same place is
+// drawn again in one copy. PillAgain: true if it was; else it draws the empty pill to draw on,
+// then PillKeep keeps it.
+typedef struct
+{
+    DrawStamp   stamp;
+    char        key[48];            // what it showed
+} Pill;
+
+static bool PillAgain(Pill *p, const char *key, int x, int y, int w)
+{
+    if (p->stamp.kept && p->stamp.x == x && p->stamp.y == y && p->stamp.w == w && strcmp(p->key, key) == 0 &&
+        Draw_StampAgain(&p->stamp))
+        return true;
+    Draw_RoundRect(GFX_TOP, x, y, w, PILL_H, PILL_H / 2, PILL);
+    return false;
+}
+
+static void PillKeep(Pill *p, const char *key, int x, int y, int w)
+{
+    Draw_StampKeep(&p->stamp, GFX_TOP, x, y, w, PILL_H, PILL_H / 2, PILL);
+    snprintf(p->key, sizeof(p->key), "%s", key);
+}
+
+// The top screen's last line: each button hint in its own dark pill from the left ("Y: Share"
+// only when a game is selected; START still exits, with no hint), the app's version at the right.
 static void DrawHints(bool canShare)
 {
     static const char settings[] = "X: Settings", share[] = "Y: Share";
-    static DrawStamp pills[2];              // the pills as last drawn, for the same hints
-    static int       pillsFor = -1;
-    int w0 = Draw_TextWidth(settings, 1) + 2 * PILL_PAD, w1 = canShare ? Draw_TextWidth(share, 1) + 2 * PILL_PAD : 0;
-    int x = (TOP_WIDTH - (w0 + (canShare ? PILL_GAP + w1 : 0))) / 2;
+    static Pill pills[3];
+    char version[24];
+    int  w = Draw_TextWidth(settings, 1) + 2 * PILL_PAD, x = MARGIN;
 
-    if (pillsFor == canShare && Draw_StampAgain(&pills[0]) && (!canShare || Draw_StampAgain(&pills[1])))
-        return;
-
-    Draw_RoundRect(GFX_TOP, x, PILL_Y, w0, PILL_H, PILL_H / 2, PILL);
-    Draw_TextShadow(GFX_TOP, x + PILL_PAD, PILL_Y + 4, 1, HINT, settings, 0);
-    Draw_StampKeep(&pills[0], GFX_TOP, x, PILL_Y, w0, PILL_H, PILL_H / 2, PILL);
+    if (!PillAgain(&pills[0], settings, x, PILL_Y, w))
+    {
+        Draw_TextShadow(GFX_TOP, x + PILL_PAD, PILL_Y + 4, 1, HINT, settings, 0);
+        PillKeep(&pills[0], settings, x, PILL_Y, w);
+    }
     if (canShare)
     {
-        x += w0 + PILL_GAP;
-        Draw_RoundRect(GFX_TOP, x, PILL_Y, w1, PILL_H, PILL_H / 2, PILL);
-        Draw_TextShadow(GFX_TOP, x + PILL_PAD, PILL_Y + 4, 1, HINT, share, 0);
-        Draw_StampKeep(&pills[1], GFX_TOP, x, PILL_Y, w1, PILL_H, PILL_H / 2, PILL);
+        x += w + PILL_GAP;
+        w = Draw_TextWidth(share, 1) + 2 * PILL_PAD;
+        if (!PillAgain(&pills[1], share, x, PILL_Y, w))
+        {
+            Draw_TextShadow(GFX_TOP, x + PILL_PAD, PILL_Y + 4, 1, HINT, share, 0);
+            PillKeep(&pills[1], share, x, PILL_Y, w);
+        }
     }
-    pillsFor = canShare;
+
+    snprintf(version, sizeof(version), "Ver. %s", Update_AppVersion());
+    w = Draw_TextWidth(version, 1) + 2 * PILL_PAD, x = TOP_WIDTH - MARGIN - w;
+    if (!PillAgain(&pills[2], version, x, PILL_Y, w))
+    {
+        Draw_TextShadow(GFX_TOP, x + PILL_PAD, PILL_Y + 4, 1, LIGHT, version, 0);
+        PillKeep(&pills[2], version, x, PILL_Y, w);
+    }
+}
+
+// ---- The status bar along the top, as in the 3DS theme: the tracker at the left, the date, time
+// and battery at the right, each in a pill like the hints.
+
+static int    s_battery = -1;       // 0-5, or -1 if it can't be read
+static bool   s_charging;
+static time_t s_clockMinute;        // the minute the clock last showed
+
+static void DrawStatusBar(void)
+{
+    static Pill tracker, clock;
+    char text[32], key[48];
+
+    const char *label = g_trackerRunning ? "Tracker on" : "Tracker off";
+    int w = PILL_PAD + 7 + 6 + Draw_TextWidth(label, 1) + PILL_PAD, x = MARGIN;
+    if (!PillAgain(&tracker, label, x, STATUS_Y, w))
+    {
+        Draw_RoundRect(GFX_TOP, x + PILL_PAD, STATUS_Y + 7, 7, 7, 3, g_trackerRunning ? GREEN : GREY);
+        Draw_TextShadow(GFX_TOP, x + PILL_PAD + 13, STATUS_Y + 4, 1, WHITE, label, 0);
+        PillKeep(&tracker, label, x, STATUS_Y, w);
+    }
+
+    // Date and time as the 3DS writes them (its clock is already local time), and the battery:
+    // an outline filled in fifths, green while charging.
+    time_t now = time(NULL);
+    strftime(text, sizeof(text), "%m/%d (%a) %H:%M", gmtime(&now));
+    s_clockMinute = now / 60;
+    s_battery = Ui_Battery(&s_charging);
+    snprintf(key, sizeof(key), "%s %d %d", text, s_battery, s_charging);
+    int tw = Draw_TextWidth(text, 1);
+    w = PILL_PAD + tw + 6 + 22 + PILL_PAD, x = TOP_WIDTH - MARGIN - w;
+    if (!PillAgain(&clock, key, x, STATUS_Y, w))
+    {
+        Draw_TextShadow(GFX_TOP, x + PILL_PAD, STATUS_Y + 4, 1, WHITE, text, 0);
+        int bx = x + PILL_PAD + tw + 6, by = STATUS_Y + 5;
+        Draw_RoundRect(GFX_TOP, bx, by, 20, 11, 2, LIGHT);
+        Draw_Rect(GFX_TOP, bx + 20, by + 3, 2, 5, LIGHT);
+        Draw_Rect(GFX_TOP, bx + 1, by + 1, 18, 9, PILL);
+        if (s_battery > 0)
+            Draw_Rect(GFX_TOP, bx + 2, by + 2, 16 * s_battery / 5, 7, s_charging ? GREEN : WHITE);
+        PillKeep(&clock, key, x, STATUS_Y, w);
+    }
+}
+
+// The clock moved on a minute, or the battery changed.
+static bool TopChanged(void)
+{
+    bool charging;
+    int  battery = Ui_Battery(&charging);
+    return time(NULL) / 60 != s_clockMinute || battery != s_battery || charging != s_charging;
 }
 
 // How far forward tile i comes in 3D: the selected one fully, easing along with its size.
@@ -236,11 +322,12 @@ static void DrawTop(int selected, int heroLevel)
     (void)heroLevel;
     Draw_Depth(0);
     BENCH_TIME(BENCH_HINTS, DrawHints(selected < g_gameCount));
+    DrawStatusBar();
 
     if (g_gameCount == 0)
     {
-        Draw_TextShadow(GFX_TOP, MARGIN, MARGIN, 1, WHITE, "No games with achievements found.", 0);
-        Draw_TextShadow(GFX_TOP, MARGIN, MARGIN + 16, 1, GREY, "Definitions go in /achievements/<TitleID>/definitions.txt", 0);
+        Draw_TextShadow(GFX_TOP, MARGIN, STATUS_Y + PILL_H + 8, 1, WHITE, "No games with achievements found.", 0);
+        Draw_TextShadow(GFX_TOP, MARGIN, STATUS_Y + PILL_H + 24, 1, GREY, "Definitions go in /achievements/<TitleID>/definitions.txt", 0);
         return;
     }
 
@@ -467,7 +554,7 @@ static void DrawStats(int game, bool loaded)
         for (int k = 0; loaded && k < g_recentCount; k++)
         {
             int i = g_recent[k], y = 112 + 23 * k;
-            Draw_IconScaled(GFX_BOTTOM, MARGIN, y, 20, 3, Ui_Trophy(true), 0, NULL, 0);
+            Draw_TrophyScaled(GFX_BOTTOM, MARGIN, y, 20, Ui_Trophy(true));
             snprintf(text, sizeof(text), "%u pts", g_points[i]);
             int px = BOTTOM_WIDTH - MARGIN - Draw_TextWidth(text, 1);
             Draw_Text(GFX_BOTTOM, px, y + 3, 1, GOLD, text, 0);
@@ -691,6 +778,7 @@ const Theme THEME_MODERN =
     .drawPopup = DrawPopup,
     .drawBottom = DrawBottom,
     .drawIdle = DrawIdle,
+    .topChanged = TopChanged,
     .drawShareTop = DrawShareTop,
     .drawShareBottom = DrawShareBottom,
     .drawSettingsTop = NULL,            // the usual top screen

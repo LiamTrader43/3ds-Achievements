@@ -83,6 +83,11 @@ void    Draw_Icon(gfxScreen_t screen, int x, int y, const u16 *icon);
 // out, so it sits on any background.
 void    Draw_TrophyIcon(gfxScreen_t screen, int x, int y, const u16 *icon);
 
+// The trophy smaller, size x size (7-47; 48 or more draws it at its own size): each pixel the
+// average of the part of the art under it, the black around it see-through, so its corners and
+// edges stay smooth.
+void    Draw_TrophyScaled(gfxScreen_t screen, int x, int y, int size, const u16 *icon);
+
 // The same icon smoothly enlarged to size x size pixels (2-128), with rounded corners, and
 // darkened by dim (0-256, like Draw_Darken over it). frame: a colour for a frame DRAW_FRAME
 // pixels wide around it (its corners DRAW_FRAME more round), or NULL. The last few sizes
@@ -139,7 +144,7 @@ void    Draw_RoundRing(gfxScreen_t screen, int x, int y, int w, int h, int radiu
 // A rounded box filled with a colour and things drawn on it (a button hint), kept so it can be
 // drawn again without redrawing what's on it: inside its edge it doesn't depend on what's
 // under it, only its smoothed corners do.
-#define DRAW_STAMP_W    400
+#define DRAW_STAMP_W    200
 #define DRAW_STAMP_H    32
 typedef struct
 {

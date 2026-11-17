@@ -85,7 +85,8 @@ typedef struct
     X(Ui_DrawWrappedScaled) X(Ui_DrawWrapped) X(Ui_Totals) X(Ui_Setting) X(Ui_Approach) X(Ui_Battery) \
     X(Update_AppVersion) X(Share_View) X(Share_QrModule) \
     X(osGetTime) X(svcGetSystemTick) \
-    X(snprintf) X(vsnprintf) X(strftime) X(time) X(gmtime)
+    X(snprintf) X(vsnprintf) X(strftime) X(time) X(gmtime) \
+    X(Draw_TrophyScaled)
 
 // The app's globals (ui.h) a theme reads. They're the app's: a theme doesn't change them.
 #define THEME_API_DATA(X) \

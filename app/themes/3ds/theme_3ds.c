@@ -58,19 +58,19 @@ static const Color DIALOG_EDGE = { 190, 182, 130 };
 
 // Top screen.
 #define STATUS_Y        1
-#define HEADER_Y        21
-#define DOTS1_Y         40
+#define HEADER_Y        17              // the screen's title, large
+#define DOTS1_Y         44
 #define TOP_PANEL_X     8
-#define TOP_PANEL_Y     46
+#define TOP_PANEL_Y     50
 #define TOP_PANEL_W     384
-#define TOP_PANEL_H     140
+#define TOP_PANEL_H     154
 #define BIG_ICON        96
 #define BIG_ICON_X      (TOP_PANEL_X + 16)
 #define BIG_ICON_Y      (TOP_PANEL_Y + (TOP_PANEL_H - BIG_ICON) / 2)
 #define INFO_X          (BIG_ICON_X + BIG_ICON + 18)
 #define INFO_W          (TOP_PANEL_X + TOP_PANEL_W - 14 - INFO_X)
-#define DOTS2_Y         192
-#define LEGEND_Y        202
+#define DOTS2_Y         210
+#define LEGEND_Y        219
 #define DEPTH_POPUP     8
 
 // Bottom screen.
@@ -193,6 +193,20 @@ static void CentredText(gfxScreen_t screen, int y, int scale, Color color, const
     Draw_Text(screen, (Draw_Width(screen) - Draw_TextWidth(text, scale)) / 2, y, scale, color, text, 0);
 }
 
+// The top screen's title under the status bar, and the dotted line under it.
+static void DrawHeader(const char *title)
+{
+    CentredText(GFX_TOP, HEADER_Y, 2, ORANGE, title);
+    DrawDots(DOTS1_Y);
+}
+
+// The blue cursor around a button, drawn after it (over its shadow, which would hide the cursor's
+// bottom edge).
+static void DrawCursor(gfxScreen_t screen, int x, int y, int w, int h, int radius)
+{
+    Draw_RoundRing(screen, x - 3, y - 3, w + 6, h + 6, radius + 3, 3, CURSOR, 16);
+}
+
 // Text word-wrapped to width pixels, each line centred on the screen. Returns the y below it.
 static int CentredWrapped(gfxScreen_t screen, int y, int width, int lineHeight, Color color, const char *text)
 {
@@ -297,7 +311,7 @@ static void DrawGame(const Game *g, int selected)
     }
 
     // Its name, large if it fits.
-    int y = TOP_PANEL_Y + 18;
+    int y = TOP_PANEL_Y + 30;
     if (Draw_TextWidth(g->title, 2) <= INFO_W)
     {
         Draw_Text(GFX_TOP, INFO_X, y, 2, TITLE, g->title, 0);
@@ -342,8 +356,8 @@ static void DrawLegend(bool buttons)
 #define ROW_ICON_BIG    72
 #define ROW_GAP         14
 #define ROW_SHOWN       5
-#define ROW_MIDDLE      (TOP_PANEL_Y + 46)      // the icons are centred on this row
-#define ROW_CAPTION_Y   (TOP_PANEL_Y + 92)
+#define ROW_MIDDLE      (TOP_PANEL_Y + 50)      // the icons are centred on this row
+#define ROW_CAPTION_Y   (TOP_PANEL_Y + 99)
 
 // A game's icon (or a "?" square) at size in a white frame; the highlighted one with a shadow and
 // the blue cursor around it.
@@ -387,7 +401,7 @@ static void DrawGameRow(int selected)
     Ui_EllipsizeScaled(text, sizeof(text), g->title, TOP_PANEL_W - 24, 2);
     CentredText(GFX_TOP, ROW_CAPTION_Y, 2, TITLE, text);
     snprintf(text, sizeof(text), "%d of %d achievements unlocked", g->unlocked, g->total);
-    CentredText(GFX_TOP, ROW_CAPTION_Y + 23, 1, SOFT, text);
+    CentredText(GFX_TOP, ROW_CAPTION_Y + 25, 1, SOFT, text);
 
     if (first > 0)
         DrawSideArrow(-1);
@@ -401,16 +415,15 @@ static void DrawTop(int selected, int heroLevel)
     Draw_Depth(0);
     Draw_Rect(GFX_TOP, 0, 0, TOP_WIDTH, SCREEN_HEIGHT, CREAM);
     DrawStatusBar();
-    CentredText(GFX_TOP, HEADER_Y, 1, ORANGE, "3DS Achievements");
-    DrawDots(DOTS1_Y);
+    DrawHeader("3DS Achievements");
     Draw_RoundRect(GFX_TOP, TOP_PANEL_X, TOP_PANEL_Y, TOP_PANEL_W, TOP_PANEL_H, 10, PANEL);
     DrawDots(DOTS2_Y);
     DrawLegend(true);
 
     if (g_gameCount == 0)
     {
-        CentredText(GFX_TOP, TOP_PANEL_Y + 52, 1, TEXT, "No games with achievements found.");
-        CentredText(GFX_TOP, TOP_PANEL_Y + 72, 1, SOFT, "Definitions go in /achievements/<TitleID>/definitions.txt");
+        CentredText(GFX_TOP, TOP_PANEL_Y + 60, 1, TEXT, "No games with achievements found.");
+        CentredText(GFX_TOP, TOP_PANEL_Y + 82, 1, SOFT, "Definitions go in /achievements/<TitleID>/definitions.txt");
         return;
     }
     if (g_picking)
@@ -432,10 +445,10 @@ static void DrawItem(int i, int y)
     char points[16], text[96];
     bool unlocked = g_unlocked[i];
 
-    if (i == g_selected)
-        Draw_RoundRing(GFX_BOTTOM, ITEM_X - 3, y - 3, ITEM_W + 6, ITEM_H + 6, ITEM_RADIUS + 3, 3, CURSOR, 16);
     DrawButton(GFX_BOTTOM, ITEM_X, y, ITEM_W, ITEM_H, ITEM_RADIUS);
-    Draw_IconScaled(GFX_BOTTOM, ITEM_X + 8, y + (ITEM_H - ITEM_ICON) / 2, ITEM_ICON, 5, Ui_Trophy(unlocked), 0, NULL, 0);
+    if (i == g_selected)
+        DrawCursor(GFX_BOTTOM, ITEM_X, y, ITEM_W, ITEM_H, ITEM_RADIUS);
+    Draw_TrophyScaled(GFX_BOTTOM, ITEM_X + 8, y + (ITEM_H - ITEM_ICON) / 2, ITEM_ICON, Ui_Trophy(unlocked));
 
     snprintf(points, sizeof(points), "%u pts", g_points[i]);
     int bw = Draw_TextWidth(points, 1) + 10, bx = ITEM_X + ITEM_W - 8 - bw;
@@ -460,8 +473,9 @@ static void DrawList(int scroll, bool loaded)
     }
     else
     {
-        // The items scroll inside the panel.
-        Draw_ClipRows(LIST_PANEL_Y + 2, LIST_PANEL_Y + LIST_PANEL_H - 2);
+        // The items scroll inside the panel, LIST_ROWS of them whole (the cursor around the last
+        // one too), nothing of the next one under them.
+        Draw_ClipRows(LIST_PANEL_Y + 2, LIST_TOP + LIST_ROWS * ITEM_PITCH - 1);
         int first = scroll / ITEM_PITCH;
         int y = LIST_TOP - scroll % ITEM_PITCH;
         for (int i = first; i < g_count && y < LIST_PANEL_Y + LIST_PANEL_H; i++, y += ITEM_PITCH)
@@ -510,7 +524,7 @@ static void DrawStats(int game, bool loaded)
     for (int k = 0; loaded && k < g_recentCount; k++)
     {
         int i = g_recent[k], ry = y + 17 + 21 * k;
-        Draw_IconScaled(GFX_BOTTOM, x, ry, 18, 3, Ui_Trophy(true), 0, NULL, 0);
+        Draw_TrophyScaled(GFX_BOTTOM, x, ry, 18, Ui_Trophy(true));
         snprintf(text, sizeof(text), "%u pts", g_points[i]);
         int bw = Draw_TextWidth(text, 1) + 10, bx = x + w - bw;
         DrawBadge(GFX_BOTTOM, bx, ry + 1, text, BADGE);
@@ -635,8 +649,8 @@ static void DrawPopup(bool alone)
 // ---- The share screen: the image framed on the top screen; the QR code (or why there isn't
 // one) in a panel on the bottom, Back and Save to SD as tabs.
 
-#define SHARE_SHOWN     184             // the image's size on the top screen
-#define SHARE_Y         49
+#define SHARE_SHOWN     180             // the image's size on the top screen
+#define SHARE_Y         (DOTS1_Y + 9)
 #define QR_QUIET        4               // light modules around the code, as the standard asks
 #define QR_MOST         132             // most pixels the code (with its margin) may take
 static const Color GOOD = { 70, 150, 40 };
@@ -676,8 +690,7 @@ static void DrawShareTop(void)
     Draw_Depth(0);
     Draw_Rect(GFX_TOP, 0, 0, TOP_WIDTH, SCREEN_HEIGHT, CREAM);
     DrawStatusBar();
-    CentredText(GFX_TOP, HEADER_Y, 1, ORANGE, "Share");
-    DrawDots(DOTS1_Y);
+    DrawHeader("Share");
 
     const int x = (TOP_WIDTH - SHARE_SHOWN) / 2;
     Draw_Shadow(GFX_TOP, x - 3, SHARE_Y - 3, SHARE_SHOWN + 6, SHARE_SHOWN + 6, 6, 6, 3, 90, 0);
@@ -756,17 +769,16 @@ static void DrawSettingsTop(int item)
     Draw_Depth(0);
     Draw_Rect(GFX_TOP, 0, 0, TOP_WIDTH, SCREEN_HEIGHT, CREAM);
     DrawStatusBar();
-    CentredText(GFX_TOP, HEADER_Y, 1, ORANGE, "Settings");
-    DrawDots(DOTS1_Y);
+    DrawHeader("Settings");
     Draw_RoundRect(GFX_TOP, TOP_PANEL_X, TOP_PANEL_Y, TOP_PANEL_W, TOP_PANEL_H, 10, PANEL);
     DrawDots(DOTS2_Y);
     DrawLegend(false);
 
     const int x = TOP_PANEL_X + 18, width = TOP_PANEL_W - 36;
-    Draw_Text(GFX_TOP, x, TOP_PANEL_Y + 16, 2, TITLE, set.name, 0);
+    Draw_Text(GFX_TOP, x, TOP_PANEL_Y + 22, 2, TITLE, set.name, 0);
     int bw = Draw_TextWidth(set.value, 1) + 10;
-    DrawBadge(GFX_TOP, x + width - bw, TOP_PANEL_Y + 22, set.value, set.on ? BADGE : BADGE_OFF);
-    Ui_DrawWrapped(GFX_TOP, x, TOP_PANEL_Y + 58, width, LINE_H + 5, TEXT, set.description, 4);
+    DrawBadge(GFX_TOP, x + width - bw, TOP_PANEL_Y + 28, set.value, set.on ? BADGE : BADGE_OFF);
+    Ui_DrawWrapped(GFX_TOP, x, TOP_PANEL_Y + 66, width, LINE_H + 5, TEXT, set.description, 4);
 }
 
 static void DrawSettingsBottom(int item)
@@ -779,9 +791,9 @@ static void DrawSettingsBottom(int item)
         UiSetting set;
         Ui_Setting(i, &set);
         int y = LIST_TOP + i * ITEM_PITCH;
-        if (i == item)
-            Draw_RoundRing(GFX_BOTTOM, ITEM_X - 3, y - 3, ITEM_W + 6, ITEM_H + 6, ITEM_RADIUS + 3, 3, CURSOR, 16);
         DrawButton(GFX_BOTTOM, ITEM_X, y, ITEM_W, ITEM_H, ITEM_RADIUS);
+        if (i == item)
+            DrawCursor(GFX_BOTTOM, ITEM_X, y, ITEM_W, ITEM_H, ITEM_RADIUS);
         Draw_Text(GFX_BOTTOM, ITEM_X + 14, y + (ITEM_H - LINE_H) / 2, 1, TEXT, set.name, 0);
         int bw = Draw_TextWidth(set.value, 1) + 10;
         DrawBadge(GFX_BOTTOM, ITEM_X + ITEM_W - 10 - bw, y + (ITEM_H - 15) / 2, set.value, set.on ? BADGE : BADGE_OFF);
