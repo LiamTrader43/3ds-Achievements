@@ -2,13 +2,13 @@
 
 Achievements for Nintendo 3DS games, on real hardware with [Luma3DS](https://github.com/LumaTeam/Luma3DS).
 
-A background module watches the running game's memory. When you earn an achievement, it saves the unlock, shows a banner on the bottom screen and turns the notification light gold. A companion app lists every game and achievement, in 3D on the top screen, downloads new ones from this repository, and makes an image of your progress to share. Your games aren't modified.
+A background module watches the running game's memory. When you earn an achievement, it saves the unlock, shows a banner on the bottom screen and turns the notification light gold. A companion app lists every game and achievement, in 3D on the top screen, downloads new ones from this repository, makes an image of your progress to share, and turns your achievement points into Play Coins to spend on new themes. Your games aren't modified.
 
 Questions, bug reports and news: join the [Discord server](https://discord.gg/MWZKkPytYc).
 
-| The app | One achievement in full (A) |
+| Choosing a game | Its achievements (A) |
 |---|---|
-| <img src="assets/screenshots/app.png" alt="The app, with Ocarina of Time 3D selected, the button hints along the bottom of the top screen and its achievements listed on the bottom screen" width="400"> | <img src="assets/screenshots/details-app.png" alt="One achievement in full: Twins of Evil, locked, 10 points, 85 of 97, with its whole name and its long description" width="400"> |
+| <img src="assets/screenshots/app.png" alt="The app with Ocarina of Time 3D chosen in the row of games, the store's tile at the end of the row, and on the bottom screen its progress: 21 of 97 achievements, 105 of 690 points, the three latest unlocks and totals for all games" width="400"> | <img src="assets/screenshots/achievements.png" alt="Ocarina of Time 3D opened: 21 of 97 unlocked and 105 of 690 points along the top of the bottom screen, then its achievements, unlocked ones in green with a gold Triforce, the first one selected" width="400"> |
 
 ## Supported games
 
@@ -31,32 +31,55 @@ Since version 1.4.0, the app updates itself. When a new release is out, it offer
 
 | In the app | |
 |---|---|
-| Left / Right | Change game |
+| Left / Right | Choose a game; the store is the last tile in the row |
+| A | Open the game's achievements, or the store |
+| B | Go back |
 | Up / Down | Select an achievement (the list scrolls to keep it on screen) |
 | Drag the touch screen | Scroll achievements |
 | A, or tap an achievement | Show it in full: the whole name and description (B or a tap goes back, Up/Down show the next ones) |
 | L / R | Jump a page |
-| SELECT | Turn the tracker on or off |
-| X | Allow or block achievements in patched games |
-| Y | Share the selected game's progress (A saves the image to the SD card, B goes back) |
+| X | Settings: the tracker, patched games and the theme |
+| Y | Share the open game's progress (A saves the image to the SD card, B goes back) |
 | 3D slider | Depth on the top screen: the game's art sits behind the screen and the selected game comes forward |
 | START | Exit |
 
+The prompts in the bottom corners of the touch screen, like **B: Back** and **A: Open**, can be tapped too. While you choose a game, the bottom screen shows how far you are in it: achievements, points, your three latest unlocks, and totals for all your games.
+
+<img src="assets/screenshots/details-app.png" alt="One achievement in full: Twins of Evil, locked, 10 points, 85 of 97, with its whole name and its long description, and B: Back in the corner" width="400">
+
 In a game, press **R + A + Left** to pause and see your achievements. It works like the app's list: Up/Down select an achievement, L/R (or Left/Right) jump a page, and A or a tap shows the selected one in full (B or a tap goes back). B or SELECT closes the list.
 
-**Sharing:** press Y to make an image of the selected game's progress. With the 3DS on Wi-Fi, scan the QR code on the bottom screen with a phone on the same network. A page opens with the image and a **Save image** button; on an iPhone, touch and hold the image to save it to Photos. The 3DS sends it itself, so nothing is uploaded anywhere. Press A to save the image on the SD card instead, in `/achievements/share/`.
+**Sharing:** with a game open, press Y to make an image of your progress in it. With the 3DS on Wi-Fi, scan the QR code on the bottom screen with a phone on the same network. A page opens with the image and a **Save image** button; on an iPhone, touch and hold the image to save it to Photos. The 3DS sends it itself, so nothing is uploaded anywhere. Press A to save the image on the SD card instead, in `/achievements/share/`.
 
 | The share screen (Y) | The image you get |
 |---|---|
-| <img src="assets/screenshots/share.png" alt="The share screen: the image on the top screen, and on the bottom a QR code to scan with a phone, the link it opens, and A: Save to SD, B: Back" width="400"> | <img src="assets/screenshots/share-image.png" alt="The shared image: 3DS Achievements, the Ocarina of Time 3D icon in a gold frame over the game's art, its name, and a progress bar with 3/97" width="400"> |
+| <img src="assets/screenshots/share.png" alt="The share screen: the image on the top screen, and on the bottom a QR code to scan with a phone, the link it opens, and A: Save to SD, B: Back" width="400"> | <img src="assets/screenshots/share-image.png" alt="The shared image: 3DS Achievements, the Ocarina of Time 3D icon in a gold frame over the game's art, its name, and a progress bar with 21/97" width="400"> |
 
-When you open the app on Wi-Fi, it checks this repository's `main` branch and asks before downloading new games or achievements.
+When you open the app on Wi-Fi, it checks this repository's `main` branch and asks before downloading new games, achievements or things for the store.
 
-Patches and mods can change how a game behaves, so while Luma's game patching is on, achievements are turned off for a game with a `code.bin`, `code.bps`, `code.ips`, `code.ups` or `romfs` folder in `/luma/titles/<TitleID>/`. The start banner tells you when this happens. To earn achievements anyway, for example with a mod you trust not to affect them, press X in the app to turn on **Patched games**. Your choice is saved, and it applies the next time you start a game.
+Patches and mods can change how a game behaves, so while Luma's game patching is on, achievements are turned off for a game with a `code.bin`, `code.bps`, `code.ips`, `code.ups` or `romfs` folder in `/luma/titles/<TitleID>/`. The start banner tells you when this happens. To earn achievements anyway, for example with a mod you trust not to affect them, turn on **Patched games** in the settings (X). Your choice is saved, and it applies the next time you start a game.
+
+## Settings and themes
+
+Press X for the settings. **Tracker** turns the tracker on or off, **Patched games** is explained above, and **Theme** opens the list of themes: pick one with A and the app changes at once. Two come with the app: **Modern**, shown on this page, and **3DS**, which looks like the console's own System Settings and uses its system font. More are in the store.
+
+| Settings (X) | Choosing a theme |
+|---|---|
+| <img src="assets/screenshots/settings.png" alt="The settings: Tracker on, Patched games off and Theme set to Modern, each with a line about what it does" width="400"> | <img src="assets/screenshots/themes.png" alt="The theme list: Modern, in use, and 3DS, each with a line about how it looks" width="400"> |
+
+## Play Coins and the store
+
+Achievements earn Play Coins: 5 for every 25 points. When you open the app, it adds the coins you've earned to your 3DS's own Play Coins, the ones StreetPass Mii Plaza and other games spend. Points you earned before Play Coins were added count too. The system holds at most 300; coins past that are kept and added once you've spent some.
+
+Spend them in the store, the last tile in the row of games. Highlight it to see your Play Coins, press A to see what's for sale, then A again to buy the selected item. A theme you buy appears in the settings' theme list. New things for the store arrive with achievement downloads, without an app update, and what you've bought is kept in `/achievements/purchases.txt` on your SD card.
+
+| The store | Buying (A) |
+|---|---|
+| <img src="assets/screenshots/store.png" alt="The store selected at the end of the row, with 135 Play Coins, and on the bottom screen its items: the DS theme for 100 Play Coins" width="400"> | <img src="assets/screenshots/store-buy.png" alt="Asked to buy the DS theme for 100 Play Coins: you have 135 and will have 35 left, with A: Buy and B: Cancel" width="400"> |
 
 ## Reporting a bug
 
-Open an [issue](https://github.com/LiamTrader43/3ds-Achievements/issues) or post in the bug report forum on [Discord](https://discord.gg/MWZKkPytYc), and **attach `/achievements/tracker.log` from your SD card**. The tracker writes it as you play: which games started, every unlock, and whether it could read the game's memory. It's usually the only way to tell what went wrong. For download problems, attach `/achievements/update.log` too. Neither contains personal information, only game titles, unlocks and technical details. For sharing problems, attach `/achievements/share.log`; besides technical details, it lists your 3DS's and phone's addresses on your home network.
+Open an [issue](https://github.com/LiamTrader43/3ds-Achievements/issues) or post in the bug report forum on [Discord](https://discord.gg/MWZKkPytYc), and **attach `/achievements/tracker.log` from your SD card**. The tracker writes it as you play: which games started, every unlock, and whether it could read the game's memory. It's usually the only way to tell what went wrong. For download problems, attach `/achievements/update.log` too, and `/achievements/theme.log` if a theme won't load. None of these contain personal information, only game titles, unlocks and technical details. For sharing problems, attach `/achievements/share.log`; besides technical details, it lists your 3DS's and phone's addresses on your home network.
 
 In the issue, include:
 
@@ -130,6 +153,8 @@ cp app/achievements-viewer.3dsx sysmodule/dist/3ds/achievements-viewer.3dsx
 python tools/make_versions.py
 ```
 
+The store's files in `achievements/store/` are encrypted, and only builds made with the project's private key can open them, so the store is empty in your own builds.
+
 ## Credits
 
 **Collaborators:** Swamp Puppy (UI design)
@@ -143,7 +168,7 @@ python tools/make_versions.py
 - [zlib](https://zlib.net/) (zlib): compression for curl and the share image
 - [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) v1.8.0, Copyright (c) Project Nayuki (MIT): the share screen's QR code
 
-**Font:** [Inter](https://rsms.me/inter/), Copyright 2016 The Inter Project Authors (SIL Open Font License 1.1, see [assets/fonts/OFL.txt](assets/fonts/OFL.txt)): all text in the app, the banner, the in-game list and the share image.
+**Fonts:** [Inter](https://rsms.me/inter/), Copyright 2016 The Inter Project Authors (SIL Open Font License 1.1, see [assets/fonts/OFL.txt](assets/fonts/OFL.txt)): the Modern theme, the banner, the in-game list and the share image. The 3DS theme uses the console's own system font, read from the 3DS; none of it comes with the app.
 
 **Achievements:** the Ocarina of Time 3D names, descriptions and points come from the community's [RetroAchievements set](https://retroachievements.org/game/10113). The conditions were rewritten for the 3DS version.
 
