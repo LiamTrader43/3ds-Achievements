@@ -21,6 +21,8 @@
 static const StoreItem ITEMS[] =
 {
     // { "EXAMPLE", "Name", "What it gives you.", 50, NULL, NULL },
+    { "THEME_DS", "DS theme", "The app in the style of the original DS menu: graph paper, silver buttons and a clock.",
+      60, NULL, "ds" },
     { NULL, NULL, NULL, 0, NULL, NULL }     // the end of the list
 };
 #endif

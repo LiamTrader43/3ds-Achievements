@@ -760,8 +760,8 @@ int main(int argc, char **argv)
 
             if (g_gameCount > 0 && g_picking)
             {
-                // Choosing a game: Left/Right go along the games, the bottom screen shows the
-                // highlighted one's stats, A opens it (or the store).
+                // Choosing a game: Left/Right go along the games (Up/Down a row, if the theme shows
+                // them in rows), the highlighted one's stats are shown, A opens it (or the store).
                 if ((down & KEY_A) && (game < g_gameCount || Ui_IsStore(game)))
                 {
                     g_picking = false;
@@ -769,7 +769,10 @@ int main(int argc, char **argv)
                     bottomFade = 0;
                     redraw = 2;
                 }
-                int next = Clamp(game + ((dir & KEY_RIGHT) ? 1 : 0) - ((dir & KEY_LEFT) ? 1 : 0), 0, Ui_RowPositions() - 1);
+                int step = ((dir & KEY_RIGHT) ? 1 : 0) - ((dir & KEY_LEFT) ? 1 : 0);
+                if (g_theme->pickColumns > 1)
+                    step += (((dir & KEY_DOWN) ? 1 : 0) - ((dir & KEY_UP) ? 1 : 0)) * g_theme->pickColumns;
+                int next = Clamp(game + step, 0, Ui_RowPositions() - 1);
                 if (next != game)
                 {
                     game = next;

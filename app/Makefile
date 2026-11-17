@@ -245,7 +245,7 @@ themes/%.elf: $$(wildcard themes/$$*/*.c) themes/module_rt.c themes/theme.ld $(w
 # does it when the key is there, "make store" alone too. A build without the key can't open
 # store files.
 #---------------------------------------------------------------------------------
-STORE_THEMES	:=
+STORE_THEMES	:=	ds
 STORE_DIST	:=	../sysmodule/dist/achievements/store
 STORE_FILES	:=	$(foreach id,$(STORE_THEMES),store/$(id).bin)
 

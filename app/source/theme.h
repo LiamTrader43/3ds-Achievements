@@ -33,6 +33,9 @@ typedef struct
     // bottom screen shows the highlighted one's stats; A opens it (its achievements), B goes
     // back. Without it, the selected game's achievements are always shown.
     bool    gameList;
+    // While choosing, the games are laid out this many across: Up/Down move a row (0 or 1: Up/Down
+    // do nothing there).
+    int     pickColumns;
     // The bottom screen fades in from this fade (a list loading, the full view opening).
     Color   fadeTop, fadeBottom;
 

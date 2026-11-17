@@ -173,8 +173,8 @@ bool ThemeLoader_Info(const char *path, ThemeInfo *info, char *why, size_t capac
 
 #ifndef THEME_LOADER_TEST
 
-// Luma's own system call (k11_extension; luma_svc.s).
-void svcInvalidateInstructionCacheRange(void *addr, u32 len);
+// Luma's own system call (k11_extension; luma_svc.s): the whole instruction cache, on every core.
+void svcInvalidateEntireInstructionCache(void);
 
 static bool IsLuma(void)
 {
@@ -254,8 +254,9 @@ const Theme *ThemeLoader_Load(const char *path, size_t *bytes, char *why, size_t
         Fail(why, capacity, "couldn't make it runnable (%08lX)", res);
         return NULL;
     }
+    // (The whole cache: a range faults, see luma_svc.s.)
     if (IsLuma())
-        svcInvalidateInstructionCacheRange(t.image, t.codeSize);
+        svcInvalidateEntireInstructionCache();
 
     ThemeEntry   entry = (ThemeEntry)(uintptr_t)(t.image + t.entry);    // keeps the Thumb bit, if any
     const Theme *theme = entry(&g_themeApi);
