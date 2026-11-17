@@ -24,13 +24,13 @@
 #define TREE_URL        "https://api.github.com/repos/" OWNER_REPO "/git/trees/" BRANCH "?recursive=1"
 #define RAW_URL         "https://raw.githubusercontent.com/" OWNER_REPO "/" BRANCH "/achievements"
 #define RELEASE_URL     "https://api.github.com/repos/" OWNER_REPO "/releases/latest"
-#define OWN_RELEASE_URL "https://api.github.com/repos/" OWNER_REPO "/releases/tags/v" APP_VERSION   // this version's
 #define DOWNLOAD_PREFIX "https://github.com/" OWNER_REPO "/releases/download/"     // the only place the zip may come from
 #define DIRECTORY       "/achievements"
 #define VERSIONS_PATH   DIRECTORY "/versions.txt"       // the GitHub ID of each file on the card
 #define LOG_PATH        DIRECTORY "/update.log"         // what the last check found
 #define BUFFER_SIZE     (320 * 1024)
 _Static_assert(HERO_BYTES < BUFFER_SIZE, "a background must fit in the download buffer");
+_Static_assert(UPDATE_STORE_MOST < BUFFER_SIZE, "so must a store file");
 #define STACK_SIZE      0x20000     // the TLS handshake needs a lot of stack
 #define SOC_BUFFER_SIZE 0x100000
 #define CONNECT_SECONDS 15L
@@ -52,7 +52,6 @@ _Static_assert(HERO_BYTES < BUFFER_SIZE, "a background must fit in the download 
 #define APP_CIA_ENTRY   "cias/achievements.cia"
 #define STORE_PREFIX    "achievements/store/"                // the store's files (store_file.h), in the zip
 #define STORE_DIR       "sdmc:/achievements/store"           // and on the SD card
-#define STORE_ZIP_PATH  DIRECTORY "/store-update.zip"
 #define STORE_MOST      32
 
 #define ERROR_BAD_STATUS    ((Result)0xE0000001)
@@ -96,8 +95,6 @@ static volatile u32     s_zipBytes;                     // downloaded so far
 static volatile bool    s_installing;                   // the download is done, the files are being replaced
 static volatile Result  s_appResult;
 static bool             s_trackerChanged, s_changed;
-static bool             s_storeWanted;                  // some store files aren't here (Update_Start)
-static char             s_storeLog[200];                // what fetching them did, for update.log
 
 typedef struct
 {
@@ -193,7 +190,22 @@ static Result HttpGet(const char *url, u32 *size, u32 *status, char *error)
     return res;
 }
 
-static Result FetchStoreFiles(char *log, size_t capacity);
+static bool FileExists(const char *path);
+static void FilePath(const UpdateFile *f, const char *suffix, char *path, size_t capacity);
+
+// Whether the card's copy of f is the file GitHub lists (read whole into s_buffer, its Git ID
+// worked out).
+static bool SameAsCard(const UpdateFile *f)
+{
+    char path[80];
+    FilePath(f, "", path, sizeof(path));
+    FILE *file = fopen(path, "rb");
+    if (file == NULL)
+        return false;
+    size_t size = fread(s_buffer, 1, BUFFER_SIZE, file);
+    fclose(file);
+    return size == f->size && UpdateTree_Matches(s_buffer, (uint32_t)size, f->sha);
+}
 
 static void CheckThread(void *arg)
 {
@@ -209,6 +221,12 @@ static void CheckThread(void *arg)
         s_fileCount = s_checkParsed > 0 ? s_checkParsed : 0;
     }
 
+    // The store's files are compared with the card's copies themselves (they also come in the
+    // release zip, which doesn't note them in versions.txt).
+    for (int i = 0; i < s_fileCount && !s_abort; i++)
+        if (s_files[i].store)
+            s_files[i].wanted = !SameAsCard(&s_files[i]);
+
     // Then whether there's a newer app.
     if (!s_abort)
     {
@@ -220,19 +238,8 @@ static void CheckThread(void *arg)
             s_appNewer = s_releaseParsed && UpdateRelease_Compare(s_release.version, APP_VERSION) > 0;
         }
     }
-
-    // Store files this version lacks (an older version updated it): from this version's own
-    // release, unless a newer app is out (installing it brings its files). Before the check is
-    // reported, so nothing waits on this thread meanwhile.
-    if (!s_abort && s_storeWanted && !s_appNewer)
-        FetchStoreFiles(s_storeLog, sizeof(s_storeLog));
-    else if (s_storeWanted)
-        snprintf(s_storeLog, sizeof(s_storeLog), "store files: some missing, %s",
-                 s_appNewer ? "the app update brings them" : "stopped");
     s_state = STATE_CHECKED;
 }
-
-static bool FileExists(const char *path);
 
 // Where the running .3dsx is: what the Homebrew Launcher passed, if it's a .3dsx on the SD
 // card, else the usual place if there's one there.
@@ -253,11 +260,10 @@ const char *Update_AppVersion(void)
     return APP_VERSION;
 }
 
-void Update_Start(const char *appPath, bool storeFilesWanted)
+void Update_Start(const char *appPath)
 {
     s32 priority = 0x30;
 
-    s_storeWanted = storeFilesWanted;
     if (envIsHomebrew())
         FindAppPath(appPath);
     s_socBuffer = memalign(0x1000, SOC_BUFFER_SIZE);
@@ -280,7 +286,7 @@ void Update_Start(const char *appPath, bool storeFilesWanted)
 
 static void FilePath(const UpdateFile *f, const char *suffix, char *path, size_t capacity)
 {
-    snprintf(path, capacity, DIRECTORY "/%.16s/%.15s%s", f->titleId, f->name, suffix);
+    snprintf(path, capacity, DIRECTORY "/%.16s/%.23s%s", f->titleId, f->name, suffix);
 }
 
 static bool FileExists(const char *path)
@@ -339,7 +345,7 @@ static void SaveVersion(const UpdateFile *f)
     fclose(file);
 }
 
-bool Update_Poll(int *newGames, int *updatedGames, const char **appVersion)
+bool Update_Poll(int *newGames, int *updatedGames, int *storeFiles, const char **appVersion)
 {
     if (s_state != STATE_CHECKED)
         return false;
@@ -349,12 +355,15 @@ bool Update_Poll(int *newGames, int *updatedGames, const char **appVersion)
     s_thread = NULL;
 
     *appVersion = s_appNewer ? s_release.version : NULL;
-    *newGames = *updatedGames = 0;
+    *newGames = *updatedGames = *storeFiles = 0;
     for (int i = 0; i < s_fileCount; i++)
     {
-        char path[64];
+        char path[80];
         FilePath(&s_files[i], "", path, sizeof(path));
-        s_files[i].wanted = !FileExists(path) || !VersionMatches(&s_files[i]);
+        if (s_files[i].store)
+            *storeFiles += s_files[i].wanted ? 1 : 0;       // (already compared: CheckThread)
+        else
+            s_files[i].wanted = !FileExists(path) || !VersionMatches(&s_files[i]);
     }
 
     // Count games, not files. Another release of a game (a folder with only a
@@ -363,7 +372,7 @@ bool Update_Poll(int *newGames, int *updatedGames, const char **appVersion)
     bool releaseWanted = false;
     for (int i = 0; i < s_fileCount; i++)
     {
-        bool first = s_files[i].wanted;
+        bool first = s_files[i].wanted && !s_files[i].store;
         for (int j = 0; j < i && first; j++)
             if (s_files[j].wanted && strcmp(s_files[j].titleId, s_files[i].titleId) == 0)
                 first = false;
@@ -396,16 +405,15 @@ bool Update_Poll(int *newGames, int *updatedGames, const char **appVersion)
         int wanted = 0;
         for (int i = 0; i < s_fileCount; i++)
             wanted += s_files[i].wanted ? 1 : 0;
-        fprintf(log, "check: result %08lX, http %lu, %lu bytes, %d files listed, %d to download, %d new games, %d updated, error \"%s\"\n",
+        fprintf(log, "check: result %08lX, http %lu, %lu bytes, %d files listed, %d to download, %d new games, %d updated, "
+                "%d store files, error \"%s\"\n",
                 (unsigned long)s_checkResult, (unsigned long)s_checkStatus, (unsigned long)s_checkSize, s_checkParsed, wanted,
-                *newGames, *updatedGames, s_error);
+                *newGames, *updatedGames, *storeFiles, s_error);
         fprintf(log, "release: result %08lX, http %lu, %s, latest %s, this app %s (%s), %s, error \"%s\"\n",
                 (unsigned long)(u32)s_releaseResult, (unsigned long)s_releaseStatus, s_releaseParsed ? "read" : "not read",
                 s_releaseParsed ? s_release.version : "?", APP_VERSION,
                 !envIsHomebrew() ? "CIA" : s_appPath[0] != '\0' ? s_appPath : ".3dsx, path unknown",
                 s_appNewer ? "update offered" : "no update", s_releaseError);
-        if (s_storeLog[0] != '\0')
-            fprintf(log, "%s\n", s_storeLog);
         fclose(log);
     }
     return true;
@@ -414,10 +422,10 @@ bool Update_Poll(int *newGames, int *updatedGames, const char **appVersion)
 // Fetches one file; it only replaces the old one once it's fully here and verified.
 static Result DownloadFile(const UpdateFile *f)
 {
-    char url[160], path[64], temporary[72], folder[40];
+    char url[160], path[80], temporary[88], folder[40];
     u32  size;
 
-    snprintf(url, sizeof(url), RAW_URL "/%.16s/%.15s", f->titleId, f->name);
+    snprintf(url, sizeof(url), RAW_URL "/%.16s/%.23s", f->titleId, f->name);
     Result res = HttpGet(url, &size, &s_checkStatus, s_error);
     if (R_FAILED(res))
         return res;
@@ -442,7 +450,8 @@ static Result DownloadFile(const UpdateFile *f)
     remove(path);
     if (rename(temporary, path) != 0)
         return ERROR_WRITE;
-    SaveVersion(f);
+    if (!f->store)
+        SaveVersion(f);
     return 0;
 }
 
@@ -460,8 +469,8 @@ static void DownloadThread(void *arg)
             FILE *log = fopen(LOG_PATH, "a");
             if (log != NULL)
             {
-                fprintf(log, "download %.16s/%.15s: result %08lX, http %lu, error \"%s\"\n", s_files[i].titleId, s_files[i].name,
-                        (unsigned long)res, (unsigned long)s_checkStatus, s_error);
+                fprintf(log, "download %.16s/%.23s: result %08lX, http %lu, error \"%s\"\n", s_files[i].titleId, s_files[i].name,
+                        (unsigned long)(u32)res, (unsigned long)s_checkStatus, s_error);
                 fclose(log);
             }
             s_downloadResult = res;
@@ -627,15 +636,11 @@ static Result ExtractStoreFiles(FILE *zip, int *found, int *updated)
     mkdir(STORE_DIR, 0777);
     for (int i = 0; i < count; i++)
     {
-        // Only a plain file name, right in the store's folder.
+        // Only a store file's name, right in the store's folder.
         const char *name = items[i].name + strlen(STORE_PREFIX);
-        size_t length = strlen(name);
-        bool plain = length > 4 && length <= 40 && strcmp(name + length - 4, ".bin") == 0;
-        for (const char *c = name; *c != '\0' && plain; c++)
-            plain = (*c >= 'a' && *c <= 'z') || (*c >= '0' && *c <= '9') || *c == '_' || *c == '-' || *c == '.';
         char path[PATH_CAPACITY];
         snprintf(path, sizeof(path), STORE_DIR "/%s", name);
-        if (!plain || UpdateZip_Same(path, &items[i].entry))
+        if (!UpdateTree_StoreName(name) || UpdateZip_Same(path, &items[i].entry))
             continue;
         Result one = ExtractBeside(zip, &items[i].entry, path);
         if (R_SUCCEEDED(one))
@@ -686,8 +691,8 @@ static Result InstallFromZip(void)
         res = homebrew ? Replace(s_appPath) : InstallCia(zip, &app);
         s_changed = s_changed || R_SUCCEEDED(res);
     }
-    // Then the new version's store files (it may sell something they hold); a failure here
-    // isn't the update's: the new version fetches what's missing itself.
+    // Then the store's files in the zip (newer ones also come from the repository like games'
+    // files); a failure here isn't the update's: the next check fetches what's missing.
     if (R_SUCCEEDED(res))
     {
         int found, updated;
@@ -732,38 +737,6 @@ static Result DownloadZip(const UpdateRelease *release, const char *path, u32 *b
     *bytes = sink.used;
     if (R_SUCCEEDED(res) && (sink.used != release->size || (release->sha256[0] != '\0' && strcmp(hash, release->sha256) != 0)))
         res = ERROR_MISMATCH;
-    return res;
-}
-
-// The store files this version's release has, when an older version updated the app without
-// them: its zip again, only for them. log: a line for update.log.
-static Result FetchStoreFiles(char *log, size_t capacity)
-{
-    static UpdateRelease own;
-    char   error[CURL_ERROR_SIZE] = "", hash[65] = "";
-    u32    size = 0, status = 0, bytes = 0;
-    int    found = 0, updated = 0;
-
-    Result res = HttpGet(OWN_RELEASE_URL, &size, &status, error);
-    if (R_SUCCEEDED(res))
-    {
-        s_buffer[size] = '\0';
-        if (!UpdateRelease_Parse((const char *)s_buffer, DOWNLOAD_PREFIX, &own) || strcmp(own.version, APP_VERSION) != 0)
-            res = ERROR_NO_RELEASE;
-    }
-    if (R_SUCCEEDED(res))
-        res = DownloadZip(&own, STORE_ZIP_PATH, &bytes, &status, hash, error);
-    if (R_SUCCEEDED(res))
-    {
-        FILE *zip = fopen(STORE_ZIP_PATH, "rb");
-        res = zip != NULL ? ExtractStoreFiles(zip, &found, &updated) : ERROR_ZIP(UPDATE_ZIP_READ);
-        if (zip != NULL)
-            fclose(zip);
-    }
-    remove(STORE_ZIP_PATH);
-    snprintf(log, capacity, "store files: some missing, fetched from v%s: result %08lX, http %lu, %lu bytes, "
-             "%d in the zip, %d written, error \"%s\"", APP_VERSION, (unsigned long)(u32)res, (unsigned long)status,
-             (unsigned long)bytes, found, updated, error);
     return res;
 }
 

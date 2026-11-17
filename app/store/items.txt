@@ -1,0 +1,12 @@
+# What the store sells: tools/store_build.py packs this into achievements/store/items.bin ("make
+# store"), and the app downloads it from the repository like games' files, so items are added
+# without a new app. A line per item:
+#
+#   <ID> <price> <kind> <value> <name> | <description>
+#
+# ID: saved in each buyer's purchases.txt, so never change it once the item is sold (1-31 of
+# A-Z a-z 0-9 _ -). price: Play Coins, 0-300. kind: theme (value: the theme's id, an add-on in
+# app/themes/<id>/). name: up to 47 characters, description up to 191, plain ASCII. The store
+# lists items in this order.
+
+THEME_DS  100  theme  ds  DS theme | The app in the style of the original DS menu: graph paper, silver buttons and a clock.

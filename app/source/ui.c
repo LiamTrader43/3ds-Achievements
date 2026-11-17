@@ -42,6 +42,7 @@ bool        g_patchedAllowed;
 Popup       g_popup;
 Result      g_popupResult;
 int         g_newGames, g_updatedGames;
+int         g_storeFiles;
 int         g_downloadDone, g_downloadTotal;
 const char *g_appVersion;
 bool        g_appChanged;
@@ -69,15 +70,19 @@ void Ui_PopupText(PopupText *t)
     switch (g_popup)
     {
         case POPUP_UPDATE:
-            t->title = "New achievements";
+            t->title = g_newGames + g_updatedGames > 0 ? "New achievements" : "Store update";
             if (g_newGames > 0 && g_updatedGames > 0)
                 snprintf(t->lineText, sizeof(t->lineText), "%d new game%s, %d updated", g_newGames,
                          g_newGames == 1 ? "" : "s", g_updatedGames);
             else if (g_newGames > 0)
                 snprintf(t->lineText, sizeof(t->lineText), "%d new game%s", g_newGames, g_newGames == 1 ? "" : "s");
-            else
+            else if (g_updatedGames > 0)
                 snprintf(t->lineText, sizeof(t->lineText), "%d game%s updated", g_updatedGames, g_updatedGames == 1 ? "" : "s");
+            else
+                snprintf(t->lineText, sizeof(t->lineText), "New or updated things to buy");
             Line(t, t->lineText);
+            if (g_storeFiles > 0 && g_newGames + g_updatedGames > 0)
+                Line(t, "and a store update");
             t->buttonA = "Download", t->buttonB = "Later";
             break;
         case POPUP_DOWNLOADING:

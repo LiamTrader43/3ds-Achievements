@@ -1,26 +1,25 @@
 #ifndef UPDATE_H
 #define UPDATE_H
 
-// Checks GitHub when the app opens: the repo's main branch for new games or achievements, and
-// its latest release for a newer version of the app. Game downloads only ever write
-// definitions.txt, hero.bin, trophy.bin and version.txt (progress is left alone); an app
-// update replaces the tracker's .cxi and the app itself, and brings the store's files
-// (/achievements/store, store_file.h) of the new version.
+// Checks GitHub when the app opens: the repo's main branch for new games or achievements and
+// for the store's files (/achievements/store, store_file.h: what's for sale and its themes), and
+// its latest release for a newer version of the app. Downloads from the branch only ever write
+// definitions.txt, hero.bin, trophy.bin, version.txt and store/<name>.bin (progress is left
+// alone); an app update replaces the tracker's .cxi and the app itself, and brings the store
+// files in the release zip.
 
 #include <3ds.h>
 
 // Starts the check in the background. appPath is where the running .3dsx was opened from
 // (argv[0]), or NULL; it's only used when the app runs as a .3dsx, not as the CIA.
-// storeFilesWanted: some of the store's files (store_file.h) aren't on the SD card yet (an app
-// updated by a version that didn't bring them): unless a newer app is out (its update brings
-// them), they're taken from this version's release zip, before the check is reported.
-void        Update_Start(const char *appPath, bool storeFilesWanted);
+void        Update_Start(const char *appPath);
 
 // True once, when the check has finished. Then newGames and updatedGames count the games with
-// files to download, and appVersion is the newer release's version, or NULL if there isn't one.
-bool        Update_Poll(int *newGames, int *updatedGames, const char **appVersion);
+// files to download, storeFiles the store's files to download (new or changed), and appVersion
+// is the newer release's version, or NULL if there isn't one.
+bool        Update_Poll(int *newGames, int *updatedGames, int *storeFiles, const char **appVersion);
 
-// Downloads every game file Update_Poll found, calling progress before each file.
+// Downloads every file Update_Poll found, calling progress before each file.
 Result      Update_Download(void (*progress)(int done, int total));
 
 // Downloads the newer release Update_Poll found and installs it: the tracker's .cxi (if it

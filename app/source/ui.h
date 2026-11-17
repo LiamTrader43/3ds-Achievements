@@ -69,6 +69,7 @@ typedef enum
 extern Popup        g_popup;
 extern Result       g_popupResult;
 extern int          g_newGames, g_updatedGames;
+extern int          g_storeFiles;           // the store's files to download (POPUP_UPDATE)
 extern int          g_downloadDone, g_downloadTotal;
 extern const char  *g_appVersion;           // a newer release of the app, or NULL
 extern bool         g_appChanged;           // a failed app update still replaced something

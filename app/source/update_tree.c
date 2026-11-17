@@ -11,6 +11,7 @@
 #define DEFINITIONS_MAX     32768u      // what the tracker can read
 #define VERSION_MAX         1024u       // the same for version.txt (another release of a game)
 #define FOLDER_PREFIX       "achievements/"
+#define STORE_PREFIX        FOLDER_PREFIX UPDATE_STORE_FOLDER "/"
 
 static bool IsHex(const char *text, int count)
 {
@@ -65,6 +66,18 @@ static bool SizeAllowed(const char *name, uint32_t size)
     return false;
 }
 
+// A store file's name: <name>.bin, name 1-15 of a-z 0-9 _ - (store_file.c's rule).
+bool UpdateTree_StoreName(const char *name)
+{
+    size_t length = strlen(name);
+    if (length < 5 || length > 19 || strcmp(name + length - 4, ".bin") != 0)
+        return false;
+    for (size_t i = 0; i < length - 4; i++)
+        if (!((name[i] >= 'a' && name[i] <= 'z') || (name[i] >= '0' && name[i] <= '9') || name[i] == '_' || name[i] == '-'))
+            return false;
+    return true;
+}
+
 int UpdateTree_Parse(const char *json, UpdateFile *files, int capacity)
 {
     const char *end = json + strlen(json);
@@ -82,17 +95,16 @@ int UpdateTree_Parse(const char *json, UpdateFile *files, int capacity)
         char        path[96], sha[41];
 
         const char *size = FindValue(entry, limit, "size");
-        const size_t prefix = strlen(FOLDER_PREFIX);
-        if (ReadString(FindValue(entry, limit, "path"), path, sizeof(path)) &&
-            ReadString(FindValue(entry, limit, "sha"), sha, sizeof(sha)) &&
-            size != NULL && strlen(sha) == 40 && IsHex(sha, 40) &&
-            strncmp(path, FOLDER_PREFIX, prefix) == 0 && strlen(path) > prefix + 17 &&
+        const size_t prefix = strlen(FOLDER_PREFIX), storePrefix = strlen(STORE_PREFIX);
+        bool listed = ReadString(FindValue(entry, limit, "path"), path, sizeof(path)) &&
+                      ReadString(FindValue(entry, limit, "sha"), sha, sizeof(sha)) &&
+                      size != NULL && strlen(sha) == 40 && IsHex(sha, 40);
+        uint32_t bytes = size != NULL ? (uint32_t)strtoul(size, NULL, 10) : 0;
+        UpdateFile *f = &files[count];
+        if (listed && strncmp(path, FOLDER_PREFIX, prefix) == 0 && strlen(path) > prefix + 17 &&
             path[prefix + 16] == '/' && IsHex(path + prefix, 16))
         {
-            UpdateFile *f = &files[count];
             const char *name = path + prefix + 17;
-            uint32_t    bytes = (uint32_t)strtoul(size, NULL, 10);
-
             if (strchr(name, '/') == NULL && strlen(name) < sizeof(f->name) && SizeAllowed(name, bytes))
             {
                 for (int i = 0; i < 16; i++)
@@ -101,9 +113,21 @@ int UpdateTree_Parse(const char *json, UpdateFile *files, int capacity)
                 strcpy(f->name, name);
                 strcpy(f->sha, sha);
                 f->size = bytes;
+                f->store = false;
                 f->wanted = false;
                 count++;
             }
+        }
+        else if (listed && strncmp(path, STORE_PREFIX, storePrefix) == 0 && UpdateTree_StoreName(path + storePrefix) &&
+                 bytes > 0 && bytes <= UPDATE_STORE_MOST)
+        {
+            strcpy(f->titleId, UPDATE_STORE_FOLDER);
+            strcpy(f->name, path + storePrefix);
+            strcpy(f->sha, sha);
+            f->size = bytes;
+            f->store = true;
+            f->wanted = false;
+            count++;
         }
         entry = next;
     }

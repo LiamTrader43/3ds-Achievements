@@ -477,7 +477,7 @@ int main(int argc, char **argv)
     s_coinsResult = Rewards_Coins(&g_coins);    // for the store's name in the row (read again there)
 
     // (The Homebrew Launcher passes the .3dsx's path. Store files that aren't here yet are fetched.)
-    Update_Start(argc > 0 ? argv[0] : NULL, Store_FilesWanted());
+    Update_Start(argc > 0 ? argv[0] : NULL);
 #endif
 
     g_theme->reset();
@@ -562,9 +562,9 @@ int main(int argc, char **argv)
         }
 
         // A newer app is offered first; new achievements after it, if it's put off.
-        if (g_popup == POPUP_NONE && !sharing && !settings && Update_Poll(&g_newGames, &g_updatedGames, &g_appVersion))
+        if (g_popup == POPUP_NONE && !sharing && !settings && Update_Poll(&g_newGames, &g_updatedGames, &g_storeFiles, &g_appVersion))
         {
-            bool games = g_newGames + g_updatedGames > 0;
+            bool games = g_newGames + g_updatedGames + g_storeFiles > 0;
             if (g_appVersion != NULL)
             {
                 g_popup = POPUP_APP_UPDATE;
@@ -608,8 +608,12 @@ int main(int argc, char **argv)
                     ClosePopup();
                 g_popupResult = res;
 
-                // Whatever arrived shows up right away.
+                // Whatever arrived shows up right away: games, and what the store sells (a bought
+                // theme that was updated is put in place; a new one is in the settings).
                 g_gameCount = Games_Scan(g_games, MAX_GAMES);
+                Store_Load();
+                Store_Restore();
+                Theme_Rescan();
                 game = 0;
                 g_theme->reset();
                 g_count = 0;

@@ -242,27 +242,27 @@ themes/%.elf: $$(wildcard themes/$$*/*.c) themes/module_rt.c themes/theme.ld $(w
 	@$(CC) $(THEME_CFLAGS) $(THEME_LDFLAGS) -o $@ $(filter %.c,$^) -lgcc
 
 #---------------------------------------------------------------------------------
-# Store items (source/store.c, store_file.h): each theme in STORE_THEMES (a themes/<id>/ folder,
-# built as an add-on like the others; keep its source out of the public repository) is
-# encrypted into store/<id>.bin with the key in source/store_key.h (tools/store_key.py makes it;
-# never commit it) and copied into the SD card layout (STORE_DIST) for the release zip. "make"
-# does it when the key is there, "make store" alone too. A build without the key can't open
-# store files.
+# The store (source/store.c, store_file.h): what it sells is store/items.txt. tools/store_build.py
+# encrypts it into items.bin, and each theme it lists (a themes/<id>/ add-on, built like the
+# others; keep its source out of the public repository) into <id>.bin, with the key in
+# source/store_key.h (tools/store_key.py makes it; never commit it). They go in the repository's
+# achievements/store/ (STORE_OUT: commit them; the app downloads new and changed ones from there)
+# and the SD card layout (STORE_DIST) for the release zip, each only written if it changed.
+# "make" does it when the key is there, "make store" alone too. A build without the key can't
+# open store files.
 #---------------------------------------------------------------------------------
-STORE_THEMES	:=	ds
+STORE_LIST	:=	store/items.txt
+STORE_OUT	:=	../achievements/store
 STORE_DIST	:=	../sysmodule/dist/achievements/store
-STORE_FILES	:=	$(foreach id,$(STORE_THEMES),store/$(id).bin)
+STORE_THEMES	:=	$(shell awk '!/^[ \t]*(\#|$$)/ && $$3 == "theme" { print $$4 }' $(STORE_LIST) 2>/dev/null)
 
-store: $(STORE_FILES)
-
-store/%.bin: themes/%.theme source/store_key.h ../tools/store_pack.py
-	@python3 ../tools/store_pack.py source/store_key.h $* $< $@
-	@mkdir -p $(STORE_DIST) && cp $@ $(STORE_DIST)/
+store: $(foreach id,$(STORE_THEMES),themes/$(id).theme) $(STORE_LIST) source/store_key.h
+	@python3 ../tools/store_build.py source/store_key.h $(STORE_LIST) themes $(STORE_OUT) $(STORE_DIST)
 
 #---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD) $(wildcard themes/*.theme themes/*.elf store/*.bin)
+	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD) $(wildcard themes/*.theme themes/*.elf)
 
 #---------------------------------------------------------------------------------
 $(GFXBUILD)/%.t3x	$(BUILD)/%.h	:	%.t3s

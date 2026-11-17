@@ -1,4 +1,4 @@
-// Store items' files (store_file.h): checked with HMAC-SHA256, decrypted with AES-256-CTR
+// The store's files (store_file.h): checked with HMAC-SHA256, decrypted with AES-256-CTR
 // (mbedTLS, which the app has for its downloads).
 #include "store_file.h"
 
@@ -166,49 +166,127 @@ bool StoreFile_Ready(const char *name)
     return R_SUCCEEDED(res);
 }
 
-Result StoreFile_Install(const char *name, const char *path)
+// AES-256-CTR from the IV, in place.
+static bool Crypt(const unsigned char aes[32], const unsigned char iv[16], unsigned char *data, size_t size)
 {
-    unsigned char aes[32], mac[32], *data;
-    uint32_t size;
-    char temporary[96];
+    unsigned char counter[16], stream[16];
+    size_t offset = 0;
+    mbedtls_aes_context context;
 
+    mbedtls_aes_init(&context);
+    memcpy(counter, iv, sizeof(counter));
+    bool ok = mbedtls_aes_setkey_enc(&context, aes, 256) == 0 &&
+              mbedtls_aes_crypt_ctr(&context, size, &offset, counter, stream, data, data) == 0;
+    mbedtls_aes_free(&context);
+    Wipe(stream, sizeof(stream));
+    return ok;
+}
+
+// Reads and checks /achievements/store/<name>.bin and decrypts it where it is: *data (malloc'd)
+// holds the whole file, its contents (*plain bytes) from HEADER_SIZE.
+static Result Decrypt(const char *name, unsigned char **data, uint32_t *size, uint32_t *plain)
+{
+    unsigned char aes[32], mac[32];
+
+    *data = NULL;
     if (!Key(aes, mac))
         return STORE_NO_KEY;
-    Result res = Load(name, mac, &data, &size);
+    Result res = Load(name, mac, data, size);
     if (R_SUCCEEDED(res))
     {
-        // Decrypted where it is.
-        uint32_t plain = size - HEADER_SIZE - MAC_SIZE;
-        unsigned char counter[16], stream[16];
-        size_t offset = 0;
-        mbedtls_aes_context context;
-        mbedtls_aes_init(&context);
-        memcpy(counter, data + 8, sizeof(counter));
-        if (mbedtls_aes_setkey_enc(&context, aes, 256) != 0 ||
-            mbedtls_aes_crypt_ctr(&context, plain, &offset, counter, stream, data + HEADER_SIZE, data + HEADER_SIZE) != 0)
-            res = STORE_FILE_DAMAGED;
-        mbedtls_aes_free(&context);
-        Wipe(stream, sizeof(stream));
-
-        // Written beside the old file, then put in its place.
-        snprintf(temporary, sizeof(temporary), "%s.tmp", path);
-        FILE *file = R_SUCCEEDED(res) ? fopen(temporary, "wb") : NULL;
-        if (R_SUCCEEDED(res))
+        *plain = *size - HEADER_SIZE - MAC_SIZE;
+        if (!Crypt(aes, *data + 8, *data + HEADER_SIZE, *plain))
         {
-            bool written = file != NULL && fwrite(data + HEADER_SIZE, 1, plain, file) == plain;
-            written = file != NULL && fclose(file) == 0 && written;
-            if (written)
-                remove(path);               // (the SD card's rename won't replace a file)
-            if (!written || rename(temporary, path) != 0)
-            {
-                remove(temporary);
-                res = STORE_FILE_WRITE;
-            }
+            Wipe(*data, *size);
+            free(*data);
+            *data = NULL;
+            res = STORE_FILE_DAMAGED;
         }
-        Wipe(data, size);
-        free(data);
     }
     Wipe(aes, sizeof(aes));
     Wipe(mac, sizeof(mac));
     return res;
+}
+
+Result StoreFile_Install(const char *name, const char *path)
+{
+    unsigned char *data;
+    uint32_t size = 0, plain = 0;
+    char temporary[96];
+
+    Result res = Decrypt(name, &data, &size, &plain);
+    if (R_FAILED(res))
+        return res;
+
+    // Written beside the old file, then put in its place.
+    snprintf(temporary, sizeof(temporary), "%s.tmp", path);
+    FILE *file = fopen(temporary, "wb");
+    bool written = file != NULL && fwrite(data + HEADER_SIZE, 1, plain, file) == plain;
+    written = file != NULL && fclose(file) == 0 && written;
+    if (written)
+        remove(path);               // (the SD card's rename won't replace a file)
+    if (!written || rename(temporary, path) != 0)
+    {
+        remove(temporary);
+        res = STORE_FILE_WRITE;
+    }
+    Wipe(data, size);
+    free(data);
+    return res;
+}
+
+Result StoreFile_Read(const char *name, char **out, uint32_t *outSize)
+{
+    unsigned char *data;
+    uint32_t size = 0, plain = 0;
+
+    *out = NULL;
+    *outSize = 0;
+    Result res = Decrypt(name, &data, &size, &plain);
+    if (R_FAILED(res))
+        return res;
+    memmove(data, data + HEADER_SIZE, plain);
+    data[plain] = '\0';                     // (there's room: the header and HMAC were bigger)
+    *out = (char *)data;
+    *outSize = plain;
+    return 0;
+}
+
+Result StoreFile_Peek(const char *name, void *out, uint32_t size)
+{
+    unsigned char aes[32], mac[32], header[HEADER_SIZE];
+    char path[64];
+
+    if (!Key(aes, mac))
+        return STORE_NO_KEY;
+    Wipe(mac, sizeof(mac));
+    Result res = STORE_FILE_MISSING;
+    snprintf(path, sizeof(path), STORE_FILE_DIR "/%s.bin", name);
+    FILE *file = NameOk(name) ? fopen(path, "rb") : NULL;
+    if (file != NULL)
+    {
+        res = fread(header, 1, HEADER_SIZE, file) == HEADER_SIZE && memcmp(header, MAGIC, 4) == 0 &&
+              Get32(header + 4) == FORMAT && Get32(header + 24) >= size && fread(out, 1, size, file) == size &&
+              Crypt(aes, header + 8, out, size) ? 0 : STORE_FILE_DAMAGED;
+        fclose(file);
+    }
+    Wipe(aes, sizeof(aes));
+    return res;
+}
+
+bool StoreFile_Version(const char *name, char hex[65])
+{
+    unsigned char tag[MAC_SIZE];
+    char path[64];
+
+    hex[0] = '\0';
+    snprintf(path, sizeof(path), STORE_FILE_DIR "/%s.bin", name);
+    FILE *file = NameOk(name) ? fopen(path, "rb") : NULL;
+    if (file == NULL)
+        return false;
+    bool ok = fseek(file, -MAC_SIZE, SEEK_END) == 0 && fread(tag, 1, MAC_SIZE, file) == MAC_SIZE;
+    fclose(file);
+    for (int i = 0; ok && i < MAC_SIZE; i++)
+        snprintf(hex + 2 * i, 3, "%02x", tag[i]);
+    return ok;
 }

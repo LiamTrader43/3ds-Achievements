@@ -7,7 +7,6 @@ build/
 build-bench/
 *.theme
 source/store_key.h
-store/
 # Store themes: sold in the app, so their source stays private (a backup is in
 # ../3ds-Achievements-private/themes)
 themes/ds/
