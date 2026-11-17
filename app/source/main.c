@@ -1,12 +1,12 @@
 // 3DS Achievements app: starts the background tracker sysmodule when it isn't
 // running yet, and shows every game with a definitions file in /achievements/ and
 // its achievements, without starting the game. Reads the same files as the
-// tracker. SELECT turns the tracker on or off. Y shares the selected game's progress
-// as an image (share.c).
+// tracker. X opens the settings (the tracker, patched games, the theme). Y shares the
+// selected game's progress as an image (share.c).
 //
-// Top screen: the games (Left/Right). Bottom screen: the selected game's achievements
-// (Up/Down, A shows one in full). How they look is up to the theme (theme.h); this file
-// does the rest.
+// Top screen: the games (Left/Right). Bottom screen: the highlighted game's stats; A opens it:
+// its achievements (Up/Down, A shows one in full, B goes back). How they look is up to the
+// theme (theme.h); this file does the rest.
 #include <3ds.h>
 
 #include <stdio.h>
@@ -207,19 +207,27 @@ static int ScrollToShow(int scroll)
 // What the bottom screen shows: a game's stats, its achievements or one in full, and where.
 typedef struct
 {
+    const Theme *theme;
     int  game, scroll, selected, count, tabPressed;
     bool details, loaded, picking;
 } BottomView;
 
-// The tabs the bottom screen shows (g_tabs) for what's on it: the share screen, position game
-// (an empty one has none), its stats while one is being chosen, its achievements, or one in full.
-static void SetTabs(bool sharing, bool details, int game, bool loaded)
+// The tabs the bottom screen shows (g_tabs) for what's on it: the settings, the share screen,
+// position game (an empty one has none), its stats while one is being chosen, its achievements,
+// or one in full.
+static void SetTabs(bool settings, bool sharing, bool details, int game, bool loaded)
 {
     static const UiTab BACK = { KEY_B, "B", "Back" }, OPEN = { KEY_A, "A", "Open" };
     static const UiTab SHARE = { KEY_Y, "Y", "Share" }, SAVE = { KEY_A, "A", "Save to SD" };
+    static const UiTab CHANGE = { KEY_A, "A", "Change" };
 
     memset(g_tabs, 0, sizeof(g_tabs));
-    if (sharing)
+    if (settings)
+    {
+        g_tabs[TAB_LEFT] = BACK;
+        g_tabs[TAB_RIGHT] = CHANGE;
+    }
+    else if (sharing)
     {
         ShareView v;
         Share_View(&v);
@@ -321,6 +329,37 @@ static void InstallAppUpdate(void)
     }
 }
 
+// Changes setting i (SETTING_*): turns the tracker or patched games on or off, or moves to the
+// next theme (used from now on, and saved).
+static void ChangeSetting(int i)
+{
+    if (i == SETTING_TRACKER)
+    {
+        bool on = !g_trackerRunning;
+        Result res = Tracker_SetEnabled(on);
+        g_trackerRunning = Tracker_Running();
+        if (g_trackerRunning != on)
+        {
+            g_popup = on ? POPUP_START_FAILED : POPUP_STOP_FAILED;
+            g_popupResult = res;
+        }
+    }
+    else if (i == SETTING_PATCHED)
+    {
+        Tracker_SetPatchedAllowed(!g_patchedAllowed);
+        g_patchedAllowed = Tracker_PatchedAllowed();    // what was actually saved
+    }
+    else
+    {
+        if (!Theme_UseNext())
+        {
+            g_popup = POPUP_THEME_FAILED;
+            g_popupResult = 0;
+        }
+        g_theme->reset();
+    }
+}
+
 // The direction key pressed this frame, or held (repeating after 400 ms).
 static u32 Direction(u32 down, u32 held, u64 *repeatAt)
 {
@@ -348,7 +387,7 @@ static int Clamp(int value, int low, int high)
 int main(int argc, char **argv)
 {
     Draw_Init();
-    Theme_Load();
+    bool themeLoaded = Theme_Load();
 
     // A loading frame, while the files and icons are read.
     for (int i = 0; i < 2; i++)
@@ -361,6 +400,7 @@ int main(int argc, char **argv)
     // The benchmark leaves the tracker and the updater alone (their popups would stop the script).
     (void)argc;
     (void)argv;
+    (void)themeLoaded;
     g_gameCount = Games_Scan(g_games, MAX_GAMES);
 #else
     bool wanted = !Tracker_TurnedOff();
@@ -373,6 +413,8 @@ int main(int argc, char **argv)
         g_popup = POPUP_START_FAILED;
         g_popupResult = startResult;
     }
+    else if (!themeLoaded)
+        g_popup = POPUP_THEME_FAILED;   // the theme in theme.txt: modern is used instead
 
     Update_Start(argc > 0 ? argv[0] : NULL);    // the Homebrew Launcher passes the .3dsx's path
 #endif
@@ -397,6 +439,8 @@ int main(int argc, char **argv)
     u64     heroAt = 0;             // when to load the selected game's background
     int     heroLevel = 0;          // how far the background has faded in, 0-256
     bool    sharing = false;        // the share screen is open
+    bool    settings = false;       // the settings menu (X) is open
+    int     settingItem = 0;        // and which setting is highlighted
     bool    restart = false;        // the app was updated: its new version starts once it closes
     int     tabTouch = -1;          // the tab a touch began on, or -1
     bool    tabInside = false;      // and the touch is still on it
@@ -417,7 +461,7 @@ int main(int argc, char **argv)
             tabTouch = -1;
         else
         {
-            SetTabs(sharing, details, game, heroFor == game);
+            SetTabs(settings, sharing, details, game, heroFor == game);
             touchPosition touch;
             if ((down & KEY_TOUCH) && tabTouch < 0)
             {
@@ -457,7 +501,7 @@ int main(int argc, char **argv)
         }
 
         // A newer app is offered first; new achievements after it, if it's put off.
-        if (g_popup == POPUP_NONE && !sharing && Update_Poll(&g_newGames, &g_updatedGames, &g_appVersion))
+        if (g_popup == POPUP_NONE && !sharing && !settings && Update_Poll(&g_newGames, &g_updatedGames, &g_appVersion))
         {
             bool games = g_newGames + g_updatedGames > 0;
             if (g_appVersion != NULL)
@@ -554,26 +598,58 @@ int main(int argc, char **argv)
                 redrawTop = 2;
             }
         }
+        else if (settings)
+        {
+            // The settings: Up/Down choose one, A or a tap on it changes it, B or X closes them.
+            int was = settingItem;
+            bool change = (down & KEY_A) != 0;
+            if (dir & KEY_UP)
+                settingItem--;
+            if (dir & KEY_DOWN)
+                settingItem++;
+            if ((down & KEY_TOUCH) || ((held & KEY_TOUCH) && touchActive))
+            {
+                touchPosition touch;
+                hidTouchRead(&touch);
+                if (down & KEY_TOUCH)
+                {
+                    touchActive = true;
+                    touchMoved = false;
+                    touchY = touch.py;
+                }
+                if (abs(touch.py - touchY) > TAP_SLOP)
+                    touchMoved = true;
+            }
+            if ((up & KEY_TOUCH) && touchActive)
+            {
+                touchActive = false;
+                int listTop = g_theme->listTop, i = (touchY - listTop) / g_theme->boxHeight;
+                if (!touchMoved && touchY >= listTop && i < SETTING_COUNT)
+                    settingItem = i, change = true;
+            }
+            settingItem = Clamp(settingItem, 0, SETTING_COUNT - 1);
+            if (settingItem != was)
+                redraw = 2;
+            if (change)
+            {
+                ChangeSetting(settingItem);
+                redraw = 2;
+            }
+            if (down & (KEY_B | KEY_X))
+            {
+                settings = false;
+                touchActive = false;
+                redraw = 2;
+            }
+        }
         else
         {
-            if (down & KEY_SELECT)
-            {
-                bool on = !g_trackerRunning;
-                Result res = Tracker_SetEnabled(on);
-                g_trackerRunning = Tracker_Running();
-                if (g_trackerRunning != on)
-                {
-                    g_popup = on ? POPUP_START_FAILED : POPUP_STOP_FAILED;
-                    g_popupResult = res;
-                }
-                redrawTop = 2;
-            }
-
             if (down & KEY_X)
             {
-                Tracker_SetPatchedAllowed(!g_patchedAllowed);
-                g_patchedAllowed = Tracker_PatchedAllowed();    // what was actually saved
-                redrawTop = 2;
+                settings = true;
+                settingItem = 0;
+                touchActive = false;
+                redraw = 2;
             }
 
             // Share: only once the selected game's achievements have loaded.
@@ -820,7 +896,7 @@ int main(int argc, char **argv)
 #ifdef BENCH
             Bench_DrawStart();
 #endif
-            SetTabs(sharing, details, game, heroFor == game);
+            SetTabs(settings, sharing, details, game, heroFor == game);
             Draw_Begin(topMode, bottomMode);
             if (sharing)
             {
@@ -828,6 +904,24 @@ int main(int argc, char **argv)
                     g_theme->drawShareTop();
                 if (bottom)
                     g_theme->drawShareBottom();
+            }
+            else if (settings)
+            {
+                if (top && g_theme->drawSettingsTop == NULL)
+                    DrawTopScreen(game, heroLevel);
+                else if (top)
+                {
+                    for (int eye = 0; eye < Draw_Eyes(); eye++)
+                    {
+                        Draw_Eye(eye);
+                        g_theme->drawSettingsTop(settingItem);
+                        if (g_popup != POPUP_NONE)
+                            g_theme->drawPopup(false);
+                    }
+                    Draw_Eye(0);
+                }
+                if (bottom)
+                    g_theme->drawSettingsBottom(settingItem);
             }
             else
             {
@@ -845,7 +939,7 @@ int main(int argc, char **argv)
                 memset(&view, 0, sizeof(view));     // compared whole, padding too
                 view.game = game, view.scroll = scroll, view.selected = g_selected, view.count = g_count;
                 view.details = details, view.loaded = heroFor == game, view.picking = g_picking;
-                view.tabPressed = g_tabPressed;
+                view.tabPressed = g_tabPressed, view.theme = g_theme;
                 bool sameView = keptValid && memcmp(&view, &keptView, sizeof(view)) == 0;
                 if (bottom && game < g_gameCount && (sameView || bottomFade < 256))
                 {

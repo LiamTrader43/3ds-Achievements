@@ -4,11 +4,14 @@
 // The app's look. Every theme shows the same things (ui.h) with the same controls (main.c);
 // it only decides how they're drawn.
 //
+// Preinstalled, compiled into the app (Makefile BUILTIN_THEMES; theme.c BUILT_IN):
 //   modern   dark screens, the game's art behind a row of icon tiles (theme_modern.c)
-//   3ds      like the 3DS's own System Settings: cream screens, white buttons, grey tabs
-//            along the bottom (theme_3ds.c)
+//   3ds      like the 3DS's own System Settings (themes/3ds/theme_3ds.c)
+// Add-ons: /achievements/themes/<id>.theme, each built on its own from themes/<id>/
+// (theme_api.h), loaded the first time it's used.
 //
-// The theme is the id on the first line of /achievements/theme.txt; modern without one.
+// The theme is the id on the first line of /achievements/theme.txt; modern without one (or if
+// that theme can't be loaded).
 
 #include "draw.h"
 
@@ -64,15 +67,30 @@ typedef struct
     // while the image is made.
     void    (*drawShareTop)(void);
     void    (*drawShareBottom)(void);
+    // The settings menu (X), item highlighted (SETTING_*; Ui_Setting says what each is). The top
+    // once for each eye (or NULL: the usual top screen), the bottom setting every pixel; its
+    // lines are laid out like the achievements' boxes (listTop, boxHeight), for taps.
+    void    (*drawSettingsTop)(int item);
+    void    (*drawSettingsBottom)(int item);
 } Theme;
 
 extern const Theme  THEME_MODERN, THEME_3DS;
 extern const Theme *g_theme;
 
-// Uses the theme saved in /achievements/theme.txt, modern without one.
-void            Theme_Load(void);
+// Finds the add-ons in /achievements/themes and uses the theme saved in theme.txt (loading it
+// if it's an add-on), modern without one. False if that theme couldn't be loaded (modern is
+// used; Theme_Error says why).
+bool            Theme_Load(void);
 
-// The theme with this id, or NULL.
-const Theme    *Theme_Find(const char *id);
+// How many themes there are to choose from: the preinstalled ones and the add-ons found.
+int             Theme_Count(void);
+
+// Switches to the next theme that loads (after the last, modern) and saves it in theme.txt.
+// False if one couldn't be loaded on the way: Theme_Error says which and why (and the switch
+// went on to the one after it, if any).
+bool            Theme_UseNext(void);
+
+// Why the last theme that failed to load couldn't be: "<name>: <reason>".
+const char     *Theme_Error(void);
 
 #endif

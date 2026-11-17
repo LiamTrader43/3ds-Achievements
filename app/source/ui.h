@@ -50,7 +50,8 @@ typedef enum
 {
     POPUP_NONE, POPUP_START_FAILED, POPUP_STOP_FAILED,
     POPUP_UPDATE, POPUP_DOWNLOADING, POPUP_UPDATE_FAILED,
-    POPUP_APP_UPDATE, POPUP_APP_DOWNLOADING, POPUP_APP_UPDATED, POPUP_APP_FAILED
+    POPUP_APP_UPDATE, POPUP_APP_DOWNLOADING, POPUP_APP_UPDATED, POPUP_APP_FAILED,
+    POPUP_THEME_FAILED              // an add-on theme couldn't be loaded (Theme_Error)
 } Popup;
 
 extern Popup        g_popup;
@@ -107,6 +108,16 @@ typedef struct
 
 void    Ui_Totals(UiTotals *t);
 
+// The settings menu (X): each line's name, its value now, and what it does.
+enum { SETTING_TRACKER, SETTING_PATCHED, SETTING_THEME, SETTING_COUNT };
+typedef struct
+{
+    const char *name, *value, *description;
+    bool        on;                 // the value is "on" (or a choice, like the theme)
+} UiSetting;
+
+void    Ui_Setting(int i, UiSetting *s);
+
 // The button prompts in the bottom screen's corners: a button's name and what it does there
 // (key 0: none). main.c says which are shown; every theme shows them in the bottom-left and
 // bottom-right corners, each its own way. A tap on one (the theme's Theme.tabWidth x tabTop
@@ -122,5 +133,9 @@ extern int          g_tabPressed;   // the prompt a finger is on, or -1
 
 // Moves value toward target by at most step.
 int     Ui_Approach(int value, int target, int step);
+
+// The battery's level, 0-5 (-1 if it can't be read), read at most every 10 s; charging: it's
+// charging (or NULL).
+int     Ui_Battery(bool *charging);
 
 #endif

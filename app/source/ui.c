@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "theme.h"
 #include "trophy.h"
 #include "update.h"
 
@@ -133,6 +134,13 @@ void Ui_PopupText(PopupText *t)
         case POPUP_STOP_FAILED:
             t->title = "Couldn't stop the tracker";
             break;
+        case POPUP_THEME_FAILED:
+            t->title = "Couldn't load a theme";
+            t->showCode = false;
+            Line(t, Theme_Error());
+            Line(t, "It's skipped until the app is opened again.");
+            Line(t, "/achievements/theme.log says more.");
+            break;
         case POPUP_APP_FAILED:
             t->title = "Update failed";
             Line(t, g_appChanged ? "Only part of the update was installed." : "Nothing was changed.");
@@ -235,9 +243,64 @@ void Ui_Totals(UiTotals *t)
     }
 }
 
+void Ui_Setting(int i, UiSetting *s)
+{
+    switch (i)
+    {
+        case SETTING_TRACKER:
+            s->name = "Tracker";
+            s->on = g_trackerRunning;
+            s->description = "Watches your games for achievements. Turned off, it stays off until you turn it on again.";
+            break;
+        case SETTING_PATCHED:
+            s->name = "Patched games";
+            s->on = g_patchedAllowed;
+            s->description = "Lets games patched through Luma (/luma/titles) earn achievements. Off: they aren't tracked.";
+            break;
+        default:
+        {
+            static char text[96];
+            s->name = "Theme";
+            s->on = true;
+            s->value = g_theme->name;
+            snprintf(text, sizeof(text), "How the app looks: %d themes to choose from. A switches to the next one.",
+                     Theme_Count());
+            s->description = text;
+            return;
+        }
+    }
+    s->value = s->on ? "On" : "Off";
+}
+
 int Ui_Approach(int value, int target, int step)
 {
     if (value < target)
         return value + step < target ? value + step : target;
     return value - step > target ? value - step : target;
+}
+
+int Ui_Battery(bool *charging)
+{
+    static bool ptmu;               // ptm:u stays open until the app closes
+    static int  level = -1;
+    static bool charge;
+    static u64  at;
+    u64 now = osGetTime();
+
+    if (level < 0 || now - at >= 10000)
+    {
+        u8 read = 0, state = 0;
+        if (!ptmu)
+            ptmu = R_SUCCEEDED(ptmuInit());
+        if (ptmu && R_SUCCEEDED(PTMU_GetBatteryLevel(&read)))
+        {
+            PTMU_GetBatteryChargeState(&state);
+            level = read > 5 ? 5 : read;
+            charge = state != 0;
+        }
+        at = now;
+    }
+    if (charging != NULL)
+        *charging = charge;
+    return level;
 }

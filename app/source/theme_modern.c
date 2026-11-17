@@ -199,51 +199,30 @@ static bool AnimateRow(int selected, int milliseconds)
     return moving;
 }
 
-// A setting's hint ending in its state, "on" in green or "off" in red, centred in a pill
-// wide enough for "off" so nothing moves when it changes.
-static int SettingWidth(const char *label)
-{
-    return Draw_TextWidth(label, 1) + Draw_TextWidth("off", 1);
-}
-
-static void DrawSetting(int x, int width, const char *label, bool on)
-{
-    const char *state = on ? "on" : "off";
-    x += (width - Draw_TextWidth(label, 1) - Draw_TextWidth(state, 1)) / 2;
-    Draw_TextShadow(GFX_TOP, x, PILL_Y + 4, 1, HINT, label, 0);
-    Draw_TextShadow(GFX_TOP, x + Draw_TextWidth(label, 1), PILL_Y + 4, 1, on ? GREEN : RED, state, 0);
-}
-
-// The top screen's last line: each button hint in its own dark pill, centred. "Y: Share"
-// only when a game is selected. (START still exits; it has no hint.)
+// The top screen's last line: each button hint in its own dark pill, centred. "Y: Share" only
+// when a game is selected. (START still exits; it has no hint.)
 static void DrawHints(bool canShare)
 {
-    static const char patched[] = "X: Patched games ", tracker[] = "SELECT: Tracker ", share[] = "Y: Share";
-    static DrawStamp pills[3];              // the pills as last drawn, for the same hints
+    static const char settings[] = "X: Settings", share[] = "Y: Share";
+    static DrawStamp pills[2];              // the pills as last drawn, for the same hints
     static int       pillsFor = -1;
-    int w0 = SettingWidth(patched) + 2 * PILL_PAD, w1 = SettingWidth(tracker) + 2 * PILL_PAD;
-    int w2 = canShare ? Draw_TextWidth(share, 1) + 2 * PILL_PAD : 0;
-    int x = (TOP_WIDTH - (w0 + w1 + PILL_GAP + (canShare ? w2 + PILL_GAP : 0))) / 2;
-    int hints = (g_patchedAllowed ? 1 : 0) | (g_trackerRunning ? 2 : 0) | (canShare ? 4 : 0);
+    int w0 = Draw_TextWidth(settings, 1) + 2 * PILL_PAD, w1 = canShare ? Draw_TextWidth(share, 1) + 2 * PILL_PAD : 0;
+    int x = (TOP_WIDTH - (w0 + (canShare ? PILL_GAP + w1 : 0))) / 2;
 
-    if (hints == pillsFor && Draw_StampAgain(&pills[0]) && Draw_StampAgain(&pills[1]) && (!canShare || Draw_StampAgain(&pills[2])))
+    if (pillsFor == canShare && Draw_StampAgain(&pills[0]) && (!canShare || Draw_StampAgain(&pills[1])))
         return;
 
     Draw_RoundRect(GFX_TOP, x, PILL_Y, w0, PILL_H, PILL_H / 2, PILL);
-    DrawSetting(x + PILL_PAD, w0 - 2 * PILL_PAD, patched, g_patchedAllowed);
+    Draw_TextShadow(GFX_TOP, x + PILL_PAD, PILL_Y + 4, 1, HINT, settings, 0);
     Draw_StampKeep(&pills[0], GFX_TOP, x, PILL_Y, w0, PILL_H, PILL_H / 2, PILL);
-    x += w0 + PILL_GAP;
-    Draw_RoundRect(GFX_TOP, x, PILL_Y, w1, PILL_H, PILL_H / 2, PILL);
-    DrawSetting(x + PILL_PAD, w1 - 2 * PILL_PAD, tracker, g_trackerRunning);
-    Draw_StampKeep(&pills[1], GFX_TOP, x, PILL_Y, w1, PILL_H, PILL_H / 2, PILL);
-    x += w1 + PILL_GAP;
     if (canShare)
     {
-        Draw_RoundRect(GFX_TOP, x, PILL_Y, w2, PILL_H, PILL_H / 2, PILL);
+        x += w0 + PILL_GAP;
+        Draw_RoundRect(GFX_TOP, x, PILL_Y, w1, PILL_H, PILL_H / 2, PILL);
         Draw_TextShadow(GFX_TOP, x + PILL_PAD, PILL_Y + 4, 1, HINT, share, 0);
-        Draw_StampKeep(&pills[2], GFX_TOP, x, PILL_Y, w2, PILL_H, PILL_H / 2, PILL);
+        Draw_StampKeep(&pills[1], GFX_TOP, x, PILL_Y, w1, PILL_H, PILL_H / 2, PILL);
     }
-    pillsFor = hints;
+    pillsFor = canShare;
 }
 
 // How far forward tile i comes in 3D: the selected one fully, easing along with its size.
@@ -644,6 +623,29 @@ static void DrawShareBottom(void)
     DrawPrompts();
 }
 
+// The settings (X) on the bottom screen: a box each, like the achievements', with its name, its
+// value (on green, off red) and what it does; the highlighted one outlined.
+static void DrawSettingsBottom(int item)
+{
+    Draw_Gradient(GFX_BOTTOM, 0, SCREEN_HEIGHT, BG_TOP, BG_BOTTOM);
+    Draw_Text(GFX_BOTTOM, MARGIN, 5, 1, WHITE, "Settings", 0);
+    for (int i = 0; i < SETTING_COUNT; i++)
+    {
+        UiSetting set;
+        Ui_Setting(i, &set);
+        int y = PROGRESS_H + i * BOX_H;
+        if (i == item)
+            Draw_RoundRing(GFX_BOTTOM, SELECT_X, y, SELECT_W, BOX_H, SELECT_RADIUS, SELECT_LINE, WHITE, 16);
+        Color value = i == SETTING_THEME ? HINT : set.on ? GREEN : RED;
+        int vx = BOTTOM_WIDTH - MARGIN - 4 - Draw_TextWidth(set.value, 1);
+        Draw_Text(GFX_BOTTOM, vx, y + 6, 1, value, set.value, 0);
+        Draw_Text(GFX_BOTTOM, BOX_LEFT + 8, y + 6, 1, WHITE, set.name, 0);
+        Ui_DrawWrapped(GFX_BOTTOM, BOX_LEFT + 8, y + 24, BOTTOM_WIDTH - MARGIN - 4 - (BOX_LEFT + 8), LINE_H + 2, GREY,
+                       set.description, 2);
+    }
+    DrawPrompts();
+}
+
 static void DrawLoading(void)
 {
     Draw_Text(GFX_TOP, MARGIN, MARGIN, 1, WHITE, "Loading...", 0);
@@ -691,4 +693,6 @@ const Theme THEME_MODERN =
     .drawIdle = DrawIdle,
     .drawShareTop = DrawShareTop,
     .drawShareBottom = DrawShareBottom,
+    .drawSettingsTop = NULL,            // the usual top screen
+    .drawSettingsBottom = DrawSettingsBottom,
 };

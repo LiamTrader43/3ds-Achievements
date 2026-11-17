@@ -4,6 +4,8 @@
 // more games. Bottom: the achievements as white buttons in a sunken panel, grey tabs along the
 // bottom edge. The share screen: the image framed on the top screen, the QR code in a panel.
 // The colours were measured from screenshots of System Settings.
+//
+// An add-on (theme_api.h): built on its own into 3ds.theme, not into the app.
 #include "theme.h"
 
 #include <stdio.h>
@@ -14,6 +16,8 @@
 #include "share_image.h"
 #include "ui.h"
 #include "update.h"
+
+#include "theme_module.h"           // after every other header
 
 static const Color CREAM = { 241, 233, 163 };           // the background
 static const Color PANEL = { 217, 211, 159 };           // sunken panels
@@ -221,25 +225,11 @@ static int CentredWrapped(gfxScreen_t screen, int y, int width, int lineHeight, 
 
 static int s_battery = -1;      // 0-5, or -1 before it's read
 static bool s_charging;
-static u64 s_batteryAt;         // when it was read
 static time_t s_clockMinute;    // the minute the clock last showed
 
 static void ReadBattery(void)
 {
-    static bool ptmu;           // ptm:u stays open until the app closes
-    u64 now = osGetTime();
-    if (s_battery >= 0 && now - s_batteryAt < 10000)
-        return;
-    if (!ptmu)
-        ptmu = R_SUCCEEDED(ptmuInit());
-    u8 level = 0, charging = 0;
-    if (ptmu && R_SUCCEEDED(PTMU_GetBatteryLevel(&level)))
-    {
-        PTMU_GetBatteryChargeState(&charging);
-        s_battery = level > 5 ? 5 : level;
-        s_charging = charging != 0;
-    }
-    s_batteryAt = now;
+    s_battery = Ui_Battery(&s_charging);
 }
 
 static void DrawStatusBar(void)
@@ -330,15 +320,16 @@ static void DrawGame(const Game *g, int selected)
     Draw_Text(GFX_TOP, TOP_PANEL_X + TOP_PANEL_W - 10 - Draw_TextWidth(text, 1), TOP_PANEL_Y + 6, 1, MUTED, text, 0);
 }
 
-// The buttons below the panel, and the app's version at the right like System Settings'.
-static void DrawLegend(void)
+// The buttons below the panel (none while the settings are open), and the app's version at the
+// right like System Settings'.
+static void DrawLegend(bool buttons)
 {
-    int x = 14;
-    x += DrawGlyph(GFX_TOP, x, LEGEND_Y, "SELECT", GLYPH, GLYPH_TEXT) + 5;
-    x += Draw_Text(GFX_TOP, x, LEGEND_Y + 1, 1, TEXT, "Tracker", 0) + 16;
-    x += DrawGlyph(GFX_TOP, x, LEGEND_Y, "X", GLYPH, GLYPH_TEXT) + 5;
-    Draw_Text(GFX_TOP, x, LEGEND_Y + 1, 1, TEXT, g_patchedAllowed ? "Patched games: On" : "Patched games: Off", 0);
-
+    if (buttons)
+    {
+        int x = 14;
+        x += DrawGlyph(GFX_TOP, x, LEGEND_Y, "X", GLYPH, GLYPH_TEXT) + 5;
+        Draw_Text(GFX_TOP, x, LEGEND_Y + 1, 1, TEXT, "Settings", 0);
+    }
     char version[24];
     snprintf(version, sizeof(version), "Ver. %s", Update_AppVersion());
     Draw_Text(GFX_TOP, TOP_WIDTH - 14 - Draw_TextWidth(version, 1), LEGEND_Y + 1, 1, TEXT, version, 0);
@@ -414,7 +405,7 @@ static void DrawTop(int selected, int heroLevel)
     DrawDots(DOTS1_Y);
     Draw_RoundRect(GFX_TOP, TOP_PANEL_X, TOP_PANEL_Y, TOP_PANEL_W, TOP_PANEL_H, 10, PANEL);
     DrawDots(DOTS2_Y);
-    DrawLegend();
+    DrawLegend(true);
 
     if (g_gameCount == 0)
     {
@@ -754,6 +745,50 @@ static void DrawShareBottom(void)
     DrawTabs();
 }
 
+// ---- The settings (X), like System Settings: the highlighted one explained on the top screen,
+// a button for each on the bottom with its value in a badge.
+
+static void DrawSettingsTop(int item)
+{
+    UiSetting set;
+    Ui_Setting(item, &set);
+
+    Draw_Depth(0);
+    Draw_Rect(GFX_TOP, 0, 0, TOP_WIDTH, SCREEN_HEIGHT, CREAM);
+    DrawStatusBar();
+    CentredText(GFX_TOP, HEADER_Y, 1, ORANGE, "Settings");
+    DrawDots(DOTS1_Y);
+    Draw_RoundRect(GFX_TOP, TOP_PANEL_X, TOP_PANEL_Y, TOP_PANEL_W, TOP_PANEL_H, 10, PANEL);
+    DrawDots(DOTS2_Y);
+    DrawLegend(false);
+
+    const int x = TOP_PANEL_X + 18, width = TOP_PANEL_W - 36;
+    Draw_Text(GFX_TOP, x, TOP_PANEL_Y + 16, 2, TITLE, set.name, 0);
+    int bw = Draw_TextWidth(set.value, 1) + 10;
+    DrawBadge(GFX_TOP, x + width - bw, TOP_PANEL_Y + 22, set.value, set.on ? BADGE : BADGE_OFF);
+    Ui_DrawWrapped(GFX_TOP, x, TOP_PANEL_Y + 58, width, LINE_H + 5, TEXT, set.description, 4);
+}
+
+static void DrawSettingsBottom(int item)
+{
+    Draw_Rect(GFX_BOTTOM, 0, 0, BOTTOM_WIDTH, SCREEN_HEIGHT, CREAM);
+    CentredText(GFX_BOTTOM, LIST_TITLE_Y, 1, TITLE, "Settings");
+    Draw_RoundRect(GFX_BOTTOM, LIST_PANEL_X, LIST_PANEL_Y, LIST_PANEL_W, LIST_PANEL_H, 10, PANEL);
+    for (int i = 0; i < SETTING_COUNT; i++)
+    {
+        UiSetting set;
+        Ui_Setting(i, &set);
+        int y = LIST_TOP + i * ITEM_PITCH;
+        if (i == item)
+            Draw_RoundRing(GFX_BOTTOM, ITEM_X - 3, y - 3, ITEM_W + 6, ITEM_H + 6, ITEM_RADIUS + 3, 3, CURSOR, 16);
+        DrawButton(GFX_BOTTOM, ITEM_X, y, ITEM_W, ITEM_H, ITEM_RADIUS);
+        Draw_Text(GFX_BOTTOM, ITEM_X + 14, y + (ITEM_H - LINE_H) / 2, 1, TEXT, set.name, 0);
+        int bw = Draw_TextWidth(set.value, 1) + 10;
+        DrawBadge(GFX_BOTTOM, ITEM_X + ITEM_W - 10 - bw, y + (ITEM_H - 15) / 2, set.value, set.on ? BADGE : BADGE_OFF);
+    }
+    DrawTabs();
+}
+
 // ---- The rest
 
 static void DrawLoading(void)
@@ -806,4 +841,8 @@ const Theme THEME_3DS =
     .topChanged = TopChanged,
     .drawShareTop = DrawShareTop,
     .drawShareBottom = DrawShareBottom,
+    .drawSettingsTop = DrawSettingsTop,
+    .drawSettingsBottom = DrawSettingsBottom,
 };
+
+THEME_MODULE_DEFINE(THEME_3DS, "3ds", "3DS")
