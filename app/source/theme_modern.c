@@ -866,22 +866,25 @@ static void DrawShareBottom(void)
 // value (on green, off red) and what it does; the highlighted one outlined.
 static void DrawSettingsBottom(int item)
 {
+    const int count = Ui_MenuCount(), rows = LIST_H / BOX_H;
     Draw_Gradient(GFX_BOTTOM, 0, SCREEN_HEIGHT, BG_TOP, BG_BOTTOM);
-    Draw_Text(GFX_BOTTOM, MARGIN, 5, 1, WHITE, "Settings", 0);
-    for (int i = 0; i < SETTING_COUNT; i++)
+    Draw_Text(GFX_BOTTOM, MARGIN, 5, 1, WHITE, Ui_MenuTitle(), 0);
+    for (int i = g_menuScroll; i < count && i < g_menuScroll + rows; i++)
     {
         UiSetting set;
         Ui_Setting(i, &set);
-        int y = PROGRESS_H + i * BOX_H;
+        int y = PROGRESS_H + (i - g_menuScroll) * BOX_H;
         if (i == item)
             Draw_RoundRing(GFX_BOTTOM, SELECT_X, y, SELECT_W, BOX_H, SELECT_RADIUS, SELECT_LINE, WHITE, 16);
-        Color value = i == SETTING_THEME ? HINT : set.on ? GREEN : RED;
+        Color value = g_menu == MENU_THEMES || i == SETTING_THEME ? HINT : set.on ? GREEN : RED;
         int vx = BOTTOM_WIDTH - MARGIN - 4 - Draw_TextWidth(set.value, 1);
         Draw_Text(GFX_BOTTOM, vx, y + 6, 1, value, set.value, 0);
         Draw_Text(GFX_BOTTOM, BOX_LEFT + 8, y + 6, 1, WHITE, set.name, 0);
         Ui_DrawWrapped(GFX_BOTTOM, BOX_LEFT + 8, y + 24, BOTTOM_WIDTH - MARGIN - 4 - (BOX_LEFT + 8), LINE_H + 2, GREY,
                        set.description, 2);
     }
+    if (count > rows)
+        DrawScrollbar(GFX_BOTTOM, 3, PROGRESS_H + 2, rows * BOX_H - 4, rows * BOX_H, g_menuScroll * BOX_H, count * BOX_H);
     DrawPrompts();
 }
 
@@ -911,6 +914,7 @@ const Theme THEME_MODERN =
 {
     .id = "modern",
     .name = "Modern",
+    .description = "Dark, with each game's art behind a row of its icons.",
     .font = DRAW_FONT_INTER,
     .listTop = PROGRESS_H,
     .listHeight = LIST_H,

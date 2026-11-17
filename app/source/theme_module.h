@@ -6,7 +6,7 @@
 // the ThemeApi the app hands it (theme_api.h), so the same source works built into the app
 // too (then this does nothing but THEME_MODULE_DEFINE).
 //
-// The theme ends with THEME_MODULE_DEFINE(itsTheme, "id", "Name").
+// The theme ends with THEME_MODULE_DEFINE(itsTheme, "id", "Name", "What it looks like.").
 
 #include "theme_api.h"
 
@@ -73,6 +73,8 @@ extern const ThemeApi *theme_api;
 #define Store_Item              (theme_api->Store_Item)
 #define Store_Owned             (theme_api->Store_Owned)
 #define Store_OwnedCount        (theme_api->Store_OwnedCount)
+#define Ui_MenuCount            (theme_api->Ui_MenuCount)
+#define Ui_MenuTitle            (theme_api->Ui_MenuTitle)
 
 #define g_games                 (*theme_api->g_games)
 #define g_gameCount             (*theme_api->g_gameCount)
@@ -102,6 +104,8 @@ extern const ThemeApi *theme_api;
 #define g_rewards               (*theme_api->g_rewards)
 #define g_buyItem               (*theme_api->g_buyItem)
 #define g_paidOwed              (*theme_api->g_paidOwed)
+#define g_menu                  (*theme_api->g_menu)
+#define g_menuScroll            (*theme_api->g_menuScroll)
 
 // The theme's description (read without running it), the api it was handed, and its entry
 // point, which refuses an app older than the theme.
@@ -111,9 +115,9 @@ extern const ThemeApi *theme_api;
 #else
 #define THEME_INFO_SECTION
 #endif
-#define THEME_MODULE_DEFINE(theme, id, name) \
+#define THEME_MODULE_DEFINE(theme, id, name, description) \
     const ThemeApi *theme_api; \
-    THEME_INFO_SECTION const ThemeInfo theme_info = { THEME_INFO_MAGIC, THEME_API_VERSION, id, name }; \
+    THEME_INFO_SECTION const ThemeInfo theme_info = { THEME_INFO_MAGIC, THEME_API_VERSION, id, name, description }; \
     __attribute__((visibility("default"))) const Theme *ThemeModule_Entry(const ThemeApi *api) \
     { \
         if (api == NULL || api->version < theme_info.apiVersion || api->size < sizeof(ThemeApi)) \
@@ -124,7 +128,7 @@ extern const ThemeApi *theme_api;
 
 #else
 
-#define THEME_MODULE_DEFINE(theme, id, name)
+#define THEME_MODULE_DEFINE(theme, id, name, description)
 
 #endif
 

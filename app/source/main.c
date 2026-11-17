@@ -218,13 +218,13 @@ static void SetTabs(bool settings, bool sharing, bool details, int game, bool lo
 {
     static const UiTab BACK = { KEY_B, "B", "Back" }, OPEN = { KEY_A, "A", "Open" };
     static const UiTab SHARE = { KEY_Y, "Y", "Share" }, SAVE = { KEY_A, "A", "Save to SD" };
-    static const UiTab CHANGE = { KEY_A, "A", "Change" }, BUY = { KEY_A, "A", "Buy" };
+    static const UiTab CHANGE = { KEY_A, "A", "Change" }, BUY = { KEY_A, "A", "Buy" }, USE = { KEY_A, "A", "Use" };
 
     memset(g_tabs, 0, sizeof(g_tabs));
     if (settings)
     {
         g_tabs[TAB_LEFT] = BACK;
-        g_tabs[TAB_RIGHT] = CHANGE;
+        g_tabs[TAB_RIGHT] = g_menu == MENU_THEMES ? USE : CHANGE;
     }
     else if (sharing)
     {
@@ -384,8 +384,7 @@ static void BuyNow(void)
         g_popup = res == REWARDS_NOT_ENOUGH ? POPUP_NOT_ENOUGH : POPUP_BUY_FAILED;
 }
 
-// Changes setting i (SETTING_*): turns the tracker or patched games on or off, or moves to the
-// next theme (used from now on, and saved).
+// Changes setting i: turns the tracker or patched games on or off (Theme opens its list instead).
 static void ChangeSetting(int i)
 {
     if (i == SETTING_TRACKER)
@@ -403,15 +402,6 @@ static void ChangeSetting(int i)
     {
         Tracker_SetPatchedAllowed(!g_patchedAllowed);
         g_patchedAllowed = Tracker_PatchedAllowed();    // what was actually saved
-    }
-    else
-    {
-        if (!Theme_UseNext())
-        {
-            g_popup = POPUP_THEME_FAILED;
-            g_popupResult = 0;
-        }
-        g_theme->reset();
     }
 }
 
@@ -685,8 +675,11 @@ int main(int argc, char **argv)
         }
         else if (settings)
         {
-            // The settings: Up/Down choose one, A or a tap on it changes it, B or X closes them.
-            int was = settingItem;
+            // The settings: Up/Down choose a line, A or a tap on it changes it. Theme opens the list
+            // of themes, where A (or a tap) uses the highlighted one at once. B goes back out of the
+            // themes, else closes the settings; X closes them.
+            int count = Ui_MenuCount(), rows = g_theme->listHeight / g_theme->boxHeight;
+            int was = settingItem, wasScroll = g_menuScroll;
             bool change = (down & KEY_A) != 0;
             if (dir & KEY_UP)
                 settingItem--;
@@ -708,17 +701,26 @@ int main(int argc, char **argv)
             if ((up & KEY_TOUCH) && touchActive)
             {
                 touchActive = false;
-                int listTop = g_theme->listTop, i = (touchY - listTop) / g_theme->boxHeight;
-                if (!touchMoved && touchY >= listTop && i < SETTING_COUNT)
+                int listTop = g_theme->listTop, i = g_menuScroll + (touchY - listTop) / g_theme->boxHeight;
+                if (!touchMoved && touchY >= listTop && touchY < listTop + rows * g_theme->boxHeight && i < count)
                     settingItem = i, change = true;
             }
-            settingItem = Clamp(settingItem, 0, SETTING_COUNT - 1);
-            if (settingItem != was)
-                redraw = 2;
-            if (change)
+            settingItem = Clamp(settingItem, 0, count - 1);
+            if (change && g_menu == MENU_SETTINGS && settingItem == SETTING_THEME)
             {
-                ChangeSetting(settingItem);
-                if (settingItem == SETTING_THEME && game >= g_gameCount)
+                g_menu = MENU_THEMES;
+                settingItem = Theme_Current();
+                g_menuScroll = 0;
+            }
+            else if (change && g_menu == MENU_THEMES)
+            {
+                if (settingItem != Theme_Current() && !Theme_Use(settingItem))
+                {
+                    g_popup = POPUP_THEME_FAILED;
+                    g_popupResult = 0;
+                }
+                g_theme->reset();
+                if (game >= g_gameCount)
                 {
                     // Past the games the positions differ between themes (empty ones, the store).
                     game = Clamp(game, 0, Ui_RowPositions() - 1);
@@ -728,14 +730,36 @@ int main(int argc, char **argv)
                     g_selected = 0;
                     scroll = 0;
                 }
-                redraw = 2;
             }
-            if (down & (KEY_B | KEY_X))
+            else if (change)
+                ChangeSetting(settingItem);
+            if (down & KEY_X)
             {
                 settings = false;
                 touchActive = false;
-                redraw = 2;
             }
+            else if ((down & KEY_B) && g_menu == MENU_THEMES)
+            {
+                g_menu = MENU_SETTINGS;                 // back to the settings, on Theme
+                settingItem = SETTING_THEME;
+                g_menuScroll = 0;
+            }
+            else if (down & KEY_B)
+            {
+                settings = false;
+                touchActive = false;
+            }
+
+            // The highlighted line stays shown (the list, or the theme drawing it, may have changed).
+            count = Ui_MenuCount();
+            rows = g_theme->listHeight / g_theme->boxHeight;
+            if (settingItem < g_menuScroll)
+                g_menuScroll = settingItem;
+            if (settingItem >= g_menuScroll + rows)
+                g_menuScroll = settingItem - rows + 1;
+            g_menuScroll = Clamp(g_menuScroll, 0, count > rows ? count - rows : 0);
+            if (change || settingItem != was || g_menuScroll != wasScroll || (down & (KEY_B | KEY_X)))
+                redraw = 2;
         }
         else
         {
@@ -743,6 +767,8 @@ int main(int argc, char **argv)
             {
                 settings = true;
                 settingItem = 0;
+                g_menu = MENU_SETTINGS;
+                g_menuScroll = 0;
                 touchActive = false;
                 redraw = 2;
             }

@@ -34,7 +34,7 @@ SECTIONS
     .theme_header :
     {
         LONG(0x48543341)                /* magic "A3TH" (THEME_FILE_MAGIC) */
-        LONG(1)                         /* THEME_FILE_FORMAT */
+        LONG(2)                         /* THEME_FILE_FORMAT (the Makefile checks it) */
         LONG(ThemeModule_Entry)         /* entry */
         LONG(__theme_code_end)          /* codeEnd */
         LONG(__theme_code_size)         /* codeSize */

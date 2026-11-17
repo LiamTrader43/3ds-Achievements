@@ -6,6 +6,7 @@
 
 #include "rewards.h"
 #include "store_file.h"
+#include "theme_loader.h"
 
 #define PURCHASES_PATH  "/achievements/purchases.txt"
 #define PURCHASES_TEMP  PURCHASES_PATH ".tmp"
@@ -80,13 +81,12 @@ void Store_Restore(void)
         char path[64];
         if (!s_owned[i] || ITEMS[i].theme == NULL)
             continue;
+        // (A file this app can't load, made for an older app, is replaced from the new store file.)
+        ThemeInfo info;
+        char why[64];
         ThemePath(i, path, sizeof(path));
-        FILE *f = fopen(path, "rb");
-        if (f != NULL)
-        {
-            fclose(f);
+        if (ThemeLoader_Info(path, &info, why, sizeof(why)))
             continue;
-        }
         mkdir(THEMES_DIR, 0777);
         StoreFile_Install(ITEMS[i].theme, path);      // (without its file, it's put back once it arrives)
     }

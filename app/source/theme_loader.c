@@ -40,8 +40,11 @@ static bool CheckHeader(const ThemeHeader *h, uint32_t size, char *why, size_t c
         return Fail(why, capacity, "not a theme file");
     if (h->format > THEME_FILE_FORMAT)
         return Fail(why, capacity, "made for a newer version of the app");
+    if (h->format < THEME_FILE_FORMAT && h->format > 0)
+        return Fail(why, capacity, "made for an older version of the app");
     if (h->format != THEME_FILE_FORMAT || memcmp(info->magic, THEME_INFO_MAGIC, sizeof(info->magic)) != 0 ||
         memchr(info->id, '\0', sizeof(info->id)) == NULL || memchr(info->name, '\0', sizeof(info->name)) == NULL ||
+        memchr(info->description, '\0', sizeof(info->description)) == NULL ||
         info->id[0] == '\0' || info->name[0] == '\0')
         return Fail(why, capacity, "damaged file");
     for (const char *c = info->id; *c != '\0'; c++)

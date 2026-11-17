@@ -74,6 +74,7 @@ static void Scan(void)
         Entry *t = &s_themes[s_count];
         snprintf(t->info.id, sizeof(t->info.id), "%s", BUILT_IN[s_count]->id);
         snprintf(t->info.name, sizeof(t->info.name), "%s", BUILT_IN[s_count]->name);
+        snprintf(t->info.description, sizeof(t->info.description), "%s", BUILT_IN[s_count]->description);
         t->theme = BUILT_IN[s_count];
     }
     ScanFiles();
@@ -204,27 +205,39 @@ int Theme_Count(void)
     return s_count;
 }
 
-bool Theme_UseNext(void)
+int Theme_Current(void)
 {
-    bool ok = true;
-    for (int k = 1; k < s_count; k++)
+    return s_current;
+}
+
+const ThemeInfo *Theme_Info(int i)
+{
+    return &s_themes[i >= 0 && i < s_count ? i : 0].info;
+}
+
+bool Theme_IsAddOn(int i)
+{
+    return i >= BUILT_INS && i < s_count;
+}
+
+bool Theme_Use(int i)
+{
+    if (i < 0 || i >= s_count)
+        return false;
+    if (s_themes[i].failed)
     {
-        int i = (s_current + k) % s_count;
-        if (s_themes[i].failed)
-            continue;               // already said why
-        if (Use(i))
-        {
-            FILE *file = fopen(THEME_PATH, "w");
-            if (file != NULL)
-            {
-                fprintf(file, "%s\n", g_theme->id);
-                fclose(file);
-            }
-            break;
-        }
-        ok = false;
+        snprintf(s_error, sizeof(s_error), "%s: it couldn't be loaded before", s_themes[i].info.name);
+        return false;
     }
-    return ok;
+    if (!Use(i))
+        return false;
+    FILE *file = fopen(THEME_PATH, "w");
+    if (file != NULL)
+    {
+        fprintf(file, "%s\n", g_theme->id);
+        fclose(file);
+    }
+    return true;
 }
 
 const char *Theme_Error(void)

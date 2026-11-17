@@ -136,15 +136,22 @@ typedef struct
 
 void    Ui_Totals(UiTotals *t);
 
-// The settings menu (X): each line's name, its value now, and what it does.
+// The settings menu (X): each line's name, its value now, and what it does. Theme opens a list
+// of the themes (MENU_THEMES), drawn like the settings: g_menu says which list is showing,
+// g_menuScroll its first line shown.
 enum { SETTING_TRACKER, SETTING_PATCHED, SETTING_THEME, SETTING_COUNT };
+enum { MENU_SETTINGS, MENU_THEMES };
+extern int          g_menu;
+extern int          g_menuScroll;
 typedef struct
 {
     const char *name, *value, *description;
     bool        on;                 // the value is "on" (or a choice, like the theme)
 } UiSetting;
 
-void    Ui_Setting(int i, UiSetting *s);
+void    Ui_Setting(int i, UiSetting *s);       // line i of the list showing (g_menu)
+int     Ui_MenuCount(void);                    // its lines
+const char *Ui_MenuTitle(void);               // "Settings" or "Theme"
 
 // The button prompts in the bottom screen's corners: a button's name and what it does there
 // (key 0: none). main.c says which are shown; every theme shows them in the bottom-left and

@@ -7,6 +7,7 @@
 #include "store_file.h"
 #include "store_icon.h"
 #include "theme.h"
+#include "theme_api.h"
 #include "trophy.h"
 #include "update.h"
 
@@ -46,6 +47,9 @@ const char *g_appVersion;
 bool        g_appChanged;
 bool        g_trackerNotRestarted;
 bool        g_canRestart;
+
+int         g_menu;
+int         g_menuScroll;
 
 UiTab       g_tabs[2];
 int         g_tabPressed = -1;
@@ -383,8 +387,29 @@ void Ui_Totals(UiTotals *t)
     }
 }
 
+int Ui_MenuCount(void)
+{
+    return g_menu == MENU_THEMES ? Theme_Count() : SETTING_COUNT;
+}
+
+const char *Ui_MenuTitle(void)
+{
+    return g_menu == MENU_THEMES ? "Theme" : "Settings";
+}
+
 void Ui_Setting(int i, UiSetting *s)
 {
+    if (g_menu == MENU_THEMES)
+    {
+        // A theme: the one in use says so.
+        const ThemeInfo *info = Theme_Info(i);
+        s->name = info->name;
+        s->on = true;
+        s->value = i == Theme_Current() ? "In use" : "";
+        s->description = info->description[0] != '\0' ? info->description :
+                         Theme_IsAddOn(i) ? "An add-on theme." : "Comes with the app.";
+        return;
+    }
     switch (i)
     {
         case SETTING_TRACKER:
@@ -403,8 +428,7 @@ void Ui_Setting(int i, UiSetting *s)
             s->name = "Theme";
             s->on = true;
             s->value = g_theme->name;
-            snprintf(text, sizeof(text), "How the app looks: %d themes to choose from. A switches to the next one.",
-                     Theme_Count());
+            snprintf(text, sizeof(text), "How the app looks: %d themes to choose from. A shows them.", Theme_Count());
             s->description = text;
             return;
         }

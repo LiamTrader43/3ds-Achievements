@@ -221,15 +221,19 @@ THEME_FILES	:=	$(foreach id,$(THEME_IDS),themes/$(id).theme)
 THEME_CFLAGS	:=	-g -Wall -O2 -fPIC -fvisibility=hidden -ffunction-sections -fdata-sections $(ARCH) \
 			-I$(CURDIR)/source $(INCLUDE) -D__3DS__ -DTHEME_MODULE -DAPP_VERSION=\"$(VERSION)\"
 THEME_LDFLAGS	:=	-shared -nostdlib -Wl,--no-undefined -Wl,-z,defs -Wl,--gc-sections -T $(CURDIR)/themes/theme.ld
+THEME_FORMAT	:=	$(shell sed -n 's/^.define THEME_FILE_FORMAT *\([0-9]*\).*/\1/p' source/theme_api.h)
 
 themes: $(THEME_FILES)
 
 .PRECIOUS: themes/%.elf
-# (The file must end where its header says: a section left in by mistake would make it longer.)
+# (The file must end where its header says: a section left in by mistake would make it longer.
+# Its format number, written by themes/theme.ld, must be the app's THEME_FILE_FORMAT.)
 themes/%.theme: themes/%.elf
 	@$(OBJCOPY) -O binary -R .dynamic -R .hash -R .dynsym -R .dynstr $< $@
 	@[ $$(( $$(wc -c < $@) )) -eq $$(( $$(od -An -tu4 -j28 -N4 $@) )) ] || \
 		{ echo "$@: its size isn't the one in its header (themes/theme.ld)"; rm -f $@; false; }
+	@[ -n "$(THEME_FORMAT)" ] && [ $$(( $$(od -An -tu4 -j4 -N4 $@) )) -eq $(THEME_FORMAT) ] || \
+		{ echo "$@: format in its header isn't THEME_FILE_FORMAT $(THEME_FORMAT) (themes/theme.ld)"; rm -f $@; false; }
 	@echo built ... $@
 
 .SECONDEXPANSION:

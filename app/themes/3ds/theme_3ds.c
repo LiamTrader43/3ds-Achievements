@@ -978,7 +978,7 @@ static void DrawSettingsTop(int item)
     Draw_Depth(0);
     Draw_Rect(GFX_TOP, 0, 0, TOP_WIDTH, SCREEN_HEIGHT, CREAM);
     DrawStatusBar();
-    DrawHeader("Settings");
+    DrawHeader(Ui_MenuTitle());
     DrawDots(DOTS2_Y);
     DrawLegend(false);
     Draw_Depth(DEPTH_PANEL);
@@ -987,27 +987,32 @@ static void DrawSettingsTop(int item)
     const int x = TOP_PANEL_X + 18, width = TOP_PANEL_W - 36;
     Draw_Text(GFX_TOP, x, TOP_PANEL_Y + 22, 2, TITLE, set.name, 0);
     int bw = Draw_TextWidth(set.value, 1) + 10;
-    DrawBadge(GFX_TOP, x + width - bw, TOP_PANEL_Y + 28, set.value, set.on ? BADGE : BADGE_OFF);
+    if (set.value[0] != '\0')
+        DrawBadge(GFX_TOP, x + width - bw, TOP_PANEL_Y + 28, set.value, set.on ? BADGE : BADGE_OFF);
     Ui_DrawWrapped(GFX_TOP, x, TOP_PANEL_Y + 66, width, LINE_H + 5, TEXT, set.description, 4);
 }
 
 static void DrawSettingsBottom(int item)
 {
     Draw_Rect(GFX_BOTTOM, 0, 0, BOTTOM_WIDTH, SCREEN_HEIGHT, CREAM);
-    CentredText(GFX_BOTTOM, LIST_TITLE_Y, 1, TITLE, "Settings");
+    const int count = Ui_MenuCount();
+    CentredText(GFX_BOTTOM, LIST_TITLE_Y, 1, TITLE, Ui_MenuTitle());
     Draw_RoundRect(GFX_BOTTOM, LIST_PANEL_X, LIST_PANEL_Y, LIST_PANEL_W, LIST_PANEL_H, 10, PANEL);
-    for (int i = 0; i < SETTING_COUNT; i++)
+    for (int i = g_menuScroll; i < count && i < g_menuScroll + LIST_ROWS; i++)
     {
         UiSetting set;
         Ui_Setting(i, &set);
-        int y = LIST_TOP + i * ITEM_PITCH;
+        int y = LIST_TOP + (i - g_menuScroll) * ITEM_PITCH;
         DrawButton(GFX_BOTTOM, ITEM_X, y, ITEM_W, ITEM_H, ITEM_RADIUS);
         if (i == item)
             DrawCursor(GFX_BOTTOM, ITEM_X, y, ITEM_W, ITEM_H, ITEM_RADIUS);
         Draw_Text(GFX_BOTTOM, ITEM_X + 14, y + (ITEM_H - LINE_H) / 2, 1, TEXT, set.name, 0);
         int bw = Draw_TextWidth(set.value, 1) + 10;
-        DrawBadge(GFX_BOTTOM, ITEM_X + ITEM_W - 10 - bw, y + (ITEM_H - 15) / 2, set.value, set.on ? BADGE : BADGE_OFF);
+        if (set.value[0] != '\0')
+            DrawBadge(GFX_BOTTOM, ITEM_X + ITEM_W - 10 - bw, y + (ITEM_H - 15) / 2, set.value, set.on ? BADGE : BADGE_OFF);
     }
+    if (count > LIST_ROWS)
+        DrawPage(GFX_BOTTOM, BOTTOM_WIDTH / 2, BAR_Y, item + 1, count);
     DrawTabs();
 }
 
@@ -1041,6 +1046,7 @@ const Theme THEME_3DS =
 {
     .id = "3ds",
     .name = "3DS",
+    .description = "Like the 3DS's own System Settings: cream panels and the system's font.",
     .font = DRAW_FONT_SYSTEM,
     .listTop = LIST_TOP,
     .listHeight = LIST_ROWS * ITEM_PITCH,
@@ -1067,4 +1073,4 @@ const Theme THEME_3DS =
     .drawSettingsBottom = DrawSettingsBottom,
 };
 
-THEME_MODULE_DEFINE(THEME_3DS, "3ds", "3DS")
+THEME_MODULE_DEFINE(THEME_3DS, "3ds", "3DS", "Like the 3DS's own System Settings: cream panels and the system's font.")

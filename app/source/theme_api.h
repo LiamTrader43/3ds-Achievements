@@ -8,7 +8,8 @@
 //
 // Making one: a folder app/themes/<id>/ with its .c files (laid out like app/themes/3ds/, which
 // is preinstalled instead: Makefile BUILTIN_THEMES). Each includes the app's headers it needs,
-// then theme_module.h last, and ends with THEME_MODULE_DEFINE(itsTheme, "<id>", "<Name>").
+// then theme_module.h last, and ends with THEME_MODULE_DEFINE(itsTheme, "<id>", "<Name>",
+// "<what it looks like, in a line>").
 // `make` in app/ builds it into app/themes/<id>.theme (Makefile: "Theme add-ons"); that file
 // goes in /achievements/themes/. The same source can be compiled into the app instead.
 // A theme can use what the ThemeApi lists, the memory/string functions in
@@ -34,17 +35,18 @@
 #include "ui.h"
 #include "update.h"
 
-#define THEME_API_VERSION   1
-#define THEME_API_OLDEST    1
+#define THEME_API_VERSION   2       // 2: ThemeInfo.description, Theme.description/pickColumns, the menu (g_menu)
+#define THEME_API_OLDEST    2
 
 // What a theme says about itself (its THEME_MODULE_DEFINE), read before any of its code runs.
 #define THEME_INFO_MAGIC    "A3THEME"
-typedef struct
+typedef struct ThemeInfo
 {
     char    magic[8];           // THEME_INFO_MAGIC
     u32     apiVersion;         // the THEME_API_VERSION it was built for
     char    id[16];             // its id in theme.txt; the file is <id>.theme
     char    name[32];           // what the settings call it
+    char    description[96];    // what it looks like, in a line (the theme list shows it)
 } ThemeInfo;
 
 // The .theme file, made by the linker (app/themes/theme.ld, whose header words and numbers
@@ -56,7 +58,7 @@ typedef struct
 // end marker's end), so nothing in it is padding. Each relocation (8 bytes: memory offset,
 // type 23 = add where the theme was loaded) changes a word of the data part.
 #define THEME_FILE_MAGIC    0x48543341      // "A3TH"
-#define THEME_FILE_FORMAT   1
+#define THEME_FILE_FORMAT   2       // 2: ThemeInfo has a description
 #define THEME_FILE_END      0x444E4554      // "TEND"
 typedef struct
 {
@@ -88,7 +90,8 @@ typedef struct
     X(snprintf) X(vsnprintf) X(strftime) X(time) X(gmtime) \
     X(Draw_TrophyScaled) \
     X(Ui_StorePosition) X(Ui_RowPositions) X(Ui_IsStore) X(Ui_StoreIcon) \
-    X(Store_Count) X(Store_Item) X(Store_Owned) X(Store_OwnedCount)
+    X(Store_Count) X(Store_Item) X(Store_Owned) X(Store_OwnedCount) \
+    X(Ui_MenuCount) X(Ui_MenuTitle)
 
 // The app's globals (ui.h) a theme reads. They're the app's: a theme doesn't change them.
 #define THEME_API_DATA(X) \
@@ -98,7 +101,8 @@ typedef struct
     X(g_hero) X(g_heroDim) X(g_heroReady) \
     X(g_trackerRunning) X(g_patchedAllowed) X(g_popup) X(g_popupResult) \
     X(g_tabs) X(g_tabPressed) \
-    X(g_storeTile) X(g_coins) X(g_rewards) X(g_buyItem) X(g_paidOwed)
+    X(g_storeTile) X(g_coins) X(g_rewards) X(g_buyItem) X(g_paidOwed) \
+    X(g_menu) X(g_menuScroll)
 
 // A pointer to each of them, in the lists' order.
 typedef struct ThemeApi

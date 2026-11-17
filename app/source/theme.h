@@ -19,6 +19,7 @@ typedef struct
 {
     const char *id;             // in theme.txt
     const char *name;           // what it's called
+    const char *description;    // what it looks like, in a line (the settings' theme list)
     int         font;           // the text's face (DRAW_FONT_*)
 
     // The bottom screen's list of achievements, for scrolling, the selection and taps: boxes
@@ -86,17 +87,20 @@ extern const Theme *g_theme;
 // used; Theme_Error says why).
 bool            Theme_Load(void);
 
-// How many themes there are to choose from: the preinstalled ones and the add-ons found.
+// The themes to choose from: the preinstalled ones, then the add-ons found (by name). Which is in
+// use, what each says about itself, and whether it's an add-on.
 int             Theme_Count(void);
+int             Theme_Current(void);
+const struct ThemeInfo *Theme_Info(int i);     // (theme_api.h)
+bool            Theme_IsAddOn(int i);
 
 // Adds the add-ons that appeared since the app opened (a theme just bought in the store); the
 // theme in use stays.
 void            Theme_Rescan(void);
 
-// Switches to the next theme that loads (after the last, modern) and saves it in theme.txt.
-// False if one couldn't be loaded on the way: Theme_Error says which and why (and the switch
-// went on to the one after it, if any).
-bool            Theme_UseNext(void);
+// Uses theme i from now on (loading it first if it's an add-on) and saves it in theme.txt.
+// False if it couldn't be loaded (Theme_Error says why); the theme in use stays.
+bool            Theme_Use(int i);
 
 // Why the last theme that failed to load couldn't be: "<name>: <reason>".
 const char     *Theme_Error(void);
