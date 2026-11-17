@@ -71,6 +71,14 @@ static const Color DIALOG_EDGE = { 190, 182, 130 };
 #define INFO_W          (TOP_PANEL_X + TOP_PANEL_W - 14 - INFO_X)
 #define DOTS2_Y         210
 #define LEGEND_Y        219
+// 3D (Draw_Depth: in front of the screen > 0 > behind it): the page (status bar, title, dotted
+// lines, legend) at the screen, the sunken panel and what's written on it a little behind, the
+// games' icons in front of it, the highlighted one furthest, popups in front of everything.
+#define DEPTH_PANEL     -4
+#define DEPTH_ICON      -1              // a game in the row that isn't highlighted
+#define DEPTH_BIG_ICON  4               // the game's icon once it's open
+#define DEPTH_SELECTED  6               // the highlighted game in the row, and its cursor
+#define DEPTH_ARROW     2               // the arrow tabs at the sides
 #define DEPTH_POPUP     8
 
 // Bottom screen.
@@ -290,6 +298,7 @@ static void DrawSideArrow(int dir)
 {
     const int cy = TOP_PANEL_Y + TOP_PANEL_H / 2, r = 16;
     int cx = dir < 0 ? -3 : TOP_WIDTH + 2;
+    Draw_Depth(DEPTH_ARROW);
     Draw_RoundRect(GFX_TOP, cx - r - 1, cy - r - 1, 2 * r + 2, 2 * r + 2, r + 1, ARROW_EDGE);
     Draw_RoundRect(GFX_TOP, cx - r, cy - r, 2 * r, 2 * r, r, ARROW);
     DrawArrow(GFX_TOP, dir < 0 ? cx + 7 : cx - 8, cy, 5, dir, WHITE);
@@ -301,14 +310,17 @@ static void DrawGame(const Game *g, int selected)
 
     if (g->hasIcon)
     {
-        Draw_Shadow(GFX_TOP, BIG_ICON_X - 2, BIG_ICON_Y - 2, BIG_ICON + 4, BIG_ICON + 4, 14, 6, 3, 90, 0);
+        Draw_Shadow(GFX_TOP, BIG_ICON_X - 2, BIG_ICON_Y - 2, BIG_ICON + 4, BIG_ICON + 4, 14, 6, 3, 90, DEPTH_BIG_ICON);
+        Draw_Depth(DEPTH_BIG_ICON);
         Draw_IconScaled(GFX_TOP, BIG_ICON_X, BIG_ICON_Y, BIG_ICON, 12, g->icon, 0, &WHITE, 0);
     }
     else
     {
+        Draw_Depth(DEPTH_BIG_ICON);
         Draw_RoundRect(GFX_TOP, BIG_ICON_X, BIG_ICON_Y, BIG_ICON, BIG_ICON, 12, TRACK);
         Ui_DrawWrapped(GFX_TOP, BIG_ICON_X + 8, BIG_ICON_Y + 8, BIG_ICON - 16, LINE_H + 4, TEXT, g->title, 4);
     }
+    Draw_Depth(DEPTH_PANEL);
 
     // Its name, large if it fits.
     int y = TOP_PANEL_Y + 30;
@@ -363,9 +375,11 @@ static void DrawLegend(bool buttons)
 // the blue cursor around it.
 static void DrawRowIcon(const Game *g, int x, int y, int size, bool highlighted)
 {
-    int radius = size / 8;
+    int radius = size / 8, depth = highlighted ? DEPTH_SELECTED : DEPTH_ICON;
+    Draw_Depth(DEPTH_PANEL);
     if (highlighted)
-        Draw_Shadow(GFX_TOP, x - 2, y - 2, size + 4, size + 4, radius + 2, 6, 3, 90, 0);
+        Draw_Shadow(GFX_TOP, x - 2, y - 2, size + 4, size + 4, radius + 2, 6, 3, 90, depth);
+    Draw_Depth(depth);
     if (g->hasIcon)
         Draw_IconScaled(GFX_TOP, x, y, size, radius, g->icon, 0, &WHITE, 0);
     else
@@ -389,14 +403,20 @@ static void DrawGameRow(int selected)
     int shown = g_gameCount - first < ROW_SHOWN ? g_gameCount - first : ROW_SHOWN, width = 0;
     for (int i = first; i < first + shown; i++)
         width += (i == selected ? ROW_ICON_BIG : ROW_ICON) + (i > first ? ROW_GAP : 0);
-    int x = (TOP_WIDTH - width) / 2;
+    // The others first, the highlighted one over them (in 3D it comes forward, toward them).
+    int x = (TOP_WIDTH - width) / 2, selectedX = x;
     for (int i = first; i < first + shown; i++)
     {
         int size = i == selected ? ROW_ICON_BIG : ROW_ICON;
-        DrawRowIcon(&g_games[i], x, ROW_MIDDLE - size / 2, size, i == selected);
+        if (i == selected)
+            selectedX = x;
+        else
+            DrawRowIcon(&g_games[i], x, ROW_MIDDLE - size / 2, size, false);
         x += size + ROW_GAP;
     }
+    DrawRowIcon(&g_games[selected], selectedX, ROW_MIDDLE - ROW_ICON_BIG / 2, ROW_ICON_BIG, true);
 
+    Draw_Depth(DEPTH_PANEL);
     const Game *g = &g_games[selected];
     Ui_EllipsizeScaled(text, sizeof(text), g->title, TOP_PANEL_W - 24, 2);
     CentredText(GFX_TOP, ROW_CAPTION_Y, 2, TITLE, text);
@@ -416,9 +436,10 @@ static void DrawTop(int selected, int heroLevel)
     Draw_Rect(GFX_TOP, 0, 0, TOP_WIDTH, SCREEN_HEIGHT, CREAM);
     DrawStatusBar();
     DrawHeader("3DS Achievements");
-    Draw_RoundRect(GFX_TOP, TOP_PANEL_X, TOP_PANEL_Y, TOP_PANEL_W, TOP_PANEL_H, 10, PANEL);
     DrawDots(DOTS2_Y);
     DrawLegend(true);
+    Draw_Depth(DEPTH_PANEL);
+    Draw_RoundRect(GFX_TOP, TOP_PANEL_X, TOP_PANEL_Y, TOP_PANEL_W, TOP_PANEL_H, 10, PANEL);
 
     if (g_gameCount == 0)
     {
@@ -770,9 +791,10 @@ static void DrawSettingsTop(int item)
     Draw_Rect(GFX_TOP, 0, 0, TOP_WIDTH, SCREEN_HEIGHT, CREAM);
     DrawStatusBar();
     DrawHeader("Settings");
-    Draw_RoundRect(GFX_TOP, TOP_PANEL_X, TOP_PANEL_Y, TOP_PANEL_W, TOP_PANEL_H, 10, PANEL);
     DrawDots(DOTS2_Y);
     DrawLegend(false);
+    Draw_Depth(DEPTH_PANEL);
+    Draw_RoundRect(GFX_TOP, TOP_PANEL_X, TOP_PANEL_Y, TOP_PANEL_W, TOP_PANEL_H, 10, PANEL);
 
     const int x = TOP_PANEL_X + 18, width = TOP_PANEL_W - 36;
     Draw_Text(GFX_TOP, x, TOP_PANEL_Y + 22, 2, TITLE, set.name, 0);
