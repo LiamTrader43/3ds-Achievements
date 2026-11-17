@@ -92,6 +92,16 @@ static Result Stop(void)
     return res;
 }
 
+Result Tracker_Restart(void)
+{
+    if (!Tracker_Running())
+        return 0;
+    Result res = Stop();
+    if (Tracker_Running())
+        return R_FAILED(res) ? res : MAKERESULT(RL_TEMPORARY, RS_INVALIDSTATE, RM_APPLICATION, RD_TIMEOUT);
+    return Tracker_Start();
+}
+
 Result Tracker_SetEnabled(bool enabled)
 {
     if (enabled)

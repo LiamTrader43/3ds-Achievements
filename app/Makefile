@@ -35,10 +35,18 @@ TARGET		:=	achievements-viewer
 APP_TITLE	:=	Achievements
 APP_DESCRIPTION	:=	Starts the tracker and shows your achievements
 APP_AUTHOR	:=	LiamTrader43
+# The app's version: the release tag without its "v" (v1.4.0 -> 1.4.0). The app offers to
+# update itself when GitHub's latest release is newer than this, so raise it for every release.
+VERSION		:=	1.4.0
 BUILD		:=	build
-SOURCES		:=	source qrcodegen ../sysmodule/tracker/rcheevos/src ../sysmodule/tracker/rcheevos/src/rcheevos
+# Themes (source/theme.h): modern is in source/, every other theme is a folder themes/<id>/.
+# The ones listed here are preinstalled: compiled into the app (each also needs its Theme in
+# BUILT_IN in source/theme.c). The other folders are built as add-ons ("Theme add-ons" below).
+BUILTIN_THEMES	:=	3ds
+SOURCES		:=	source qrcodegen ../sysmodule/tracker/rcheevos/src ../sysmodule/tracker/rcheevos/src/rcheevos \
+			$(foreach id,$(BUILTIN_THEMES),themes/$(id))
 DATA		:=	data
-INCLUDES	:=	include qrcodegen ../sysmodule/tracker/source ../sysmodule/tracker/rcheevos/include ../sysmodule/tracker/rcheevos/src ../sysmodule/tracker/rcheevos/src/rcheevos
+INCLUDES	:=	include source qrcodegen ../sysmodule/tracker/source ../sysmodule/tracker/rcheevos/include ../sysmodule/tracker/rcheevos/src ../sysmodule/tracker/rcheevos/src/rcheevos
 GRAPHICS	:=	gfx
 GFXBUILD	:=	$(BUILD)
 #ROMFS		:=	romfs
@@ -53,7 +61,7 @@ CFLAGS	:=	-g -Wall -O2 -mword-relocations \
 			-ffunction-sections \
 			$(ARCH)
 
-CFLAGS	+=	$(INCLUDE) -D__3DS__
+CFLAGS	+=	$(INCLUDE) -D__3DS__ -DAPP_VERSION=\"$(VERSION)\"
 
 # make BENCH=1: a drawing benchmark instead of the app (app/source/bench.h).
 ifneq ($(BENCH),)
@@ -168,10 +176,10 @@ ifneq ($(ROMFS),)
 	export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
 endif
 
-.PHONY: all clean cia
+.PHONY: all clean cia themes
 
 #---------------------------------------------------------------------------------
-all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
+all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES) themes
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 $(BUILD):
@@ -198,9 +206,38 @@ cia: all
 	@echo built ... $(TARGET).cia
 
 #---------------------------------------------------------------------------------
+# Theme add-ons (source/theme_api.h): each themes/<id>/ folder not in BUILTIN_THEMES is built on
+# its own into themes/<id>.theme, for /achievements/themes on the SD card. Not part of the app.
+# Linked by themes/theme.ld into the .theme format (our header first, the code on pages of its
+# own), then objcopy keeps only those bytes; themes/<id>.elf stays, for looking up crash
+# addresses. (A preinstalled theme can still be built as one, e.g. make themes/3ds.theme, to
+# test the loader; the app skips an add-on with a preinstalled theme's id.)
+#---------------------------------------------------------------------------------
+THEME_IDS	:=	$(filter-out $(BUILTIN_THEMES),$(patsubst themes/%/,%,$(sort $(dir $(wildcard themes/*/*.c)))))
+THEME_FILES	:=	$(foreach id,$(THEME_IDS),themes/$(id).theme)
+THEME_CFLAGS	:=	-g -Wall -O2 -fPIC -fvisibility=hidden -ffunction-sections -fdata-sections $(ARCH) \
+			-I$(CURDIR)/source $(INCLUDE) -D__3DS__ -DTHEME_MODULE -DAPP_VERSION=\"$(VERSION)\"
+THEME_LDFLAGS	:=	-shared -nostdlib -Wl,--no-undefined -Wl,-z,defs -Wl,--gc-sections -T $(CURDIR)/themes/theme.ld
+
+themes: $(THEME_FILES)
+
+.PRECIOUS: themes/%.elf
+# (The file must end where its header says: a section left in by mistake would make it longer.)
+themes/%.theme: themes/%.elf
+	@$(OBJCOPY) -O binary -R .dynamic -R .hash -R .dynsym -R .dynstr $< $@
+	@[ $$(( $$(wc -c < $@) )) -eq $$(( $$(od -An -tu4 -j28 -N4 $@) )) ] || \
+		{ echo "$@: its size isn't the one in its header (themes/theme.ld)"; rm -f $@; false; }
+	@echo built ... $@
+
+.SECONDEXPANSION:
+themes/%.elf: $$(wildcard themes/$$*/*.c) themes/module_rt.c themes/theme.ld $(wildcard source/*.h)
+	@echo $(notdir $@)
+	@$(CC) $(THEME_CFLAGS) $(THEME_LDFLAGS) -o $@ $(filter %.c,$^) -lgcc
+
+#---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD)
+	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD) $(wildcard themes/*.theme themes/*.elf)
 
 #---------------------------------------------------------------------------------
 $(GFXBUILD)/%.t3x	$(BUILD)/%.h	:	%.t3s

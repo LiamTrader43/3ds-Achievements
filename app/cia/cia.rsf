@@ -126,6 +126,7 @@ AccessControlInfo:
     GetDmaState: 87
     RestartDma: 88
     GetProcessList: 101
+    ControlProcessMemory: 112     # making theme add-ons' code runnable (theme_loader.c)
     Backdoor: 123
   InterruptNumbers:
   ServiceAccessControl:

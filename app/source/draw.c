@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "bench.h"
@@ -33,6 +34,9 @@ static int   s_shift;   // how far what's drawn now on the top screen is moved t
 static int s_dirty0[3], s_dirty1[3];
 
 static u8 s_cover16[256];   // a font alpha (0-255) as a coverage (0-16)
+
+// The rows drawing may touch (Draw_ClipRows): s_clipY0 to s_clipY1, exclusive.
+static int s_clipY0 = 0, s_clipY1 = SCREEN_HEIGHT;
 
 static void InitCorners(void);
 static void InitSolid(void);
@@ -157,7 +161,7 @@ static inline u8 *Pixel(gfxScreen_t screen, int x, int y)
 {
     if (screen == GFX_TOP)
         x += s_shift;
-    if (x < 0 || y < 0 || x >= Draw_Width(screen) || y >= SCREEN_HEIGHT)
+    if (x < 0 || y < s_clipY0 || x >= Draw_Width(screen) || y >= s_clipY1)
         return NULL;
     return At(screen, x, y);
 }
@@ -270,16 +274,22 @@ static inline int Coverage(int x, int y, int w, int h, int radius)
     return radius <= CORNER_MAX ? s_corner[radius][cy][cx] : SlowCoverage(x, y, w, h, radius);
 }
 
-// The part of a w x h box at (x, y) that's on the screen, as offsets into the box:
-// columns *dx0 to *dx1, rows *dy0 to *dy1 (exclusive). x is already moved by the depth.
-// False if none of it is.
+// The part of a w x h box at (x, y) that's on the screen (and in the rows Draw_ClipRows
+// allows), as offsets into the box: columns *dx0 to *dx1, rows *dy0 to *dy1 (exclusive). x is
+// already moved by the depth. False if none of it is.
 static bool Clip(gfxScreen_t screen, int x, int y, int w, int h, int *dx0, int *dx1, int *dy0, int *dy1)
 {
     *dx0 = x < 0 ? -x : 0;
-    *dy0 = y < 0 ? -y : 0;
+    *dy0 = y < s_clipY0 ? s_clipY0 - y : 0;
     *dx1 = x + w > Draw_Width(screen) ? Draw_Width(screen) - x : w;
-    *dy1 = y + h > SCREEN_HEIGHT ? SCREEN_HEIGHT - y : h;
+    *dy1 = y + h > s_clipY1 ? s_clipY1 - y : h;
     return *dx0 < *dx1 && *dy0 < *dy1;
+}
+
+void Draw_ClipRows(int y0, int y1)
+{
+    s_clipY0 = y0 < 0 ? 0 : y0;
+    s_clipY1 = y1 > SCREEN_HEIGHT ? SCREEN_HEIGHT : y1;
 }
 
 static inline int Shifted(gfxScreen_t screen, int x)
@@ -308,6 +318,37 @@ void Draw_RoundRect(gfxScreen_t screen, int x, int y, int w, int h, int radius, 
     }
 }
 
+// The colour of a vertical fade from top (row y0) to bottom (row y1) at row y.
+static inline Color GradientAt(int y, int y0, int y1, Color top, Color bottom)
+{
+    int span = y1 - y0 > 1 ? y1 - y0 - 1 : 1, t = y - y0;
+    return (Color){ (u8)(top.r + (bottom.r - top.r) * t / span), (u8)(top.g + (bottom.g - top.g) * t / span),
+                    (u8)(top.b + (bottom.b - top.b) * t / span) };
+}
+
+void Draw_RoundRectGradient(gfxScreen_t screen, int x, int y, int w, int h, int radius, Color top, Color bottom)
+{
+    int   dx0, dx1, dy0, dy1;
+    Color rows[SCREEN_HEIGHT];
+    x = Shifted(screen, x);
+    if (!Clip(screen, x, y, w, h, &dx0, &dx1, &dy0, &dy1))
+        return;
+    for (int dy = dy0; dy < dy1; dy++)
+        rows[dy - dy0] = GradientAt(dy, 0, h, top, bottom);
+    for (int dx = dx0; dx < dx1; dx++)
+    {
+        bool cornerColumn = dx < radius || dx >= w - radius;
+        u8  *p = At(screen, x + dx, y + dy0);
+        for (int dy = dy0; dy < dy1; dy++, p -= 3)
+        {
+            if (cornerColumn && (dy < radius || dy >= h - radius))
+                Mixed(p, rows[dy - dy0], Coverage(dx, dy, w, h, radius));
+            else
+                Put(p, rows[dy - dy0]);
+        }
+    }
+}
+
 void Draw_Rect(gfxScreen_t screen, int x, int y, int w, int h, Color color)
 {
     int dx0, dx1, dy0, dy1;
@@ -322,11 +363,158 @@ void Draw_Rect(gfxScreen_t screen, int x, int y, int w, int h, Color color)
     }
 }
 
+// ---- Text faces: Inter (font_inter.h), or the 3DS's own system font, which libctru maps from
+// the console's shared memory. That one is drawn once into glyph images like Inter's, at the
+// two sizes text comes in, so text is drawn the same way in either.
+
+typedef struct
+{
+    const FontGlyph     *glyphs;    // ' ' to '~'
+    const unsigned char *alpha;     // their images, 0-255 per pixel
+} Face;
+
+static const Face INTER[2] = { { font13_glyphs, font13_alpha }, { font26_glyphs, font26_alpha } };
+static Face s_faces[2] = { { font13_glyphs, font13_alpha }, { font26_glyphs, font26_alpha } };     // scale 1, 2
+
+// The system font at scale 1 and 2: how much smaller than it's stored (its capitals are 19
+// pixels tall: about 9.5 at scale 1, as System Settings' lists show them), and how far below
+// the line's top the baseline goes (where Inter's is, so text sits where it did).
+static const float SYSTEM_SCALE[2] = { 0.5f, 0.8f };
+static const int   SYSTEM_BASELINE[2] = { 10, 20 };
+#define FACE_GLYPHS 95
+static FontGlyph      s_systemGlyphs[2][FACE_GLYPHS];
+static unsigned char *s_systemAlpha[2];
+static int            s_systemState;    // 0: not tried yet, 1: ready, -1: couldn't be read
+
+// Coverage (0-15) of texel (x, y) of a font sheet: 8x8 tiles, each in Z-order.
+static int SheetTexel(const TGLP_s *t, int sheet, int x, int y)
+{
+    const u8 *data = t->sheetData + sheet * t->sheetSize;
+    int tile = (y >> 3) * (t->sheetWidth >> 3) + (x >> 3), lx = x & 7, ly = y & 7;
+    int i = tile * 64 + ((lx & 1) | ((ly & 1) << 1) | ((lx & 2) << 1) | ((ly & 2) << 2) | ((lx & 4) << 2) | ((ly & 4) << 3));
+    if (t->sheetFmt == GPU_A8)
+        return data[i] >> 4;
+    u8 b = data[i >> 1];
+    return (i & 1) ? b >> 4 : b & 15;
+}
+
+// Draws the system font's ' ' to '~' at size (0: scale 1, 1: scale 2) into glyph images.
+static bool BuildSystemFace(CFNT_s *font, int size)
+{
+    const TGLP_s *t = fontGetGlyphInfo(font);
+    const float   s = SYSTEM_SCALE[size];
+    const int     maxW = (int)(t->cellWidth * s) + 3, maxH = (int)(t->cellHeight * s) + 3;
+    unsigned char *alpha = malloc(FACE_GLYPHS * maxW * maxH), *cell = malloc(maxW * maxH);
+    unsigned int  used = 0;
+
+    if (alpha == NULL || cell == NULL)
+    {
+        free(alpha);
+        free(cell);
+        return false;
+    }
+    for (int c = 32; c < 32 + FACE_GLYPHS; c++)
+    {
+        int index = fontGlyphIndexFromCodePoint(font, c);
+        const charWidthInfo_s *w = fontGetCharWidthInfo(font, index);
+        int per = t->nRows * t->nLines, sheet = index / per, at = index % per;
+        int sx0 = (at % t->nRows) * (t->cellWidth + 1) + 1, sy0 = (at / t->nRows) * (t->cellHeight + 1) + 1;
+
+        // The glyph's cell, scaled, with its left edge where the character says from the pen and
+        // the baseline at SYSTEM_BASELINE; each pixel the average of 16 points in it.
+        float left = w->left * s, top = SYSTEM_BASELINE[size] - t->baselinePos * s;
+        int   x0 = (int)floorf(left), y0 = (int)floorf(top);
+        float fx = left - x0, fy = top - y0;
+        int   cw = (int)ceilf(fx + w->glyphWidth * s), ch = (int)ceilf(fy + t->cellHeight * s);
+        cw = cw > maxW ? maxW : cw;
+        ch = ch > maxH ? maxH : ch;
+        int minX = cw, maxX = -1, minY = ch, maxY = -1;
+        for (int oy = 0; oy < ch; oy++)
+            for (int ox = 0; ox < cw; ox++)
+            {
+                int sum = 0;
+                for (int sy = 0; sy < 4; sy++)
+                {
+                    float gy = (oy + (sy + 0.5f) / 4 - fy) / s;
+                    if (gy < 0 || gy >= t->cellHeight)
+                        continue;
+                    for (int sx = 0; sx < 4; sx++)
+                    {
+                        float gx = (ox + (sx + 0.5f) / 4 - fx) / s;
+                        if (gx >= 0 && gx < w->glyphWidth)
+                            sum += SheetTexel(t, sheet, sx0 + (int)gx, sy0 + (int)gy);
+                    }
+                }
+                int a = sum * 255 / (16 * 15);
+                cell[oy * cw + ox] = (unsigned char)a;
+                if (a != 0)
+                {
+                    minX = ox < minX ? ox : minX, maxX = ox > maxX ? ox : maxX;
+                    minY = oy < minY ? oy : minY, maxY = oy > maxY ? oy : maxY;
+                }
+            }
+
+        // Kept trimmed to what has ink.
+        FontGlyph *g = &s_systemGlyphs[size][c - 32];
+        unsigned short advance = (unsigned short)lroundf(w->charWidth * s * 64);
+        if (maxX < 0)
+        {
+            *g = (FontGlyph){ 0, 0, 0, 0, advance, (unsigned short)used };
+            continue;
+        }
+        int gw = maxX - minX + 1, gh = maxY - minY + 1;
+        if (used + gw * gh > 0xFFFF)
+        {
+            free(alpha);
+            free(cell);
+            return false;           // more than a glyph's offset can reach
+        }
+        for (int row = 0; row < gh; row++)
+            memcpy(alpha + used + row * gw, cell + (minY + row) * cw + minX, gw);
+        *g = (FontGlyph){ (signed char)(x0 + minX), (signed char)(y0 + minY), (unsigned char)gw, (unsigned char)gh,
+                          advance, (unsigned short)used };
+        used += gw * gh;
+    }
+    free(cell);
+    s_systemAlpha[size] = alpha;
+    return true;
+}
+
+// The system font's faces, made the first time they're asked for.
+static bool SystemFontReady(void)
+{
+    if (s_systemState == 0)
+    {
+        s_systemState = -1;
+        if (R_SUCCEEDED(fontEnsureMapped()))
+        {
+            CFNT_s       *font = fontGetSystemFont();
+            const TGLP_s *t = font != NULL ? fontGetGlyphInfo(font) : NULL;
+            if (t != NULL && (t->sheetFmt == GPU_A4 || t->sheetFmt == GPU_A8) && BuildSystemFace(font, 0) &&
+                BuildSystemFace(font, 1))
+                s_systemState = 1;
+        }
+    }
+    return s_systemState > 0;
+}
+
+int Draw_SetFont(int font)
+{
+    if (font == DRAW_FONT_SYSTEM && SystemFontReady())
+    {
+        for (int i = 0; i < 2; i++)
+            s_faces[i] = (Face){ s_systemGlyphs[i], s_systemAlpha[i] };
+        return DRAW_FONT_SYSTEM;
+    }
+    s_faces[0] = INTER[0], s_faces[1] = INTER[1];
+    return DRAW_FONT_INTER;
+}
+
 static const FontGlyph *Glyph(int scale, unsigned char c)
 {
     if (c < 32 || c > 126)
         c = '?';
-    return scale >= 2 ? &font26_glyphs[c - 32] : &font13_glyphs[c - 32];
+    return &s_faces[scale >= 2 ? 1 : 0].glyphs[c - 32];
 }
 
 // The pen moves in 1/64 pixels; a position is rounded to the nearest pixel.
@@ -365,7 +553,7 @@ int Draw_Text(gfxScreen_t screen, int x, int y, int scale, Color color, const ch
         const FontGlyph *g = Glyph(scale, (unsigned char)*s);
         if (Pixels(pen64 + g->adv64) > limit)
             break;
-        const unsigned char *alpha = (scale >= 2 ? font26_alpha : font13_alpha) + g->off;
+        const unsigned char *alpha = s_faces[scale >= 2 ? 1 : 0].alpha + g->off;
         int gx = Shifted(screen, Pixels(pen64) + g->x), gy = y + g->y, dx0, dx1, dy0, dy1;
         if (Clip(screen, gx, gy, g->w, g->h, &dx0, &dx1, &dy0, &dy1))
             for (int col = dx0; col < dx1; col++)
@@ -541,6 +729,105 @@ void Draw_TrophyIcon(gfxScreen_t screen, int x, int y, const u16 *icon)
         for (int dy = dy0; dy < dy1; dy++, p -= 3)
             if (!d->black[dy][dx])          // the black around the trophy's rounded square
                 Put(p, d->image[dy][dx]);
+    }
+}
+
+// Trophies drawn smaller than the art: each pixel the average of the part of the art it covers,
+// the black around the trophy's rounded square see-through, so the corners and edges come out
+// smooth (a bilinear tile would blend that black into the edge). The last few kept.
+#define TROPHY_SLOTS    4
+#define TROPHY_TAPS     8               // source pixels along one side of an output pixel, at most
+typedef struct
+{
+    const u16  *icon;
+    u32         sample, used;
+    int         size;
+    u8          bgra[ICON_SIZE * ICON_SIZE][4];     // [y * size + x]: B, G, R, how much is trophy (of 255)
+} ScaledTrophy;
+static ScaledTrophy s_trophies[TROPHY_SLOTS];
+
+static const ScaledTrophy *ScaleTrophy(const u16 *icon, int size)
+{
+    u32 sample = IconSample(icon);
+    ScaledTrophy *slot = NULL;
+    for (int i = 0; i < TROPHY_SLOTS; i++)
+    {
+        ScaledTrophy *t = &s_trophies[i];
+        if (t->icon == icon && t->sample == sample && t->size == size)
+        {
+            t->used = ++s_clock;
+            return t;
+        }
+        if (slot == NULL || t->used < slot->used)
+            slot = t;
+    }
+
+    // Along each side: the art's pixels under output pixel o and how much of each (256ths).
+    const DecodedIcon *d = Decode(icon);
+    u8  first[ICON_SIZE], taps[ICON_SIZE];
+    u16 weight[ICON_SIZE][TROPHY_TAPS];
+    for (int o = 0; o < size; o++)
+    {
+        int a = o * ICON_SIZE * 256 / size, b = (o + 1) * ICON_SIZE * 256 / size;
+        first[o] = (u8)(a >> 8);
+        taps[o] = 0;
+        for (int s = a >> 8; s * 256 < b && taps[o] < TROPHY_TAPS; s++)
+        {
+            int lo = a > s * 256 ? a : s * 256, hi = b < (s + 1) * 256 ? b : (s + 1) * 256;
+            weight[o][taps[o]++] = (u16)(hi - lo);
+        }
+    }
+    slot->icon = icon, slot->sample = sample, slot->used = ++s_clock, slot->size = size;
+    for (int oy = 0; oy < size; oy++)
+        for (int ox = 0; ox < size; ox++)
+        {
+            u32 b = 0, g = 0, r = 0, covered = 0, all = 0;
+            for (int ty = 0; ty < taps[oy]; ty++)
+                for (int tx = 0; tx < taps[ox]; tx++)
+                {
+                    u32 w = (u32)weight[oy][ty] * weight[ox][tx];
+                    int sy = first[oy] + ty, sx = first[ox] + tx;
+                    all += w;
+                    if (d->black[sy][sx])
+                        continue;
+                    Color c = d->image[sy][sx];
+                    b += c.b * w, g += c.g * w, r += c.r * w, covered += w;
+                }
+            u8 *out = slot->bgra[oy * size + ox];
+            out[0] = covered ? (u8)(b / covered) : 0;
+            out[1] = covered ? (u8)(g / covered) : 0;
+            out[2] = covered ? (u8)(r / covered) : 0;
+            out[3] = all ? (u8)(covered * 255 / all) : 0;
+        }
+    return slot;
+}
+
+void Draw_TrophyScaled(gfxScreen_t screen, int x, int y, int size, const u16 *icon)
+{
+    if (size >= ICON_SIZE)
+    {
+        Draw_TrophyIcon(screen, x, y, icon);
+        return;
+    }
+    if (size < ICON_SIZE / TROPHY_TAPS + 1)
+        return;
+    const ScaledTrophy *t = ScaleTrophy(icon, size);
+    int dx0, dx1, dy0, dy1;
+    x = Shifted(screen, x);
+    if (!Clip(screen, x, y, size, size, &dx0, &dx1, &dy0, &dy1))
+        return;
+    for (int dx = dx0; dx < dx1; dx++)
+    {
+        u8 *p = At(screen, x + dx, y + dy0);
+        for (int dy = dy0; dy < dy1; dy++, p -= 3)
+        {
+            const u8 *s = t->bgra[dy * size + dx];
+            int a = s[3];
+            if (a == 0)
+                continue;
+            for (int k = 0; k < 3; k++)
+                p[k] = (u8)((p[k] * (255 - a) + s[k] * a + 127) / 255);
+        }
     }
 }
 
@@ -1250,14 +1537,6 @@ bool Draw_StampAgain(const DrawStamp *s)
         }
     }
     return true;
-}
-
-// The colour of a vertical fade from top (row y0) to bottom (row y1) at row y.
-static inline Color GradientAt(int y, int y0, int y1, Color top, Color bottom)
-{
-    int span = y1 - y0 > 1 ? y1 - y0 - 1 : 1, t = y - y0;
-    return (Color){ (u8)(top.r + (bottom.r - top.r) * t / span), (u8)(top.g + (bottom.g - top.g) * t / span),
-                    (u8)(top.b + (bottom.b - top.b) * t / span) };
 }
 
 void Draw_Gradient(gfxScreen_t screen, int y0, int y1, Color top, Color bottom)

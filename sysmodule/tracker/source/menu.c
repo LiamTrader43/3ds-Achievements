@@ -66,7 +66,8 @@ static const Rgb DARK = { 50, 50, 58 };
 static const Rgb SCROLLBAR = { 110, 110, 120 };
 
 // The game's own achievement icons (/achievements/<TitleID>/trophy.bin), if it has any.
-static u16  s_gameIcons[2 * ICON_PIXELS + 1];       // one spare: the file reader ends with a '\0'
+// Only held while the menu is open.
+static u16 *s_gameIcons;
 static bool s_hasGameIcons;
 
 static void ReadButtonsKernel(u32 *out)
@@ -285,8 +286,19 @@ static void LoadGameIcons(u64 titleId)
     char path[64];
     u32  length = 0;
 
+    // Room for one byte more than the file should have (a longer file is wrong), and
+    // the '\0' the file reader ends with.
+    s_gameIcons = malloc(ICON_FILE_BYTES + 2);
     snprintf(path, sizeof(path), "/achievements/%016llX/trophy.bin", (unsigned long long)titleId);
-    s_hasGameIcons = Platform_ReadFile(path, (char *)s_gameIcons, sizeof(s_gameIcons), &length) && length == ICON_FILE_BYTES;
+    s_hasGameIcons = s_gameIcons != NULL && Platform_ReadFile(path, (char *)s_gameIcons, ICON_FILE_BYTES + 1, &length)
+                     && length == ICON_FILE_BYTES;
+}
+
+static void FreeGameIcons(void)
+{
+    free(s_gameIcons);
+    s_gameIcons = NULL;
+    s_hasGameIcons = false;
 }
 
 // The scroll (in whole boxes) that keeps box `selected` on the screen, starting from scroll.
@@ -334,6 +346,7 @@ bool Menu_Open(Handle game, u64 titleId)
     {
         if (hasTouch)
             hidExit();
+        FreeGameIcons();
         return false;
     }
 
@@ -493,5 +506,6 @@ bool Menu_Open(Handle game, u64 titleId)
     if (hasTouch)
         hidExit();
     svcControlProcess(game, PROCESSOP_SCHEDULE_THREADS, 0, 0);
+    FreeGameIcons();
     return true;
 }

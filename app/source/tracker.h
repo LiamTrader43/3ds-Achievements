@@ -15,6 +15,10 @@ Result      Tracker_Start(void);
 // True if the user turned the tracker off, so the app shouldn't start it by itself.
 bool        Tracker_TurnedOff(void);
 
+// Stops the tracker and starts it again, from its .cxi as it is now (after an update).
+// Does nothing if it isn't running.
+Result      Tracker_Restart(void);
+
 // Starts or stops the tracker and remembers the choice.
 Result      Tracker_SetEnabled(bool enabled);
 

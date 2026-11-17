@@ -2,6 +2,7 @@
 
 #include <3ds.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 // Luma kernel extensions (csvc.s).
@@ -28,8 +29,11 @@ static bool         s_stuck;            // an unmap failed: retried before anyth
 static u32          s_stuckSize;
 static int          s_failures;         // ranges of this game that wouldn't map
 
-static u8           s_copy[COPY_PAGES][PAGE] __attribute__((aligned(8)));
-static u8           s_spare[PAGE] __attribute__((aligned(8)));  // a page read when the copies are full
+// The copies (COPY_PAGES, then a spare page read when they're all used), only held
+// while a game is tracked (GameMem_Acquire / GameMem_Release).
+static u8          *s_copies;
+#define COPY(i)     (s_copies + (size_t)(i) * PAGE)
+#define SPARE       COPY(COPY_PAGES)
 static u32          s_copyPage[COPY_PAGES];
 static int          s_copyCount;
 
@@ -91,7 +95,7 @@ static const u8 *FindCopy(u32 page)
 {
     for (int i = 0; i < s_copyCount; i++)
         if (s_copyPage[i] == page)
-            return s_copy[i];
+            return COPY(i);
     return NULL;
 }
 
@@ -99,10 +103,10 @@ static const u8 *FindCopy(u32 page)
 // free copy, or the spare page when they're all used.
 static const u8 *Keep(u32 page, u32 offset)
 {
-    u8 *to = s_spare;
+    u8 *to = SPARE;
     if (s_copyCount < COPY_PAGES)
     {
-        to = s_copy[s_copyCount];
+        to = COPY(s_copyCount);
         s_copyPage[s_copyCount++] = page;
     }
     memcpy(to, (const u8 *)(uintptr_t)(MAP_ADDRESS + offset), PAGE);
@@ -154,8 +158,31 @@ static bool CopyPlan(void)
     return true;
 }
 
+bool GameMem_Acquire(void)
+{
+    if (s_copies == NULL)
+        s_copies = malloc((COPY_PAGES + 1) * PAGE);
+    return s_copies != NULL;
+}
+
+void GameMem_Release(void)
+{
+    free(s_copies);
+    s_copies = NULL;
+    s_pid = 0;                          // the next poll starts with no plan
+    s_planCount = 0;
+    s_copyCount = 0;
+    s_lastPage = 1;
+    s_lastCopy = NULL;
+}
+
 bool GameMem_BeginPoll(Handle game, u32 pid)
 {
+    if (!GameMem_Acquire())             // no memory for the copies: nothing can be read
+    {
+        s_stats.skippedPolls++;
+        return false;
+    }
     if (pid != s_pid)                   // another game, or the same one restarted
     {
         s_pid = pid;

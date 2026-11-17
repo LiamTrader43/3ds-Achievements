@@ -31,10 +31,16 @@ typedef struct
     u32 lastError, lastErrorAddress; // the last failed map/unmap: result and address
 } GameMemStats;
 
+// Takes the memory the copies need (68 KB; true if it's there). GameMem_BeginPoll
+// takes it too when it's missing. Only while a game is tracked: GameMem_Release
+// gives it back when the game closes, and forgets the game.
+bool    GameMem_Acquire(void);
+void    GameMem_Release(void);
+
 // Starts a poll of the game process (handle open for the whole poll, pid to tell a
 // new or restarted game apart) and copies the pages the last poll read. False: the
-// game's memory can't be read right now; skip checking this poll (still call
-// GameMem_EndPoll).
+// game's memory can't be read right now (or there's no memory for the copies); skip
+// checking this poll (still call GameMem_EndPoll).
 bool    GameMem_BeginPoll(Handle game, u32 pid);
 
 // Reads size (1, 2 or 4) bytes, little-endian. False if the memory can't be read.

@@ -25,6 +25,8 @@
 #define DESCRIPTION_CAPACITY 256
 #endif
 
+#define ALIGN8(n)       (((size_t)(n) + 7) & ~(size_t)7)
+
 typedef struct
 {
     char            id[32];
@@ -32,7 +34,7 @@ typedef struct
     uint8_t         size;
     bool            atLeast;
     uint32_t        expected;
-    rc_trigger_t   *trigger;    // set instead for an "rc:" condition (malloc'd)
+    rc_trigger_t   *trigger;    // set instead for an "rc:" condition (in g_block)
     char            name[NAME_CAPACITY];
     char            description[DESCRIPTION_CAPACITY];
     uint16_t        points;
@@ -48,10 +50,14 @@ typedef struct
     int32_t     amount;
 } Shift;
 
-static Achievement  g_ach[MAX_LINES];
+// A loaded game takes one allocation, g_block: its lines (g_ach), then their rc
+// conditions. Nothing is held while no game is loaded, so the tracker leaves that
+// memory to the system (it shares the Base region with every system module).
+static void        *g_block;
+static Achievement *g_ach;
+static uint8_t     *g_spare, *g_spareEnd;   // room left in g_block for conditions, while loading
 static int          g_count;
 static char         g_unlockPath[64];
-static char         g_file[FILE_CAPACITY + 1];
 static uint64_t     g_gameId;
 static Shift        g_shift[MAX_SHIFTS];
 static int          g_shiftCount;
@@ -166,28 +172,59 @@ static void ShiftTrigger(rc_trigger_t *trigger)
 // evaluated by rcheevos, which adds AND, ResetIf/PauseIf, hit counts, deltas
 // and every comparison. Like on RetroAchievements, it can't unlock until it
 // has been false once.
-static bool ParseCondition(const char *pos, const char *end, Achievement *a)
+#define CONDITION_CAPACITY 1024
+#define PARSE_ROOM      8192    // heap room rcheevos' temporaries get while it parses one condition
+
+static bool g_noRoom;           // a condition couldn't be given that room: the load fails
+
+// rcheevos allocates small temporaries while it parses (its lists of memory addresses,
+// ~1.5 KB) and doesn't check that it got them. So before each parse, make sure the heap
+// has room: take that much and give it back, and it's there for them. (The tracker's
+// heap grows only while memory is left, and gives back nothing on its own.)
+static bool ParseRoom(void)
 {
-    char        condition[1024];
+    void *room = malloc(PARSE_ROOM);
+    if (room == NULL)
+    {
+        g_noRoom = true;
+        return false;
+    }
+    free(room);
+    return true;
+}
+
+// The condition after "rc:", up to the next space, into out; *after is where it ends.
+static bool ReadCondition(const char *pos, const char *end, char *out, size_t capacity, const char **after)
+{
     const char *start = pos;
 
     while (pos < end && !IsSpace(*pos)) pos++;
     size_t length = (size_t)(pos - start);
-    if (length >= sizeof(condition))
+    if (length >= capacity)
         return false;
-    memcpy(condition, start, length);
-    condition[length] = '\0';
+    memcpy(out, start, length);
+    out[length] = '\0';
+    *after = pos;
+    return true;
+}
 
-    int size = rc_trigger_size(condition);
-    void *buffer = size > 0 ? malloc((size_t)size) : NULL;
-    if (buffer == NULL)
+static bool ParseCondition(const char *pos, const char *end, Achievement *a)
+{
+    char condition[CONDITION_CAPACITY];
+
+    if (!ReadCondition(pos, end, condition, sizeof(condition), &pos) || !ParseRoom())
         return false;
-    a->trigger = rc_parse_trigger(buffer, condition, NULL, 0);
+
+    // Its room in g_block was measured first (ConditionBytes); none left means the
+    // file changed between the two reads.
+    int    size = rc_trigger_size(condition);
+    size_t need = ALIGN8(size);
+    if (size <= 0 || g_spare == NULL || (size_t)(g_spareEnd - g_spare) < need)
+        return false;
+    a->trigger = rc_parse_trigger(g_spare, condition, NULL, 0);
     if (a->trigger == NULL)
-    {
-        free(buffer);
         return false;
-    }
+    g_spare += need;
     ShiftTrigger(a->trigger);
 
     ParseText(pos, end, a);
@@ -229,6 +266,42 @@ static bool ParseLine(const char *line, const char *end, Achievement *a)
 
     ParseText(pos, end, a);
     return true;
+}
+
+// The room a line's rc condition takes in g_block (0 for other lines).
+static size_t ConditionBytes(const char *line, const char *end)
+{
+    char        id[32], condition[CONDITION_CAPACITY];
+    const char *pos = line;
+
+    if (!NextToken(&pos, end, id, sizeof(id)))
+        return 0;
+    while (pos < end && IsSpace(*pos)) pos++;
+    if ((size_t)(end - pos) <= strlen(RC_PREFIX) || memcmp(pos, RC_PREFIX, strlen(RC_PREFIX)) != 0
+        || !ReadCondition(pos + strlen(RC_PREFIX), end, condition, sizeof(condition), &pos) || !ParseRoom())
+        return 0;
+    int size = rc_trigger_size(condition);
+    return size > 0 ? ALIGN8(size) : 0;
+}
+
+// The next line with something on it (not blank, not a comment): its first
+// character and its end. False at the end of the file.
+static bool NextLine(const char **pos, const char *end, const char **first, const char **lineEnd)
+{
+    while (*pos < end)
+    {
+        const char *line = *pos;
+        const char *next = memchr(line, '\n', (size_t)(end - line));
+        *lineEnd = next ? next : end;
+        *pos = next ? next + 1 : end;
+        while (line < *lineEnd && IsSpace(*line)) line++;
+        if (line < *lineEnd && *line != '#')
+        {
+            *first = line;
+            return true;
+        }
+    }
+    return false;
 }
 
 static void MarkUnlocked(const char *id)
@@ -312,60 +385,99 @@ uint64_t Achievements_GameId(void)
     return g_gameId;
 }
 
+void Achievements_Unload(void)
+{
+    free(g_block);
+    g_block = NULL;
+    g_ach = NULL;
+    g_count = 0;
+}
+
 bool Achievements_Load(uint64_t titleId)
 {
     char        path[64];
     uint32_t    length;
+    const char *pos, *end, *first, *lineEnd;
 
-    for (int i = 0; i < g_count; i++)
-        free(g_ach[i].trigger);
-    g_count = 0;
+    Achievements_Unload();
     g_gameId = titleId;
     g_shiftCount = 0;
+    g_noRoom = false;
+
+    // The file is read twice: first to measure what its lines need, then, once that's
+    // allocated, to parse them. The file's buffer is freed last and so goes back to
+    // the system at once (a heap only shrinks from its end). Too little memory for any
+    // of it loads nothing, rather than some of the achievements.
+    char *file = malloc(FILE_CAPACITY + 1);
+    if (file == NULL)
+        return false;
 
     // The game's own folder, or (another release) the game named by its version.txt.
     snprintf(path, sizeof(path), "/achievements/%016llX/definitions.txt", (unsigned long long)titleId);
-    if (!Platform_ReadFile(path, g_file, FILE_CAPACITY, &length))
+    if (!Platform_ReadFile(path, file, FILE_CAPACITY, &length))
     {
         uint64_t    gameId = 0;
         Shift       shifts[MAX_SHIFTS];
         int         shiftCount;
         if (!ReadVersion(titleId, &gameId, shifts, &shiftCount))
+        {
+            free(file);
             return false;
+        }
         snprintf(path, sizeof(path), "/achievements/%016llX/definitions.txt", (unsigned long long)gameId);
-        if (!Platform_ReadFile(path, g_file, FILE_CAPACITY, &length))
+        if (!Platform_ReadFile(path, file, FILE_CAPACITY, &length))
+        {
+            free(file);
             return false;
+        }
         g_gameId = gameId;
         memcpy(g_shift, shifts, sizeof(shifts));
         g_shiftCount = shiftCount;
     }
     snprintf(g_unlockPath, sizeof(g_unlockPath), "/achievements/%016llX/progress.txt", (unsigned long long)g_gameId);
 
-    for (const char *line = g_file, *end = g_file + length; line < end && g_count < MAX_LINES; )
-    {
-        const char *next = memchr(line, '\n', (size_t)(end - line));
-        const char *lineEnd = next ? next : end;
-        const char *first = line;
-        while (first < lineEnd && IsSpace(*first)) first++;
+    int    lines = 0;
+    size_t conditionBytes = 0;
+    for (pos = file, end = file + length; lines < MAX_LINES && NextLine(&pos, end, &first, &lineEnd); lines++)
+        conditionBytes += ConditionBytes(first, lineEnd);
+    free(file);
+    if (lines == 0 || g_noRoom)
+        return false;
 
-        if (first < lineEnd && *first != '#' && ParseLine(first, lineEnd, &g_ach[g_count]))
-            g_count++;
-        line = next ? next + 1 : end;
+    size_t tableBytes = ALIGN8((size_t)lines * sizeof(Achievement));
+    g_block = malloc(tableBytes + conditionBytes);
+    file = g_block != NULL ? malloc(FILE_CAPACITY + 1) : NULL;
+    if (file == NULL || !Platform_ReadFile(path, file, FILE_CAPACITY, &length))
+    {
+        free(file);
+        Achievements_Unload();
+        return false;
     }
+    g_ach = g_block;
+    g_spare = (uint8_t *)g_block + tableBytes;
+    g_spareEnd = g_spare + conditionBytes;
+
+    for (pos = file, end = file + length; g_count < lines && NextLine(&pos, end, &first, &lineEnd); )
+        if (ParseLine(first, lineEnd, &g_ach[g_count]))
+            g_count++;
+    g_spare = g_spareEnd = NULL;
 
     // Unknown IDs (e.g. removed achievements) simply match nothing.
-    if (g_count > 0 && Platform_ReadFile(g_unlockPath, g_file, FILE_CAPACITY, &length))
+    if (g_count > 0 && Platform_ReadFile(g_unlockPath, file, FILE_CAPACITY, &length))
     {
-        for (const char *line = g_file, *end = g_file + length; line < end; )
+        for (const char *line = file, *fileEnd = file + length; line < fileEnd; )
         {
-            const char *next = memchr(line, '\n', (size_t)(end - line));
+            const char *next = memchr(line, '\n', (size_t)(fileEnd - line));
             char id[32];
-            CopyTrimmed(id, sizeof(id), line, next ? next : end);
+            CopyTrimmed(id, sizeof(id), line, next ? next : fileEnd);
             if (id[0] != '\0')
                 MarkUnlocked(id);
-            line = next ? next + 1 : end;
+            line = next ? next + 1 : fileEnd;
         }
     }
+    free(file);
+    if (g_count == 0 || g_noRoom)
+        Achievements_Unload();
     return g_count > 0;
 }
 
@@ -466,6 +578,15 @@ int Achievements_Descriptions(const char **descriptions, int capacity)
     for (int i = 0; i < g_count && n < capacity; i++)
         if (IsFirstLine(i))
             descriptions[n++] = g_ach[i].description;
+    return n;
+}
+
+int Achievements_Ids(const char **ids, int capacity)
+{
+    int n = 0;
+    for (int i = 0; i < g_count && n < capacity; i++)
+        if (IsFirstLine(i))
+            ids[n++] = g_ach[i].id;
     return n;
 }
 

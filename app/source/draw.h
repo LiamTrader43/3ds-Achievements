@@ -52,6 +52,20 @@ void    Draw_Rect(gfxScreen_t screen, int x, int y, int w, int h, Color color);
 // A rectangle with corners of the given radius, their edges smoothed.
 void    Draw_RoundRect(gfxScreen_t screen, int x, int y, int w, int h, int radius, Color color);
 
+// The same, filled with a vertical fade from top to bottom.
+void    Draw_RoundRectGradient(gfxScreen_t screen, int x, int y, int w, int h, int radius, Color top, Color bottom);
+
+// Drawing only touches rows y0 to y1 (exclusive) from now on, on either screen, until called
+// with 0 and SCREEN_HEIGHT. (Not the background, fades or the frame's light, which say their rows.)
+void    Draw_ClipRows(int y0, int y1);
+
+// Faces text can be in: Inter (the app's own) or the 3DS's system font.
+enum { DRAW_FONT_INTER = 0, DRAW_FONT_SYSTEM = 1 };
+
+// Text is drawn in this face from now on. The system font is read from the console the first
+// time it's asked for (Inter if it can't be). Returns the face used.
+int     Draw_SetFont(int font);
+
 // Draws text at scale 1 or 2 in a line whose top is y, cut at maxWidth pixels
 // (0 = screen edge). Returns the width drawn.
 int     Draw_Text(gfxScreen_t screen, int x, int y, int scale, Color color, const char *text, int maxWidth);
@@ -68,6 +82,11 @@ void    Draw_Icon(gfxScreen_t screen, int x, int y, const u16 *icon);
 // A trophy icon (the same format) whose pure black pixels, around its rounded square, are left
 // out, so it sits on any background.
 void    Draw_TrophyIcon(gfxScreen_t screen, int x, int y, const u16 *icon);
+
+// The trophy smaller, size x size (7-47; 48 or more draws it at its own size): each pixel the
+// average of the part of the art under it, the black around it see-through, so its corners and
+// edges stay smooth.
+void    Draw_TrophyScaled(gfxScreen_t screen, int x, int y, int size, const u16 *icon);
 
 // The same icon smoothly enlarged to size x size pixels (2-128), with rounded corners, and
 // darkened by dim (0-256, like Draw_Darken over it). frame: a colour for a frame DRAW_FRAME
@@ -125,7 +144,7 @@ void    Draw_RoundRing(gfxScreen_t screen, int x, int y, int w, int h, int radiu
 // A rounded box filled with a colour and things drawn on it (a button hint), kept so it can be
 // drawn again without redrawing what's on it: inside its edge it doesn't depend on what's
 // under it, only its smoothed corners do.
-#define DRAW_STAMP_W    400
+#define DRAW_STAMP_W    200
 #define DRAW_STAMP_H    32
 typedef struct
 {

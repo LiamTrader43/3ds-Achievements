@@ -31,6 +31,10 @@ void    Platform_Unlocked(const char *name, const char *description);
 // release's address shifts, and its progress.
 bool    Achievements_Load(uint64_t titleId);
 
+// Frees what Achievements_Load() took (it calls this itself first). Afterwards nothing
+// is loaded: Achievements_Count() is 0 and Achievements_Update() a no-op.
+void    Achievements_Unload(void);
+
 // The game whose folder the loaded definitions and progress came from: the
 // title ID given to Achievements_Load(), or the game its version.txt names.
 uint64_t Achievements_GameId(void);
@@ -47,12 +51,16 @@ void    Achievements_Progress(int *unlocked, int *total);
 
 // Fills names/unlocked with each achievement in file order (lines sharing an
 // ID count once). Returns how many were written. The names stay valid until
-// the next Achievements_Load().
+// the next Achievements_Load() or Achievements_Unload().
 int     Achievements_List(const char **names, bool *unlocked, int capacity);
 
 // Each achievement's description, in the same order as Achievements_List()
 // ("" when the line has none). Used by the achievement viewer app.
 int     Achievements_Descriptions(const char **descriptions, int capacity);
+
+// Each achievement's ID, in the same order as Achievements_List() (the app matches them
+// with progress.txt, which lists unlocks in the order they happened).
+int     Achievements_Ids(const char **ids, int capacity);
 
 // Each achievement's points, in the same order as Achievements_List().
 int     Achievements_Points(uint16_t *points, int capacity);
