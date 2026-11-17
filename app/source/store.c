@@ -17,13 +17,14 @@
 // What's for sale, in the order the store lists it. To add something: an ID that never changes
 // (purchases are saved under it), a name, a one-line description, a price in Play Coins and
 // optionally a 48x48 icon; then whatever it unlocks checks Store_OwnedId("ITS_ID"). A theme:
-// its id as the item's theme, and the theme's folder in the Makefile's STORE_THEMES.
+// its id as the item's theme, THEME_PRICE, and the theme's folder in the Makefile's STORE_THEMES.
+#define THEME_PRICE     100                 // every theme costs the same
 #ifndef STORE_ITEMS                         // (a PC test can bring its own list)
 static const StoreItem ITEMS[] =
 {
     // { "EXAMPLE", "Name", "What it gives you.", 50, NULL, NULL },
     { "THEME_DS", "DS theme", "The app in the style of the original DS menu: graph paper, silver buttons and a clock.",
-      60, NULL, "ds" },
+      THEME_PRICE, NULL, "ds" },
     { NULL, NULL, NULL, 0, NULL, NULL }     // the end of the list
 };
 #endif
