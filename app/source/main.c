@@ -377,6 +377,8 @@ static void BuyNow(void)
     {
         Rewards_PayOwed(&g_paidOwed, &g_coins);
         g_popup = POPUP_BOUGHT;
+        if (Store_Item(g_buyItem)->theme != NULL)
+            Theme_Rescan();         // it's in the settings from now on
     }
     else
         g_popup = res == REWARDS_NOT_ENOUGH ? POPUP_NOT_ENOUGH : POPUP_BUY_FAILED;
@@ -440,6 +442,7 @@ static int Clamp(int value, int low, int high)
 int main(int argc, char **argv)
 {
     Draw_Init();
+    Ui_StoreInit();                 // first: it puts back bought themes that went missing
     bool themeLoaded = Theme_Load();
 
     // A loading frame, while the files and icons are read.
@@ -449,7 +452,6 @@ int main(int argc, char **argv)
         g_theme->drawLoading();
         Draw_End();
     }
-    Ui_StoreInit();
 #ifdef BENCH
     // The benchmark leaves the tracker, the updater and Play Coins alone (their popups would stop
     // the script).
@@ -484,7 +486,8 @@ int main(int argc, char **argv)
     }
     s_coinsResult = Rewards_Coins(&g_coins);    // for the store's name in the row (read again there)
 
-    Update_Start(argc > 0 ? argv[0] : NULL);    // the Homebrew Launcher passes the .3dsx's path
+    // (The Homebrew Launcher passes the .3dsx's path. Store files that aren't here yet are fetched.)
+    Update_Start(argc > 0 ? argv[0] : NULL, Store_FilesWanted());
 #endif
 
     g_theme->reset();

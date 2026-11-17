@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "store_file.h"
 #include "store_icon.h"
 #include "theme.h"
 #include "trophy.h"
@@ -173,6 +174,8 @@ void Ui_PopupText(PopupText *t)
             }
             Line(t, t->lineText);
             Line(t, t->lineText2);
+            if (g_popup == POPUP_BOUGHT && item != NULL && item->theme != NULL)
+                Line(t, "Choose it in the settings (X).");
             break;
         }
         default:
@@ -211,8 +214,28 @@ void Ui_PopupText(PopupText *t)
         case POPUP_BUY_FAILED:
             t->title = "Couldn't buy it";
             Line(t, "No Play Coins were spent.");
-            Line(t, "Your Play Coins or /achievements/purchases.txt");
-            Line(t, "couldn't be read or written.");
+            if (g_popupResult == STORE_FILE_MISSING)
+            {
+                Line(t, "Its file hasn't downloaded yet: connect to");
+                Line(t, "the internet and open the app again.");
+            }
+            else if (g_popupResult == STORE_FILE_DAMAGED)
+            {
+                Line(t, "Its file in /achievements/store is damaged:");
+                Line(t, "open the app online to download it again.");
+            }
+            else if (g_popupResult == STORE_NO_KEY)
+            {
+                Line(t, "This copy of the app can't unlock store");
+                Line(t, "items: get the app from its GitHub releases.");
+            }
+            else if (g_popupResult == STORE_FILE_WRITE)
+                Line(t, "What it installs couldn't be written to the SD.");
+            else
+            {
+                Line(t, "Your Play Coins or /achievements/purchases.txt");
+                Line(t, "couldn't be read or written.");
+            }
             break;
         case POPUP_APP_FAILED:
             t->title = "Update failed";
@@ -253,6 +276,7 @@ void Ui_StoreInit(void)
     g_storeTile.hasIcon = true;
     snprintf(g_storeTile.title, sizeof(g_storeTile.title), "Store");
     Store_Load();
+    Store_Restore();
 }
 
 const u16 *Ui_StoreIcon(int i)

@@ -30,6 +30,18 @@ typedef bool (*UpdateZipWriter)(void *user, const void *data, size_t size);
 // Finds the file called name (its whole path in the zip, e.g. "3ds/achievements-viewer.3dsx").
 bool    UpdateZip_Find(FILE *zip, const char *name, UpdateZipEntry *entry);
 
+// A file in the zip: its whole path, and where it is.
+typedef struct
+{
+    char            name[96];
+    UpdateZipEntry  entry;
+} UpdateZipItem;
+
+// The files (not folders) whose path starts with prefix, in the zip's order, at most capacity
+// of them. Returns how many, or -1 if the zip can't be read or one of them can't be unpacked
+// (encrypted, zip64, another method). Paths too long for an UpdateZipItem are left out.
+int     UpdateZip_List(FILE *zip, const char *prefix, UpdateZipItem *items, int capacity);
+
 // Unpacks the entry a piece at a time, then checks its size and CRC. 0 or an UPDATE_ZIP_ error.
 int     UpdateZip_Extract(FILE *zip, const UpdateZipEntry *entry, UpdateZipWriter writer, void *user);
 

@@ -4,13 +4,17 @@
 // Checks GitHub when the app opens: the repo's main branch for new games or achievements, and
 // its latest release for a newer version of the app. Game downloads only ever write
 // definitions.txt, hero.bin, trophy.bin and version.txt (progress is left alone); an app
-// update replaces the tracker's .cxi and the app itself.
+// update replaces the tracker's .cxi and the app itself, and brings the store's files
+// (/achievements/store, store_file.h) of the new version.
 
 #include <3ds.h>
 
 // Starts the check in the background. appPath is where the running .3dsx was opened from
 // (argv[0]), or NULL; it's only used when the app runs as a .3dsx, not as the CIA.
-void        Update_Start(const char *appPath);
+// storeFilesWanted: some of the store's files (store_file.h) aren't on the SD card yet (an app
+// updated by a version that didn't bring them): unless a newer app is out (its update brings
+// them), they're taken from this version's release zip, before the check is reported.
+void        Update_Start(const char *appPath, bool storeFilesWanted);
 
 // True once, when the check has finished. Then newGames and updatedGames count the games with
 // files to download, and appVersion is the newer release's version, or NULL if there isn't one.

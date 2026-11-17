@@ -24,6 +24,7 @@
 #define TREE_URL        "https://api.github.com/repos/" OWNER_REPO "/git/trees/" BRANCH "?recursive=1"
 #define RAW_URL         "https://raw.githubusercontent.com/" OWNER_REPO "/" BRANCH "/achievements"
 #define RELEASE_URL     "https://api.github.com/repos/" OWNER_REPO "/releases/latest"
+#define OWN_RELEASE_URL "https://api.github.com/repos/" OWNER_REPO "/releases/tags/v" APP_VERSION   // this version's
 #define DOWNLOAD_PREFIX "https://github.com/" OWNER_REPO "/releases/download/"     // the only place the zip may come from
 #define DIRECTORY       "/achievements"
 #define VERSIONS_PATH   DIRECTORY "/versions.txt"       // the GitHub ID of each file on the card
@@ -49,6 +50,10 @@ _Static_assert(HERO_BYTES < BUFFER_SIZE, "a background must fit in the download 
 #define APP_3DSX_ENTRY  "3ds/achievements-viewer.3dsx"
 #define APP_3DSX_PATH   "sdmc:/" APP_3DSX_ENTRY             // if the Homebrew Launcher didn't say
 #define APP_CIA_ENTRY   "cias/achievements.cia"
+#define STORE_PREFIX    "achievements/store/"                // the store's files (store_file.h), in the zip
+#define STORE_DIR       "sdmc:/achievements/store"           // and on the SD card
+#define STORE_ZIP_PATH  DIRECTORY "/store-update.zip"
+#define STORE_MOST      32
 
 #define ERROR_BAD_STATUS    ((Result)0xE0000001)
 #define ERROR_TOO_BIG       ((Result)0xE0000002)
@@ -91,6 +96,8 @@ static volatile u32     s_zipBytes;                     // downloaded so far
 static volatile bool    s_installing;                   // the download is done, the files are being replaced
 static volatile Result  s_appResult;
 static bool             s_trackerChanged, s_changed;
+static bool             s_storeWanted;                  // some store files aren't here (Update_Start)
+static char             s_storeLog[200];                // what fetching them did, for update.log
 
 typedef struct
 {
@@ -186,6 +193,8 @@ static Result HttpGet(const char *url, u32 *size, u32 *status, char *error)
     return res;
 }
 
+static Result FetchStoreFiles(char *log, size_t capacity);
+
 static void CheckThread(void *arg)
 {
     u32 size;
@@ -211,6 +220,15 @@ static void CheckThread(void *arg)
             s_appNewer = s_releaseParsed && UpdateRelease_Compare(s_release.version, APP_VERSION) > 0;
         }
     }
+
+    // Store files this version lacks (an older version updated it): from this version's own
+    // release, unless a newer app is out (installing it brings its files). Before the check is
+    // reported, so nothing waits on this thread meanwhile.
+    if (!s_abort && s_storeWanted && !s_appNewer)
+        FetchStoreFiles(s_storeLog, sizeof(s_storeLog));
+    else if (s_storeWanted)
+        snprintf(s_storeLog, sizeof(s_storeLog), "store files: some missing, %s",
+                 s_appNewer ? "the app update brings them" : "stopped");
     s_state = STATE_CHECKED;
 }
 
@@ -235,10 +253,11 @@ const char *Update_AppVersion(void)
     return APP_VERSION;
 }
 
-void Update_Start(const char *appPath)
+void Update_Start(const char *appPath, bool storeFilesWanted)
 {
     s32 priority = 0x30;
 
+    s_storeWanted = storeFilesWanted;
     if (envIsHomebrew())
         FindAppPath(appPath);
     s_socBuffer = memalign(0x1000, SOC_BUFFER_SIZE);
@@ -385,6 +404,8 @@ bool Update_Poll(int *newGames, int *updatedGames, const char **appVersion)
                 s_releaseParsed ? s_release.version : "?", APP_VERSION,
                 !envIsHomebrew() ? "CIA" : s_appPath[0] != '\0' ? s_appPath : ".3dsx, path unknown",
                 s_appNewer ? "update offered" : "no update", s_releaseError);
+        if (s_storeLog[0] != '\0')
+            fprintf(log, "%s\n", s_storeLog);
         fclose(log);
     }
     return true;
@@ -590,6 +611,43 @@ static Result InstallCia(FILE *zip, const UpdateZipEntry *entry)
     return res;
 }
 
+// Takes the store's files (STORE_PREFIX) out of a release zip, each one that differs from the
+// SD card's written beside it and put in its place. *found: how many the zip has, *updated:
+// how many were written. Keeps going past a failure; returns the first.
+static Result ExtractStoreFiles(FILE *zip, int *found, int *updated)
+{
+    static UpdateZipItem items[STORE_MOST];
+    Result res = 0;
+
+    *found = *updated = 0;
+    int count = UpdateZip_List(zip, STORE_PREFIX, items, STORE_MOST);
+    if (count < 0)
+        return ERROR_ZIP(UPDATE_ZIP_FORMAT);
+    *found = count;
+    mkdir(STORE_DIR, 0777);
+    for (int i = 0; i < count; i++)
+    {
+        // Only a plain file name, right in the store's folder.
+        const char *name = items[i].name + strlen(STORE_PREFIX);
+        size_t length = strlen(name);
+        bool plain = length > 4 && length <= 40 && strcmp(name + length - 4, ".bin") == 0;
+        for (const char *c = name; *c != '\0' && plain; c++)
+            plain = (*c >= 'a' && *c <= 'z') || (*c >= '0' && *c <= '9') || *c == '_' || *c == '-' || *c == '.';
+        char path[PATH_CAPACITY];
+        snprintf(path, sizeof(path), STORE_DIR "/%s", name);
+        if (!plain || UpdateZip_Same(path, &items[i].entry))
+            continue;
+        Result one = ExtractBeside(zip, &items[i].entry, path);
+        if (R_SUCCEEDED(one))
+            one = Replace(path);
+        if (R_SUCCEEDED(one))
+            (*updated)++;
+        else if (R_SUCCEEDED(res))
+            res = one;
+    }
+    return res;
+}
+
 // Takes the tracker and the app out of the downloaded zip. New copies are written beside the
 // old files and checked first; then the tracker is replaced, then the app. In that order a
 // failure halfway leaves an old app, which offers the update again next time.
@@ -628,6 +686,14 @@ static Result InstallFromZip(void)
         res = homebrew ? Replace(s_appPath) : InstallCia(zip, &app);
         s_changed = s_changed || R_SUCCEEDED(res);
     }
+    // Then the new version's store files (it may sell something they hold); a failure here
+    // isn't the update's: the new version fetches what's missing itself.
+    if (R_SUCCEEDED(res))
+    {
+        int found, updated;
+        Result store = ExtractStoreFiles(zip, &found, &updated);
+        AppLog("store files: %d in the zip, %d written, result %08lX", found, updated, (unsigned long)(u32)store);
+    }
     fclose(zip);
 
     if (R_FAILED(res))
@@ -645,27 +711,71 @@ static Result InstallFromZip(void)
     return res;
 }
 
-// Downloads the release zip, checks it against what GitHub says it is, then installs it.
-static Result InstallApp(void)
+// Downloads release's zip to path and checks it against what GitHub says it is (its size and,
+// if GitHub gives it, its SHA-256). *bytes, *status, hash (65 chars) and error say how it went.
+static Result DownloadZip(const UpdateRelease *release, const char *path, u32 *bytes, u32 *status, char *hash, char *error)
 {
     UpdateSha256 sha;
-    char         hash[65] = "";
-    u32          status = 0;
 
+    hash[0] = '\0';
+    *bytes = *status = 0;
     UpdateSha256_Start(&sha);
-    FILE *file = fopen(APP_ZIP_PATH, "wb");
+    FILE *file = fopen(path, "wb");
     if (file == NULL)
         return ERROR_WRITE;
     setvbuf(file, NULL, _IOFBF, FILE_BUFFER);
-    Sink   sink = { 0, s_release.size, false, file, &sha, false };
-    Result res = Http(s_release.url, &sink, ZIP_SECONDS, &status, s_releaseError);
+    Sink   sink = { 0, release->size, false, file, &sha, false };
+    Result res = Http(release->url, &sink, ZIP_SECONDS, status, error);
     if (fclose(file) != 0 && R_SUCCEEDED(res))
         res = ERROR_WRITE;
     UpdateSha256_Finish(&sha, hash);
-    if (R_SUCCEEDED(res) && (sink.used != s_release.size || (s_release.sha256[0] != '\0' && strcmp(hash, s_release.sha256) != 0)))
+    *bytes = sink.used;
+    if (R_SUCCEEDED(res) && (sink.used != release->size || (release->sha256[0] != '\0' && strcmp(hash, release->sha256) != 0)))
         res = ERROR_MISMATCH;
+    return res;
+}
+
+// The store files this version's release has, when an older version updated the app without
+// them: its zip again, only for them. log: a line for update.log.
+static Result FetchStoreFiles(char *log, size_t capacity)
+{
+    static UpdateRelease own;
+    char   error[CURL_ERROR_SIZE] = "", hash[65] = "";
+    u32    size = 0, status = 0, bytes = 0;
+    int    found = 0, updated = 0;
+
+    Result res = HttpGet(OWN_RELEASE_URL, &size, &status, error);
+    if (R_SUCCEEDED(res))
+    {
+        s_buffer[size] = '\0';
+        if (!UpdateRelease_Parse((const char *)s_buffer, DOWNLOAD_PREFIX, &own) || strcmp(own.version, APP_VERSION) != 0)
+            res = ERROR_NO_RELEASE;
+    }
+    if (R_SUCCEEDED(res))
+        res = DownloadZip(&own, STORE_ZIP_PATH, &bytes, &status, hash, error);
+    if (R_SUCCEEDED(res))
+    {
+        FILE *zip = fopen(STORE_ZIP_PATH, "rb");
+        res = zip != NULL ? ExtractStoreFiles(zip, &found, &updated) : ERROR_ZIP(UPDATE_ZIP_READ);
+        if (zip != NULL)
+            fclose(zip);
+    }
+    remove(STORE_ZIP_PATH);
+    snprintf(log, capacity, "store files: some missing, fetched from v%s: result %08lX, http %lu, %lu bytes, "
+             "%d in the zip, %d written, error \"%s\"", APP_VERSION, (unsigned long)(u32)res, (unsigned long)status,
+             (unsigned long)bytes, found, updated, error);
+    return res;
+}
+
+// Downloads the release zip, checks it against what GitHub says it is, then installs it.
+static Result InstallApp(void)
+{
+    char hash[65];
+    u32  status, bytes;
+
+    Result res = DownloadZip(&s_release, APP_ZIP_PATH, &bytes, &status, hash, s_releaseError);
     AppLog("app download %s: result %08lX, http %lu, %lu of %lu bytes, sha256 %s, GitHub's %s, error \"%s\"", s_release.version,
-           (unsigned long)(u32)res, (unsigned long)status, (unsigned long)sink.used, (unsigned long)s_release.size, hash,
+           (unsigned long)(u32)res, (unsigned long)status, (unsigned long)bytes, (unsigned long)s_release.size, hash,
            s_release.sha256[0] != '\0' ? s_release.sha256 : "not given", s_releaseError);
 
     if (R_SUCCEEDED(res))

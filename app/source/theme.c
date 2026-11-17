@@ -63,7 +63,9 @@ static int Find(const char *id)
     return -1;
 }
 
-// Reads every .theme file's ThemeInfo (nothing in them runs yet).
+static void ScanFiles(void);
+
+// The preinstalled themes, then every .theme file's ThemeInfo (nothing in them runs yet).
 static void Scan(void)
 {
     memset(s_themes, 0, sizeof(s_themes));
@@ -74,7 +76,13 @@ static void Scan(void)
         snprintf(t->info.name, sizeof(t->info.name), "%s", BUILT_IN[s_count]->name);
         t->theme = BUILT_IN[s_count];
     }
+    ScanFiles();
+}
 
+// Reads the ThemeInfo of every .theme file not listed yet (nothing in them runs yet), then puts
+// the add-ons in order by name.
+static void ScanFiles(void)
+{
     DIR *dir = opendir(THEMES_DIR);
     if (dir == NULL)
     {
@@ -87,6 +95,11 @@ static void Scan(void)
         size_t length = strlen(e->d_name);
         if (length <= 6 || length >= sizeof(s_themes[0].file) || strcmp(e->d_name + length - 6, ".theme") != 0)
             continue;
+        bool listed = false;
+        for (int k = BUILT_INS; k < s_count; k++)
+            listed = listed || strcmp(s_themes[k].file, e->d_name) == 0;
+        if (listed)
+            continue;               // (read before: Theme_Rescan)
         if (s_count == MOST_THEMES)
         {
             Log("%s: skipped, too many themes", e->d_name);
@@ -175,6 +188,15 @@ bool Theme_Load(void)
     bool ok = i <= 0 || Use(i);
     Log("using %s%s", g_theme->name, i < 0 || ok ? "" : " instead");
     return ok;
+}
+
+void Theme_Rescan(void)
+{
+    char id[sizeof(s_themes[0].info.id)];
+    memcpy(id, s_themes[s_current].info.id, sizeof(id));
+    ScanFiles();
+    int i = Find(id);                   // (the add-ons were put in order again)
+    s_current = i >= 0 ? i : 0;
 }
 
 int Theme_Count(void)

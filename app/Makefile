@@ -176,10 +176,13 @@ ifneq ($(ROMFS),)
 	export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
 endif
 
-.PHONY: all clean cia themes
+.PHONY: all clean cia themes store
 
 #---------------------------------------------------------------------------------
-all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES) themes
+all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES) themes $(if $(wildcard source/store_key.h),store)
+	@# Which store key (if any) store_file.o was built with: written only when it changes.
+	@s=$$(sha256sum source/store_key.h 2>/dev/null | cut -c1-64); s=$${s:-none}; \
+	 [ "$$(cat $(BUILD)/store_key.state 2>/dev/null)" = "$$s" ] || echo "$$s" > $(BUILD)/store_key.state
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 $(BUILD):
@@ -235,9 +238,27 @@ themes/%.elf: $$(wildcard themes/$$*/*.c) themes/module_rt.c themes/theme.ld $(w
 	@$(CC) $(THEME_CFLAGS) $(THEME_LDFLAGS) -o $@ $(filter %.c,$^) -lgcc
 
 #---------------------------------------------------------------------------------
+# Store items (source/store.c, store_file.h): each theme in STORE_THEMES (a themes/<id>/ folder,
+# built as an add-on like the others; keep its source out of the public repository) is
+# encrypted into store/<id>.bin with the key in source/store_key.h (tools/store_key.py makes it;
+# never commit it) and copied into the SD card layout (STORE_DIST) for the release zip. "make"
+# does it when the key is there, "make store" alone too. A build without the key can't open
+# store files.
+#---------------------------------------------------------------------------------
+STORE_THEMES	:=
+STORE_DIST	:=	../sysmodule/dist/achievements/store
+STORE_FILES	:=	$(foreach id,$(STORE_THEMES),store/$(id).bin)
+
+store: $(STORE_FILES)
+
+store/%.bin: themes/%.theme source/store_key.h ../tools/store_pack.py
+	@python3 ../tools/store_pack.py source/store_key.h $* $< $@
+	@mkdir -p $(STORE_DIST) && cp $@ $(STORE_DIST)/
+
+#---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD) $(wildcard themes/*.theme themes/*.elf)
+	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD) $(wildcard themes/*.theme themes/*.elf store/*.bin)
 
 #---------------------------------------------------------------------------------
 $(GFXBUILD)/%.t3x	$(BUILD)/%.h	:	%.t3s
@@ -254,6 +275,10 @@ else
 $(OUTPUT).3dsx	:	$(OUTPUT).elf $(_3DSXDEPS)
 
 $(OFILES_SOURCES) : $(HFILES)
+
+# store_file.c compiles the store's key in when there is one (source/store_key.h): it's built
+# again whenever that changes, even to or from no key (store_key.state, written by "all").
+store_file.o : store_key.state
 
 $(OUTPUT).elf	:	$(OFILES)
 

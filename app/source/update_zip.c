@@ -64,21 +64,45 @@ static bool FindDirectory(FILE *zip, uint32_t *offset, uint32_t *size)
     return found;
 }
 
+// The central directory, read whole (malloc'd), or NULL.
+static uint8_t *ReadDirectory(FILE *zip, uint32_t *size)
+{
+    uint32_t offset;
+
+    if (zip == NULL || !FindDirectory(zip, &offset, size))
+        return NULL;
+    uint8_t *directory = malloc(*size > 0 ? *size : 1);
+    if (directory != NULL && !ReadAt(zip, (long)offset, directory, *size))
+    {
+        free(directory);
+        directory = NULL;
+    }
+    return directory;
+}
+
+// The file described by the central directory record at c. False if it can't be unpacked.
+static bool Describe(const uint8_t *c, UpdateZipEntry *entry)
+{
+    entry->method = (uint16_t)Get16(c + 10);
+    entry->crc = Get32(c + 16);
+    entry->compressedSize = Get32(c + 20);
+    entry->size = Get32(c + 24);
+    entry->headerOffset = Get32(c + 42);
+    return !(Get16(c + 8) & 1) &&                                   // not encrypted
+           entry->compressedSize != 0xFFFFFFFFu && entry->size != 0xFFFFFFFFu &&
+           entry->headerOffset != 0xFFFFFFFFu &&
+           (entry->method == 0 || entry->method == 8);
+}
+
 bool UpdateZip_Find(FILE *zip, const char *name, UpdateZipEntry *entry)
 {
-    uint32_t offset, size;
+    uint32_t size;
     size_t   nameLength = strlen(name);
     bool     found = false;
 
-    if (zip == NULL || !FindDirectory(zip, &offset, &size))
+    uint8_t *directory = ReadDirectory(zip, &size);
+    if (directory == NULL)
         return false;
-    uint8_t *directory = malloc(size > 0 ? size : 1);
-    if (directory == NULL || !ReadAt(zip, (long)offset, directory, size))
-    {
-        free(directory);
-        return false;
-    }
-
     for (uint32_t at = 0; at + CENTRAL_SIZE <= size && !found; )
     {
         const uint8_t *c = directory + at;
@@ -89,15 +113,7 @@ bool UpdateZip_Find(FILE *zip, const char *name, UpdateZipEntry *entry)
             break;
         if (length == nameLength && memcmp(c + CENTRAL_SIZE, name, length) == 0)
         {
-            entry->method = (uint16_t)Get16(c + 10);
-            entry->crc = Get32(c + 16);
-            entry->compressedSize = Get32(c + 20);
-            entry->size = Get32(c + 24);
-            entry->headerOffset = Get32(c + 42);
-            found = !(Get16(c + 8) & 1) &&                          // not encrypted
-                    entry->compressedSize != 0xFFFFFFFFu && entry->size != 0xFFFFFFFFu &&
-                    entry->headerOffset != 0xFFFFFFFFu &&
-                    (entry->method == 0 || entry->method == 8);
+            found = Describe(c, entry);
             if (!found)
                 break;                                              // a name only appears once
         }
@@ -105,6 +121,43 @@ bool UpdateZip_Find(FILE *zip, const char *name, UpdateZipEntry *entry)
     }
     free(directory);
     return found;
+}
+
+int UpdateZip_List(FILE *zip, const char *prefix, UpdateZipItem *items, int capacity)
+{
+    uint32_t size;
+    size_t   prefixLength = strlen(prefix);
+    int      count = 0;
+
+    uint8_t *directory = ReadDirectory(zip, &size);
+    if (directory == NULL)
+        return -1;
+    for (uint32_t at = 0; at + CENTRAL_SIZE <= size && count >= 0; )
+    {
+        const uint8_t *c = directory + at;
+        if (Get32(c) != CENTRAL_SIGNATURE)
+            break;
+        uint32_t length = Get16(c + 28), extra = Get16(c + 30), comment = Get16(c + 32);
+        if (at + CENTRAL_SIZE + length > size)
+            break;
+        const char *name = (const char *)c + CENTRAL_SIZE;
+        bool wanted = length > prefixLength && memcmp(name, prefix, prefixLength) == 0 &&
+                      name[length - 1] != '/' && length < sizeof(items[0].name);       // a file, not a folder
+        if (wanted && count < capacity)
+        {
+            if (!Describe(c, &items[count].entry))
+                count = -1;
+            else
+            {
+                memcpy(items[count].name, name, length);
+                items[count].name[length] = '\0';
+                count++;
+            }
+        }
+        at += CENTRAL_SIZE + length + extra + comment;
+    }
+    free(directory);
+    return count;
 }
 
 int UpdateZip_Extract(FILE *zip, const UpdateZipEntry *entry, UpdateZipWriter writer, void *user)

@@ -6,3 +6,5 @@ build/
 *.cia
 build-bench/
 *.theme
+source/store_key.h
+store/

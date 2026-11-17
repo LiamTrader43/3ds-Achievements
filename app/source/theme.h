@@ -86,6 +86,10 @@ bool            Theme_Load(void);
 // How many themes there are to choose from: the preinstalled ones and the add-ons found.
 int             Theme_Count(void);
 
+// Adds the add-ons that appeared since the app opened (a theme just bought in the store); the
+// theme in use stays.
+void            Theme_Rescan(void);
+
 // Switches to the next theme that loads (after the last, modern) and saves it in theme.txt.
 // False if one couldn't be loaded on the way: Theme_Error says which and why (and the switch
 // went on to the one after it, if any).
