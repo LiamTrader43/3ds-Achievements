@@ -37,7 +37,7 @@ APP_DESCRIPTION	:=	Starts the tracker and shows your achievements
 APP_AUTHOR	:=	LiamTrader43
 # The app's version: the release tag without its "v" (v1.4.0 -> 1.4.0). The app offers to
 # update itself when GitHub's latest release is newer than this, so raise it for every release.
-VERSION		:=	1.3.0
+VERSION		:=	1.4.0
 BUILD		:=	build
 SOURCES		:=	source qrcodegen ../sysmodule/tracker/rcheevos/src ../sysmodule/tracker/rcheevos/src/rcheevos
 DATA		:=	data
