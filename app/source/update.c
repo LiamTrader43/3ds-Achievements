@@ -50,6 +50,8 @@ _Static_assert(UPDATE_STORE_MOST < BUFFER_SIZE, "so must a store file");
 #define APP_3DSX_ENTRY  "3ds/achievements-viewer.3dsx"
 #define APP_3DSX_PATH   "sdmc:/" APP_3DSX_ENTRY             // if the Homebrew Launcher didn't say
 #define APP_CIA_ENTRY   "cias/achievements.cia"
+#define APP_CIA_PATH    "sdmc:" DIRECTORY "/app-update.cia"   // the CIA taken out of the zip (+ ".tmp" while used)
+#define CIA_BLOCK       0x20000                               // handed to the system 128 KB at a time
 #define STORE_PREFIX    "achievements/store/"                // the store's files (store_file.h), in the zip
 #define STORE_DIR       "sdmc:/achievements/store"           // and on the SD card
 #define STORE_MOST      32
@@ -63,6 +65,7 @@ _Static_assert(UPDATE_STORE_MOST < BUFFER_SIZE, "so must a store file");
 #define ERROR_NO_ENTRY      ((Result)0xE0000007)        // the release zip lacks a file the update needs
 #define ERROR_APP_PATH      ((Result)0xE0000008)        // where the running .3dsx is isn't known
 #define ERROR_NO_RELEASE    ((Result)0xE0000009)        // no newer release was found
+#define ERROR_NO_MEMORY     ((Result)0xE000000A)
 #define ERROR_CURL(code)    ((Result)(0xE1000000u | (u32)(code)))
 #define ERROR_ZIP(code)     ((Result)(0xE2000000u | (u32)(code)))
 
@@ -577,46 +580,83 @@ static Result Replace(const char *path)
     return 0;
 }
 
-typedef struct
-{
-    Handle  handle;
-    u64     offset;
-} CiaSink;
-
-static bool WriteToCia(void *user, const void *data, size_t size)
-{
-    CiaSink *sink = user;
-    u32      written = 0;
-
-    if (R_FAILED(FSFILE_Write(sink->handle, &written, sink->offset, data, (u32)size, 0)) || written != size)
-        return false;
-    sink->offset += size;
-    return true;
-}
-
-// Installs the CIA in the zip over the app's own (on the SD card). The system only takes it
-// once it's all there; anything wrong before then cancels it and leaves the old app.
+// Installs the CIA in the zip over the app's own (on the SD card). It's taken out of the zip
+// first (checked against the zip's CRC), then handed to the system the way FBI and
+// Universal-Updater do it: from a file, in page-aligned 128 KB blocks. (Handing it the zip's
+// output straight away, in uneven pieces from an unaligned buffer, failed on hardware in 1.4.0
+// to 2.0.1: every CIA update ended in E0000004.) The system only takes the new app once it's
+// all there; anything wrong before then cancels it and leaves the old app. update.log gets
+// the system's own result and how far it got.
 static Result InstallCia(FILE *zip, const UpdateZipEntry *entry)
 {
-    Result res = amInit();
-    if (R_FAILED(res))
-        return res;
+    const char *stage = "unpack";
+    u64         offset = 0, installed = 0;
+    u16         installedVersion = 0;
+    bool        haveInstalled = false;
 
-    Handle handle;
-    res = AM_StartCiaInstall(MEDIATYPE_SD, &handle);
+    Result res = ExtractBeside(zip, entry, APP_CIA_PATH);
+    FILE  *file = R_SUCCEEDED(res) ? fopen(APP_CIA_PATH ".tmp", "rb") : NULL;
+    u8    *block = R_SUCCEEDED(res) ? memalign(0x1000, CIA_BLOCK) : NULL;
+    if (R_SUCCEEDED(res) && (file == NULL || block == NULL))
+        res = file == NULL ? ERROR_WRITE : ERROR_NO_MEMORY;
+
     if (R_SUCCEEDED(res))
     {
-        CiaSink sink = { handle, 0 };
-        int     result = UpdateZip_Extract(zip, entry, WriteToCia, &sink);
-        if (result != 0)
-        {
-            AM_CancelCIAInstall(handle);
-            res = result == UPDATE_ZIP_WRITE ? ERROR_WRITE : ERROR_ZIP(result);
-        }
-        else
-            res = AM_FinishCiaInstall(handle);
+        stage = "am";
+        res = amInit();
     }
-    amExit();
+    if (R_SUCCEEDED(res))
+    {
+        u64           self = 0;
+        AM_TitleInfo  title;
+        if (R_SUCCEEDED(APT_GetProgramID(&self)) && R_SUCCEEDED(AM_GetTitleInfo(MEDIATYPE_SD, 1, &self, &title)))
+        {
+            installed = title.titleID;
+            installedVersion = title.version;
+            haveInstalled = true;
+        }
+
+        Handle handle;
+        stage = "start";
+        res = AM_StartCiaInstall(MEDIATYPE_SD, &handle);
+        if (R_SUCCEEDED(res))
+        {
+            stage = "write";
+            size_t got;
+            while (R_SUCCEEDED(res) && (got = fread(block, 1, CIA_BLOCK, file)) > 0)
+            {
+                u32 written = 0;
+                res = FSFILE_Write(handle, &written, offset, block, (u32)got, 0);
+                if (R_SUCCEEDED(res) && written != got)
+                    res = ERROR_WRITE;
+                if (R_SUCCEEDED(res))
+                    offset += got;
+            }
+            if (R_SUCCEEDED(res) && (ferror(file) || offset != entry->size))
+                res = ERROR_WRITE;
+            if (R_SUCCEEDED(res))
+            {
+                stage = "finish";
+                res = AM_FinishCiaInstall(handle);
+            }
+            else
+                AM_CancelCIAInstall(handle);
+        }
+        amExit();
+    }
+
+    if (file != NULL)
+        fclose(file);
+    free(block);
+    remove(APP_CIA_PATH ".tmp");
+    if (haveInstalled)
+        AppLog("cia install: %s, result %08lX, %llu of %lu bytes written, installed %016llX version %u",
+               R_SUCCEEDED(res) ? "done" : stage, (unsigned long)(u32)res, (unsigned long long)offset,
+               (unsigned long)entry->size, (unsigned long long)installed, installedVersion);
+    else
+        AppLog("cia install: %s, result %08lX, %llu of %lu bytes written, installed version unknown",
+               R_SUCCEEDED(res) ? "done" : stage, (unsigned long)(u32)res, (unsigned long long)offset,
+               (unsigned long)entry->size);
     return res;
 }
 
