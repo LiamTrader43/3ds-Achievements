@@ -866,7 +866,8 @@ int main(void)
                 haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
             if (!Menu_GameInFront(&applet))
                 Log("menu: game not in front (active applet %lX)", applet);
-            else if (!Menu_Open(g_game, Achievements_GameId()))     // the game's folder (trophy.bin)
+            else if (!Menu_Open(g_game, Achievements_GameId(),      // the game's folder (trophy.bin)
+                                blockedPlugin[0] != '\0' ? blockedPlugin : NULL))
                 Log("menu: couldn't pause the game (active applet %lX)", applet);
             else
                 Log("menu: touch %08lX", Menu_TouchResult());
@@ -882,7 +883,7 @@ int main(void)
                 {
                     pluginChecked = true;
                     if (PluginBlocked(blockedPlugin, sizeof(blockedPlugin)))
-                        active = false;     // the menu can still list its achievements
+                        active = false;     // the menu says why instead of listing them
                     else
                         blockedPlugin[0] = '\0';
                 }

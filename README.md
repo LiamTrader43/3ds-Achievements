@@ -125,7 +125,7 @@ Some Luma plugins change a game so much that its achievements shouldn't count, l
 @block-plugin cheats
 ```
 
-`@block-plugin *` blocks every plugin. A game can have several of these lines. The start banner says when one applies, and the **Patched games** setting doesn't override it. Older versions of the app and tracker skip these lines.
+`@block-plugin *` blocks every plugin. A game can have several of these lines. The start banner says when one applies, the R + A + Left menu shows why instead of the list, and the **Patched games** setting doesn't override it. Older versions of the app and tracker skip these lines.
 
 ### Other regions
 
