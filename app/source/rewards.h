@@ -13,6 +13,7 @@
 #define REWARD_POINTS   25      // achievement points per reward
 #define REWARD_COINS    5       // Play Coins per reward
 #define PLAY_COINS_MAX  300     // the most the system holds
+#define PLAY_COINS_TEXT "300"   // the same, for text
 
 // Rewards_Spend: there aren't that many Play Coins (nothing was taken).
 #define REWARDS_NOT_ENOUGH  MAKERESULT(RL_STATUS, RS_OUTOFRESOURCE, RM_APPLICATION, RD_OUT_OF_RANGE)

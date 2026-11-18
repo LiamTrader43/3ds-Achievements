@@ -138,14 +138,17 @@ void Ui_PopupText(PopupText *t)
                          r->rewards * REWARD_POINTS, r->earned);
             else
                 snprintf(t->lineText, sizeof(t->lineText), "%d Play Coins kept from before", r->given);
+            Line(t, t->lineText);
             if (R_FAILED(r->result))
                 snprintf(t->lineText2, sizeof(t->lineText2), "Couldn't add them yet (0x%08lX). They're kept.", r->result);
             else if (r->owed > 0)
-                snprintf(t->lineText2, sizeof(t->lineText2), "You're at the limit of %d. %d more are kept.",
-                         PLAY_COINS_MAX, r->owed);
+            {
+                // At the limit: say what the 3DS has, so it doesn't read as if we gave it all.
+                Line(t, "Your 3DS has " PLAY_COINS_TEXT " Play Coins, the most it holds.");
+                snprintf(t->lineText2, sizeof(t->lineText2), "%d more are saved until you spend some.", r->owed);
+            }
             else
                 snprintf(t->lineText2, sizeof(t->lineText2), "You now have %d Play Coins.", r->coins);
-            Line(t, t->lineText);
             Line(t, t->lineText2);
             break;
         }
