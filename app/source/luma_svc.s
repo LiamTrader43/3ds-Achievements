@@ -12,3 +12,13 @@
 svcInvalidateEntireInstructionCache:
     svc 0x94
     bx  lr
+
+@ Result svcControlService(u32 op, Handle *out, const char *name): op 0 = a session to a service
+@ whose sessions are all taken, shared with the process holding one (autostart.c: Luma's loader).
+@ The same as the tracker's (csvc.s), which shares mcu::HWC's.
+.section .text.svcControlService, "ax", %progbits
+.global svcControlService
+.type svcControlService, %function
+svcControlService:
+    svc 0xB0
+    bx  lr

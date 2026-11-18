@@ -37,7 +37,9 @@ KINDS = ("theme",)
 def read_list(path):
     """The items in items.txt, as (line number, ID, price, kind, value, name, description)."""
     items, problems, ids = [], [], set()
-    raw = open(path, "rb").read()
+    # Packed with plain line ends: git may check the list out with Windows ones, and items.bin
+    # mustn't change with them (every app would download it again).
+    raw = open(path, "rb").read().replace(b"\r\n", b"\n")
     for number, line in enumerate(raw.split(b"\n"), 1):
         try:
             text = line.decode("ascii").strip()

@@ -1,5 +1,6 @@
 // Background achievement tracker: a sysmodule loaded by Luma3DS from
-// /luma/sysmodules/0004013000AC4102.cxi and started by the starter app.
+// /luma/sysmodules/0004013000AC4102.cxi, started by the app, or with the console when
+// the app's "Start with the console" is on (autostart_files.h).
 //
 // Every 100 ms it finds the running game, loads that game's definitions when
 // the game changes, and checks them by mapping the game's memory with Luma's
@@ -16,6 +17,7 @@
 #include <string.h>
 
 #include "achievements.h"
+#include "autostart_files.h"
 #include "gamemem.h"
 #include "heap.h"
 #include "menu.h"
@@ -538,6 +540,126 @@ static bool FindApplication(u32 *pid, u64 *titleId)
     return false;
 }
 
+//------------------------------------------------------------------------------
+// Start with the console (the app's setting, autostart_files.h)
+//------------------------------------------------------------------------------
+
+#define ERRDISP_TITLE_ID    0x0004003000008A02ULL
+
+static bool g_bootPending;      // started with the console: AUTOSTART_TRY stays until the HOME Menu is up
+static bool g_exitWhenUp;       // and the user turned the tracker off: it leaves then
+
+static bool SdExists(const char *path)
+{
+    Handle file;
+
+    if (R_FAILED(OpenSdFile(&file, path, FS_OPEN_READ)))
+        return false;
+    FSFILE_Close(file);
+    return true;
+}
+
+// Deletes a file, or a folder if it's empty.
+static void SdDelete(const char *path, bool folder)
+{
+    FS_Archive sd;
+
+    if (R_FAILED(FSUSER_OpenArchive(&sd, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, ""))))
+        return;
+    if (folder)
+        FSUSER_DeleteDirectory(sd, fsMakePath(PATH_ASCII, path));
+    else
+        FSUSER_DeleteFile(sd, fsMakePath(PATH_ASCII, path));
+    FSUSER_CloseArchive(sd);
+}
+
+// The system is up: an application, a system application (System Settings...) or an applet
+// (the HOME Menu) is running. ErrDisp, an applet too, doesn't count.
+static bool SystemUp(void)
+{
+    u32 pids[64];
+    s32 count;
+
+    if (R_FAILED(svcGetProcessList(&count, pids, 64)))
+        return true;        // can't tell: nothing to guard
+    for (s32 i = 0; i < count; i++)
+    {
+        Handle  process;
+        s64     tid;
+
+        if (R_FAILED(svcOpenProcess(&process, pids[i])))
+            continue;
+        Result res = svcGetProcessInfo(&tid, process, PROCESS_TITLE_ID);
+        svcCloseHandle(process);
+        u32 high = (u32)((u64)tid >> 32);
+        if (R_SUCCEEDED(res) && (high == 0x00040000 || high == 0x00040010 || high == 0x00040030)
+            && ((u64)tid & ~0xF0000000ULL) != ERRDISP_TITLE_ID)
+            return true;
+    }
+    return false;
+}
+
+// Turns the setting off: removes the app's copy of the module's exheader (only if the tracker
+// is first in its list) and the record, and tells the app why.
+static void AutostartOff(void)
+{
+    char                text[256], path[64];
+    u32                 length;
+    unsigned long long  host = 0;
+
+    if (Platform_ReadFile(AUTOSTART_RECORD, text, sizeof(text) - 1, &length))
+    {
+        const char *at = strstr(text, "host ");
+        if (at != NULL)
+            host = strtoull(at + 5, NULL, 16);
+    }
+    if (host != 0)
+    {
+        Handle  file;
+        u64     first = 0;
+        u32     read = 0;
+
+        snprintf(path, sizeof(path), AUTOSTART_TITLES "/%016llX/exheader.bin", host);
+        if (R_SUCCEEDED(OpenSdFile(&file, path, FS_OPEN_READ)))
+        {
+            FSFILE_Read(file, &read, AUTOSTART_DEPS_OFFSET, &first, sizeof(first));
+            FSFILE_Close(file);
+            if (read == sizeof(first) && first == TRACKER_TID)
+            {
+                SdDelete(path, false);
+                snprintf(path, sizeof(path), AUTOSTART_TITLES "/%016llX", host);
+                SdDelete(path, true);
+                Log("autostart: removed " AUTOSTART_TITLES "/%016llX/exheader.bin", host);
+            }
+        }
+    }
+    SdDelete(AUTOSTART_RECORD, false);
+    Platform_AppendFile(AUTOSTART_FAILED, "a start of the 3DS that started the tracker didn't reach the HOME Menu\n");
+}
+
+// When the console started the tracker (nothing is running yet), it guards the boot: if the
+// last start that started it never got to the HOME Menu, maybe because of it, the setting is
+// turned off and the tracker leaves at once (false). Otherwise this start is marked until the
+// HOME Menu is up.
+static bool BootGuard(void)
+{
+    if (SystemUp())
+        return true;        // started by the app
+    Log("autostart: started with the console");
+    if (SdExists(AUTOSTART_TRY))
+    {
+        Log("autostart: the last start of the 3DS that started the tracker didn't reach the HOME Menu: turned off");
+        AutostartOff();
+        SdDelete(AUTOSTART_TRY, false);
+        return false;
+    }
+    g_bootPending = Platform_AppendFile(AUTOSTART_TRY, "1\n");
+    g_exitWhenUp = SdExists(AUTOSTART_OFF);
+    if (g_exitWhenUp)
+        Log("autostart: the tracker is turned off in the app: it leaves once the HOME Menu is up");
+    return !(g_exitWhenUp && !g_bootPending);
+}
+
 // The game closed (or another one started): everything it took goes back to the system.
 static void UnloadGame(void)
 {
@@ -568,6 +690,11 @@ int main(void)
         "no heap until a game with achievements runs", g_status.freeMemory / 1024, Heap_LimitFree() / 1024,
         Heap_RegionFree() / 1024, g_status.heapSize / 1024, g_status.heapResult);
     g_status.stage = STAGE_LOGGED;
+    if (!BootGuard())
+    {
+        Log("tracker stopping");
+        return 0;
+    }
     Result res = srvEnableNotification(&notification);
     if (R_SUCCEEDED(res))
         res = srvSubscribe(NOTIF_TERMINATE);
@@ -589,6 +716,15 @@ int main(void)
         g_status.polls++;
         if (g_status.stage < STAGE_POLLING)
             g_status.stage = STAGE_POLLING;
+
+        if (g_bootPending && SystemUp())
+        {
+            SdDelete(AUTOSTART_TRY, false);
+            g_bootPending = false;
+            Log("autostart: the HOME Menu is up");
+            if (g_exitWhenUp)
+                break;
+        }
 
         u32 pid;
         u64 titleId;

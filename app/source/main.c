@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "achievements.h"
+#include "autostart.h"
 #include "bench.h"
 #include "draw.h"
 #include "games.h"
@@ -35,6 +36,7 @@
 
 static bool         s_gamesWaiting;         // game files to offer once the app update's popup closes
 static bool         s_coinsWaiting;         // the Play Coins earned, once the popup showing closes
+static Result       s_autostartOff;         // why "Start with the console" was turned off, to tell once the popup showing closes
 static Result       s_coinsResult;          // of reading them, if they couldn't be (g_coins -1)
 static u64          s_restartAt;            // after an app update: when the app closes for it
 
@@ -342,6 +344,8 @@ static void ClosePopup(void)
     g_popup = POPUP_NONE;
     if (s_gamesWaiting)
         g_popup = POPUP_UPDATE, s_gamesWaiting = false;
+    else if (s_autostartOff != 0)
+        g_popup = POPUP_AUTOSTART_OFF, g_popupResult = s_autostartOff, s_autostartOff = 0;
     else if (s_coinsWaiting)
         g_popup = POPUP_COINS, s_coinsWaiting = false;
 }
@@ -385,6 +389,16 @@ static void BuyNow(void)
 }
 
 // Changes setting i: turns the tracker or patched games on or off (Theme opens its list instead).
+// Turns "Start with the console" on or off; the popup says how it went (none for off).
+static void SetAutostart(bool on)
+{
+    Result res = on ? Autostart_Enable() : Autostart_Disable();
+    g_autostart = Autostart_On();
+    g_autostartUsable = Autostart_Usable();
+    g_popupResult = res;
+    g_popup = R_FAILED(res) ? POPUP_AUTOSTART_FAILED : on ? POPUP_AUTOSTART_ON : POPUP_NONE;
+}
+
 static void ChangeSetting(int i)
 {
     if (i == SETTING_TRACKER)
@@ -397,6 +411,13 @@ static void ChangeSetting(int i)
             g_popup = on ? POPUP_START_FAILED : POPUP_STOP_FAILED;
             g_popupResult = res;
         }
+    }
+    else if (i == SETTING_AUTOSTART)
+    {
+        if (g_autostart)
+            SetAutostart(false);
+        else
+            g_popup = POPUP_AUTOSTART_CONFIRM;      // what game patching also does first; A turns it on
     }
     else if (i == SETTING_PATCHED)
     {
@@ -455,6 +476,9 @@ int main(int argc, char **argv)
     g_gameCount = Games_Scan(g_games, MAX_GAMES);
     g_trackerRunning = Tracker_Running();
     g_patchedAllowed = Tracker_PatchedAllowed();
+    Result autostartOff = Autostart_Check();    // turned off since? (a start that failed, a system update)
+    g_autostart = Autostart_On();
+    g_autostartUsable = Autostart_Usable();
     if (wanted && !g_trackerRunning)
     {
         g_popup = POPUP_START_FAILED;
@@ -462,6 +486,10 @@ int main(int argc, char **argv)
     }
     else if (!themeLoaded)
         g_popup = POPUP_THEME_FAILED;   // the theme in theme.txt: modern is used instead
+    if (autostartOff != 0 && g_popup == POPUP_NONE)
+        g_popup = POPUP_AUTOSTART_OFF, g_popupResult = autostartOff;
+    else
+        s_autostartOff = autostartOff;
 
     // Play Coins for achievement points (only when the app opens; the tracker doesn't give them).
     int pointsAll = 0;
@@ -662,6 +690,19 @@ int main(int argc, char **argv)
             {
                 BuyNow();
                 redraw = 2;                 // the list shows it bought
+            }
+            else if (down & KEY_B)
+            {
+                ClosePopup();
+                redrawTop = 2;
+            }
+        }
+        else if (g_popup == POPUP_AUTOSTART_CONFIRM)
+        {
+            if (down & KEY_A)
+            {
+                SetAutostart(true);
+                redraw = 2;                 // the setting shows On
             }
             else if (down & KEY_B)
             {

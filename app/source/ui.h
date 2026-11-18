@@ -54,6 +54,8 @@ extern int          g_paidOwed;             // coins kept from before, added aft
 // The settings the hints show.
 extern bool         g_trackerRunning;
 extern bool         g_patchedAllowed;
+extern bool         g_autostart;            // "Start with the console" (autostart.c)
+extern bool         g_autostartUsable;      // Luma's options for it are on
 
 // The message over the top screen, if any.
 typedef enum
@@ -63,7 +65,11 @@ typedef enum
     POPUP_APP_UPDATE, POPUP_APP_DOWNLOADING, POPUP_APP_UPDATED, POPUP_APP_FAILED,
     POPUP_THEME_FAILED,             // an add-on theme couldn't be loaded (Theme_Error)
     POPUP_COINS,                    // Play Coins earned (g_rewards)
-    POPUP_BUY, POPUP_BOUGHT, POPUP_NOT_ENOUGH, POPUP_BUY_FAILED     // the store (g_buyItem)
+    POPUP_BUY, POPUP_BOUGHT, POPUP_NOT_ENOUGH, POPUP_BUY_FAILED,    // the store (g_buyItem)
+    POPUP_AUTOSTART_ON,             // "Start with the console" turned on
+    POPUP_AUTOSTART_FAILED,         // couldn't turn it on or off (g_popupResult, autostart.h)
+    POPUP_AUTOSTART_OFF,            // it was turned off since the app was last open (why: g_popupResult)
+    POPUP_AUTOSTART_CONFIRM         // before turning it on: what game patching also does (A turns it on)
 } Popup;
 
 extern Popup        g_popup;
@@ -140,7 +146,7 @@ void    Ui_Totals(UiTotals *t);
 // The settings menu (X): each line's name, its value now, and what it does. Theme opens a list
 // of the themes (MENU_THEMES), drawn like the settings: g_menu says which list is showing,
 // g_menuScroll its first line shown.
-enum { SETTING_TRACKER, SETTING_PATCHED, SETTING_THEME, SETTING_COUNT };
+enum { SETTING_TRACKER, SETTING_AUTOSTART, SETTING_PATCHED, SETTING_THEME, SETTING_COUNT };
 enum { MENU_SETTINGS, MENU_THEMES };
 extern int          g_menu;
 extern int          g_menuScroll;

@@ -23,7 +23,7 @@ You need a 3DS with Luma3DS. The tracker relies on Luma's kernel extensions, so 
 1. Download the zip from the [latest release](https://github.com/LiamTrader43/3ds-Achievements/releases/latest), extract it, and copy everything inside to the root of your SD card, merging with the folders already there.
 2. Hold SELECT while turning on your 3DS, and in Luma's configuration turn on **Enable loading external FIRMs and modules**.
 3. Install `cias/achievements.cia` with FBI to get **3DS Achievements** on the HOME Menu, or use **Achievements** in the Homebrew Launcher instead.
-4. Open the app once after each boot to start the tracker. It keeps running after you leave the app.
+4. Open the app once after each boot to start the tracker. It keeps running after you leave the app. To have it start by itself whenever you turn on your 3DS, turn on **Start with the console** in the settings (see [Settings and themes](#settings-and-themes)).
 
 Since version 1.4.0, the app updates itself. When a new release is out, it offers to download and install it (the app and the tracker) and restarts into the new version. To update by hand instead, or from an older version, copy a newer zip over the old files and restart your 3DS. Your unlocks are kept either way.
 
@@ -38,7 +38,7 @@ Since version 1.4.0, the app updates itself. When a new release is out, it offer
 | Drag the touch screen | Scroll achievements |
 | A, or tap an achievement | Show it in full: the whole name and description (B or a tap goes back, Up/Down show the next ones) |
 | L / R | Jump a page |
-| X | Settings: the tracker, patched games and the theme |
+| X | Settings: the tracker, starting it with the console, patched games and the theme |
 | Y | Share the open game's progress (A saves the image to the SD card, B goes back) |
 | 3D slider | Depth on the top screen: the game's art sits behind the screen and the selected game comes forward |
 | START | Exit |
@@ -65,7 +65,13 @@ Press X for the settings. **Tracker** turns the tracker on or off, **Patched gam
 
 | Settings (X) | Choosing a theme |
 |---|---|
-| <img src="assets/screenshots/settings.png" alt="The settings: Tracker on, Patched games off and Theme set to Modern, each with a line about what it does" width="400"> | <img src="assets/screenshots/themes.png" alt="The theme list: Modern, in use, and 3DS, each with a line about how it looks" width="400"> |
+| <img src="assets/screenshots/settings.png" alt="The settings: Tracker on, Start with the console off and Patched games off, each with a line about what it does" width="400"> | <img src="assets/screenshots/themes.png" alt="The theme list: Modern, in use, and 3DS, each with a line about how it looks" width="400"> |
+
+**Start with the console** starts the tracker whenever you turn on your 3DS, so you don't have to open the app first. It needs Luma3DS 13.0 or newer with a second Luma option on, **Enable game patching** (hold SELECT while turning on your 3DS); the app tells you if it's off. Be careful with game mods: with game patching on, Luma also applies any mods in `/luma/titles`. A game with mods isn't tracked while **Patched games** is off, but with it on, a mod could unlock achievements you didn't earn. The app reminds you of this before turning the setting on.
+
+How it works: Luma starts a system module's dependencies with it, and lets a file on the SD card replace a module's list of them. So the app picks one of the system modules started at boot and writes its list, with the tracker added, to `/luma/titles/<module>/exheader.bin`. Before writing, it works out the whole boot as Luma will do it, and only uses a module where the 3DS would start normally even if the tracker couldn't start. It leaves alone the module [3DS Recorder](https://github.com/BolgarMaxym97/3ds-recorder)'s Launch On Startup uses, so both can be on. `/achievements/autostart.log` shows what it found, and `/achievements/autostart.txt` names the file. Turning the setting off removes it.
+
+If your 3DS ever doesn't get to the HOME Menu with it on, turn it on again: the tracker notices the last start didn't finish, turns the setting off and removes the file. If that doesn't help, hold SELECT while turning on your 3DS and turn off **Enable game patching**, or delete the file named in `/achievements/autostart.txt` from the SD card. After a system update the app turns the setting off by itself, because the module it used may have changed; turn it on again to set it up for the new version.
 
 ## Play Coins and the store
 
@@ -79,7 +85,7 @@ Spend them in the store, the last tile in the row of games. Highlight it to see 
 
 ## Reporting a bug
 
-Open an [issue](https://github.com/LiamTrader43/3ds-Achievements/issues) or post in the bug report forum on [Discord](https://discord.gg/MWZKkPytYc), and **attach `/achievements/tracker.log` from your SD card**. The tracker writes it as you play: which games started, every unlock, and whether it could read the game's memory. It's usually the only way to tell what went wrong. For download problems, attach `/achievements/update.log` too, and `/achievements/theme.log` if a theme won't load. None of these contain personal information, only game titles, unlocks and technical details. For sharing problems, attach `/achievements/share.log`; besides technical details, it lists your 3DS's and phone's addresses on your home network.
+Open an [issue](https://github.com/LiamTrader43/3ds-Achievements/issues) or post in the bug report forum on [Discord](https://discord.gg/MWZKkPytYc), and **attach `/achievements/tracker.log` from your SD card**. The tracker writes it as you play: which games started, every unlock, and whether it could read the game's memory. It's usually the only way to tell what went wrong. For download problems, attach `/achievements/update.log` too, `/achievements/theme.log` if a theme won't load, and `/achievements/autostart.log` for **Start with the console**. None of these contain personal information, only game titles, unlocks and technical details. For sharing problems, attach `/achievements/share.log`; besides technical details, it lists your 3DS's and phone's addresses on your home network.
 
 In the issue, include:
 

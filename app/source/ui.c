@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "autostart.h"
 #include "store_file.h"
 #include "store_icon.h"
 #include "theme.h"
@@ -38,6 +39,8 @@ int         g_paidOwed;
 
 bool        g_trackerRunning;
 bool        g_patchedAllowed;
+bool        g_autostart;
+bool        g_autostartUsable;
 
 Popup       g_popup;
 Result      g_popupResult;
@@ -187,6 +190,39 @@ void Ui_PopupText(PopupText *t)
                 Line(t, "Choose it in the settings (X).");
             break;
         }
+        case POPUP_AUTOSTART_ON:
+            t->title = "Starts with your 3DS";
+            t->emphasizeFirst = true;
+            Line(t, "The tracker now starts when you turn on your 3DS.");
+            Line(t, "If your 3DS ever doesn't get to the HOME Menu,");
+            Line(t, "turn it on again: this setting turns itself off.");
+            break;
+        case POPUP_AUTOSTART_CONFIRM:
+            // Game patching applies every mod in /luma/titles, not just ours: say what that risks.
+            t->title = "Before you turn it on";
+            t->emphasizeFirst = true;
+            // Three lines: a fourth makes the popup reach over the text behind it in Modern and 3DS.
+            Line(t, "Luma's \"Enable game patching\" has to be on.");
+            Line(t, "It also applies any mods in /luma/titles, so with");
+            Line(t, "Patched games on, a mod could unlock achievements.");
+            t->buttonA = "Turn on", t->buttonB = "Cancel";
+            break;
+        case POPUP_AUTOSTART_OFF:
+            t->title = "Start with the console is off";
+            t->emphasizeFirst = true;
+            if (g_popupResult == AUTOSTART_UPDATED)
+            {
+                Line(t, "A system update changed the module it used.");
+                Line(t, "Turn it on again in the settings (X) to set it");
+                Line(t, "up for the new version.");
+            }
+            else
+            {
+                Line(t, "Your 3DS didn't get to the HOME Menu last time.");
+                Line(t, "The tracker started with it, so this was turned");
+                Line(t, "off. Turn it on again in the settings (X).");
+            }
+            break;
         default:
             break;
     }
@@ -253,6 +289,35 @@ void Ui_PopupText(PopupText *t)
             Line(t, "If you leave it, it's offered again next time");
             Line(t, "you open the app.");
             t->buttonA = "Retry", t->buttonB = "Later";
+            break;
+        case POPUP_AUTOSTART_FAILED:
+            // g_autostart: still on, so it was turning it off that failed.
+            t->title = g_autostart ? "Couldn't turn it off" : "Couldn't turn it on";
+            if (g_autostart)
+            {
+                Line(t, "Its file in /luma/titles couldn't be removed.");
+                Line(t, "/achievements/autostart.log says which.");
+            }
+            else if (g_popupResult == AUTOSTART_OLD_LUMA)
+                Line(t, "It needs Luma3DS 13.0 or newer.");
+            else if (g_popupResult == AUTOSTART_NO_MODULES || g_popupResult == AUTOSTART_NO_PATCHING)
+            {
+                Line(t, g_popupResult == AUTOSTART_NO_PATCHING ? "Turn on \"Enable game patching\" in Luma's settings"
+                                                               : "Turn on \"Enable loading external FIRMs and modules\"");
+                Line(t, g_popupResult == AUTOSTART_NO_PATCHING ? "(hold SELECT while turning on your 3DS)," :
+                                                                 "in Luma's settings (hold SELECT while turning on");
+                Line(t, g_popupResult == AUTOSTART_NO_PATCHING ? "then try again." : "your 3DS), then try again.");
+            }
+            else if (g_popupResult == AUTOSTART_NO_TRACKER)
+                Line(t, "/luma/sysmodules/0004013000AC4102.cxi is missing.");
+            else
+            {
+                Line(t, g_popupResult == AUTOSTART_NO_HOST ? "No system module can start the tracker safely."
+                        : g_popupResult == AUTOSTART_NOT_USED ? "Luma didn't use the file, so it was removed."
+                        : "Luma's loader or the SD card had a problem.");
+                Line(t, "Nothing was changed.");
+                Line(t, "/achievements/autostart.log says more.");
+            }
             break;
         default:        // POPUP_UPDATE_FAILED
             t->title = "Download failed";
@@ -421,6 +486,13 @@ void Ui_Setting(int i, UiSetting *s)
             s->name = "Tracker";
             s->on = g_trackerRunning;
             s->description = "Watches your games for achievements. Turned off, it stays off until you turn it on again.";
+            break;
+        case SETTING_AUTOSTART:
+            s->name = "Start with the console";
+            s->on = g_autostart;
+            s->description = g_autostart && !g_autostartUsable ?
+                "On, but Luma's \"Enable game patching\" is off: the tracker doesn't start with your 3DS." :
+                "Starts the tracker with your 3DS. Needs Luma's game patching, which also applies game mods.";
             break;
         case SETTING_PATCHED:
             s->name = "Patched games";
