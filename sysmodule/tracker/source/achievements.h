@@ -68,4 +68,13 @@ int     Achievements_Points(uint16_t *points, int capacity);
 // Points of the unlocked achievements, and of all of them.
 void    Achievements_Score(int *earned, int *total);
 
+// "@block-plugin <text>" lines in the loaded definitions: while a Luma plugin whose file path
+// contains that text (any case) runs in the game, its achievements are off. "*" blocks any
+// plugin. How many there are (0: plugins don't matter for this game).
+int     Achievements_PluginBlockCount(void);
+
+// True if the plugin at path is blocked for this game. path NULL: a plugin runs but its path
+// is unknown, and only "*" blocks it.
+bool    Achievements_PluginBlocked(const char *path);
+
 #endif

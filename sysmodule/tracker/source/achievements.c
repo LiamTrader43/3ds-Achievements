@@ -15,6 +15,9 @@
 #define MAX_POINTS      1000
 #define MAX_SHIFTS      8       // "shift" lines in a version.txt
 #define VERSION_CAPACITY 1024
+#define PLUGIN_KEYWORD  "@block-plugin"     // "@block-plugin <text>": see Achievements_PluginBlocked
+#define MAX_PLUGIN_BLOCKS 8
+#define PLUGIN_TEXT     64
 
 // Longest name and description kept, with the closing zero. Both the tracker's menu and the
 // app show them in full (A on an achievement); the app compiles this file with more room.
@@ -61,6 +64,8 @@ static char         g_unlockPath[64];
 static uint64_t     g_gameId;
 static Shift        g_shift[MAX_SHIFTS];
 static int          g_shiftCount;
+static char         g_pluginBlocks[MAX_PLUGIN_BLOCKS][PLUGIN_TEXT];
+static int          g_pluginBlockCount;
 
 static bool IsSpace(char c)
 {
@@ -304,6 +309,58 @@ static bool NextLine(const char **pos, const char *end, const char **first, cons
     return false;
 }
 
+// A line starting with '@' is for the tracker, never an achievement (older builds skip it as an
+// invalid line). "@block-plugin <text>" is recorded; other keywords are left for later builds.
+static bool TrackerLine(const char *line, const char *end)
+{
+    const size_t keyword = strlen(PLUGIN_KEYWORD);
+
+    if (*line != '@')
+        return false;
+    if ((size_t)(end - line) > keyword && memcmp(line, PLUGIN_KEYWORD, keyword) == 0 && IsSpace(line[keyword])
+        && g_pluginBlockCount < MAX_PLUGIN_BLOCKS)
+    {
+        char *text = g_pluginBlocks[g_pluginBlockCount];
+        CopyTrimmed(text, PLUGIN_TEXT, line + keyword, end);
+        if (text[0] != '\0')
+            g_pluginBlockCount++;
+    }
+    return true;
+}
+
+static char Lower(char c)
+{
+    return c >= 'A' && c <= 'Z' ? (char)(c - 'A' + 'a') : c;
+}
+
+// Whether text appears in path, ignoring case.
+static bool ContainsIgnoringCase(const char *path, const char *text)
+{
+    size_t length = strlen(text);
+    for (const char *p = path; *p != '\0'; p++)
+    {
+        size_t i = 0;
+        while (i < length && p[i] != '\0' && Lower(p[i]) == Lower(text[i]))
+            i++;
+        if (i == length)
+            return true;
+    }
+    return length == 0;
+}
+
+int Achievements_PluginBlockCount(void)
+{
+    return g_pluginBlockCount;
+}
+
+bool Achievements_PluginBlocked(const char *path)
+{
+    for (int i = 0; i < g_pluginBlockCount; i++)
+        if (strcmp(g_pluginBlocks[i], "*") == 0 || (path != NULL && ContainsIgnoringCase(path, g_pluginBlocks[i])))
+            return true;
+    return false;
+}
+
 static void MarkUnlocked(const char *id)
 {
     for (int i = 0; i < g_count; i++)
@@ -391,6 +448,7 @@ void Achievements_Unload(void)
     g_block = NULL;
     g_ach = NULL;
     g_count = 0;
+    g_pluginBlockCount = 0;
 }
 
 bool Achievements_Load(uint64_t titleId)
@@ -438,8 +496,12 @@ bool Achievements_Load(uint64_t titleId)
 
     int    lines = 0;
     size_t conditionBytes = 0;
-    for (pos = file, end = file + length; lines < MAX_LINES && NextLine(&pos, end, &first, &lineEnd); lines++)
-        conditionBytes += ConditionBytes(first, lineEnd);
+    for (pos = file, end = file + length; lines < MAX_LINES && NextLine(&pos, end, &first, &lineEnd); )
+        if (*first != '@')                  // the tracker's own lines (TrackerLine) aren't achievements
+        {
+            conditionBytes += ConditionBytes(first, lineEnd);
+            lines++;
+        }
     free(file);
     if (lines == 0 || g_noRoom)
         return false;
@@ -457,8 +519,9 @@ bool Achievements_Load(uint64_t titleId)
     g_spare = (uint8_t *)g_block + tableBytes;
     g_spareEnd = g_spare + conditionBytes;
 
-    for (pos = file, end = file + length; g_count < lines && NextLine(&pos, end, &first, &lineEnd); )
-        if (ParseLine(first, lineEnd, &g_ach[g_count]))
+    // To the end of the file: a tracker line may come after the last achievement.
+    for (pos = file, end = file + length; NextLine(&pos, end, &first, &lineEnd); )
+        if (!TrackerLine(first, lineEnd) && g_count < lines && ParseLine(first, lineEnd, &g_ach[g_count]))
             g_count++;
     g_spare = g_spareEnd = NULL;
 

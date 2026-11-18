@@ -464,14 +464,75 @@ static const char *FindGamePatch(u64 titleId)
     return found ? "romfs" : NULL;
 }
 
+// Luma's plugin loader puts a plugin's header here in the game's memory (rosalina's plgldr.h
+// PluginHeader), before the game's first instruction runs (its loader loads the plugin right
+// after creating the process).
+#define PLUGIN_HEADER_VA    0x07000000
+#define PLUGIN_MAGIC        0x24584733      // "3GX$"
+
+// The path of the plugin Luma loaded last, from its plugin loader ("plg:ldr" command 10, as
+// rosalina's PLGLDR__GetPluginPath sends it). The port takes one session, which a running
+// plugin may hold; then this shares that session, Rosalina's way.
+static Result GetPluginPath(char *path, size_t size)
+{
+    static char reply[256];
+    Handle      port = 0;
+
+    Result res = svcConnectToPort(&port, "plg:ldr");
+    if (R_FAILED(res))
+        res = svcControlService(0, &port, "plg:ldr");       // SERVICEOP_STEAL_CLIENT_SESSION
+    if (R_FAILED(res))
+        return res;
+
+    memset(reply, 0, sizeof(reply));
+    u32 *cmdbuf = getThreadCommandBuffer();
+    cmdbuf[0] = IPC_MakeHeader(10, 0, 2);
+    cmdbuf[1] = IPC_Desc_Buffer(255, IPC_BUFFER_RW);
+    cmdbuf[2] = (u32)reply;
+    res = svcSendSyncRequest(port);
+    if (R_SUCCEEDED(res))
+        res = cmdbuf[1];
+    svcCloseHandle(port);
+    if (R_SUCCEEDED(res))
+        snprintf(path, size, "%s", reply);
+    return res;
+}
+
+// Whether a Luma plugin runs in the game and the definitions block it ("@block-plugin"), on
+// the game's first poll (GameMem_BeginPoll done). If so, *name gets the plugin's file name
+// for the start banner.
+static bool PluginBlocked(char *name, size_t size)
+{
+    u32 magic = 0;
+
+    if (Achievements_PluginBlockCount() == 0)
+        return false;
+    if (!Platform_ReadMemory(PLUGIN_HEADER_VA, 4, &magic) || magic != PLUGIN_MAGIC)
+        return false;                       // no plugin in this game
+
+    char   path[256] = "";
+    Result res = GetPluginPath(path, sizeof(path));
+    bool   known = R_SUCCEEDED(res) && path[0] != '\0';
+    bool   blocked = Achievements_PluginBlocked(known ? path : NULL);
+    const char *file = strrchr(path, '/');
+    snprintf(name, size, "%.*s", (int)size - 1, known ? (file != NULL ? file + 1 : path) : "a plugin");
+    if (known)
+        Log("plugin: %s: %s", path, blocked ? "blocked by the game's definitions, not tracking" : "allowed");
+    else
+        Log("plugin: running, path unknown (%08lX): %s", res, blocked ? "blocked (any plugin), not tracking" : "allowed");
+    return blocked;
+}
+
 // "<game>, <unlocked>/<total> achievements unlocked" (or why achievements are
 // off), the game's name cut with "..." to fit.
-static void ShowStartBanner(bool supported, bool patched, bool noMemory)
+static void ShowStartBanner(bool supported, bool patched, bool noMemory, const char *plugin)
 {
-    char    suffix[48], title[96], message[160];
+    char    suffix[64], title[96], message[160];
     int     unlocked, total;
 
-    if (patched)
+    if (plugin != NULL)
+        snprintf(suffix, sizeof(suffix), ", achievements off: %.28s", plugin);
+    else if (patched)
         snprintf(suffix, sizeof(suffix), ", patched, achievements off");
     else if (noMemory)
         snprintf(suffix, sizeof(suffix), ", achievements off: low memory");
@@ -678,6 +739,8 @@ int main(void)
     u64     loadedTitle = 0;
     bool    active = false;
     bool    patched = false;        // has definitions, but isn't tracked (see FindGamePatch)
+    bool    pluginChecked = false;  // this game's plugin looked at (PluginBlocked, on its first poll)
+    char    blockedPlugin[32] = ""; // a plugin its definitions block runs in it: not tracked
     bool    noMemory = false;       // couldn't be loaded: too little memory left (see heap.c)
     bool    haveTitle = false;      // from the SMDH, not the process name
     bool    startShown = false;     // this game's start banner
@@ -772,6 +835,8 @@ int main(void)
                 Log("memory: heap %lu KB, %lu KB free%s", Heap_Size() / 1024, Heap_SystemFree() / 1024,
                     noMemory ? "; not enough left to load this game's achievements"
                     : !copies ? "; not enough left to read the game yet" : "");
+            pluginChecked = false;
+            blockedPlugin[0] = '\0';
             startShown = false;
             startAt = osGetTime() + START_DELAY_MS;
             g_statsWindows = 0;     // this game's first stats window gets logged
@@ -787,7 +852,7 @@ int main(void)
                 haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
                 Heap_Trim();
             }
-            ShowStartBanner(active, patched, noMemory);
+            ShowStartBanner(active, patched, noMemory, blockedPlugin[0] != '\0' ? blockedPlugin : NULL);
             startShown = true;
         }
 
@@ -811,7 +876,19 @@ int main(void)
         {
             u64 start = svcGetSystemTick();
             if (GameMem_BeginPoll(g_game, pid))     // false: memory unreadable, don't check with zeros
-                Achievements_Update();
+            {
+                // Before any condition is checked: a plugin the definitions block turns it off.
+                if (!pluginChecked)
+                {
+                    pluginChecked = true;
+                    if (PluginBlocked(blockedPlugin, sizeof(blockedPlugin)))
+                        active = false;     // the menu can still list its achievements
+                    else
+                        blockedPlugin[0] = '\0';
+                }
+                if (active)
+                    Achievements_Update();
+            }
             GameMem_EndPoll();
             PollStats(svcGetSystemTick() - start);
         }

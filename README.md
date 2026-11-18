@@ -117,6 +117,16 @@ For anything more involved, use a RetroAchievements condition string. These can'
 BEAT_LEVEL  rc:0xH1618fd9c=2  Level Clear | Beat the first level. | 10
 ```
 
+### Plugins
+
+Some Luma plugins change a game so much that its achievements shouldn't count, like a cheat menu or a mod that brings its own save. A line starting with `@block-plugin` turns the game's achievements off while a plugin whose file path contains the given text (any case) is running:
+
+```
+@block-plugin cheats
+```
+
+`@block-plugin *` blocks every plugin. A game can have several of these lines. The start banner says when one applies, and the **Patched games** setting doesn't override it. Older versions of the app and tracker skip these lines.
+
 ### Other regions
 
 Another region (or release) of a game shares its achievements and progress. Instead of definitions, its folder holds a `version.txt` naming the game's folder:
