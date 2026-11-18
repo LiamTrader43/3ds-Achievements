@@ -52,7 +52,7 @@ Result svcControlProcess(Handle process, u32 op, u32 varg2, u32 varg3);
 #define DETAIL_HINT_Y       (HEIGHT - 16)
 
 #define LINE_CHARS          112     // a line of text, 320 px even in narrow characters
-#define MAX_ACHIEVEMENTS    128
+#define MAX_ACHIEVEMENTS    256     // achievements.c's MAX_LINES
 #define ICON_PIXELS         (OVERLAY_ICON_SIZE * OVERLAY_ICON_SIZE)
 #define ICON_FILE_BYTES     (2 * ICON_PIXELS * 2)   // unlocked, then locked
 

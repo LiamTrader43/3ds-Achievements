@@ -66,7 +66,7 @@ static volatile bool s_loaderDone;
 // list: each unlock is appended to progress.txt, so its last lines are the latest.
 static int RecentUnlocks(const bool *unlocked, int count, int *recent)
 {
-    static char text[8192];
+    static char text[16384];                // progress.txt: up to MAX_ACHIEVEMENTS IDs of 31 characters
     const char *ids[MAX_ACHIEVEMENTS];
     char        path[64];
     uint32_t    length = 0;

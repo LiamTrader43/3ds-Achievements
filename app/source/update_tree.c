@@ -8,7 +8,7 @@
 #include "hero.h"
 
 #define TROPHY_SIZE         9216u
-#define DEFINITIONS_MAX     32768u      // what the tracker can read
+#define DEFINITIONS_MAX     65536u      // what the tracker can read (achievements.c FILE_CAPACITY)
 #define VERSION_MAX         1024u       // the same for version.txt (another release of a game)
 #define FOLDER_PREFIX       "achievements/"
 #define STORE_PREFIX        FOLDER_PREFIX UPDATE_STORE_FOLDER "/"

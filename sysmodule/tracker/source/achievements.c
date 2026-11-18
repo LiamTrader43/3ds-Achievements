@@ -7,8 +7,8 @@
 #include "rc_runtime_types.h"   // rcheevos (../rcheevos), for "rc:" conditions
 #include "rc_internal.h"        // rc_trigger_get_memrefs, to move a release's addresses
 
-#define MAX_LINES       128
-#define FILE_CAPACITY   0x8000
+#define MAX_LINES       256     // lines read from a definitions file (the table is sized to the real count)
+#define FILE_CAPACITY   0x10000 // definitions.txt / progress.txt read at most this much (only while loading)
 #define MATCH_POLLS     3       // consecutive polls a condition must hold
 #define RC_PREFIX       "rc:"
 #define DEFAULT_POINTS  10      // an achievement's points when its line gives none

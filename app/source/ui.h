@@ -13,7 +13,7 @@
 #include "rewards.h"
 #include "store.h"
 
-#define MAX_ACHIEVEMENTS    128     // the tracker's MAX_LINES
+#define MAX_ACHIEVEMENTS    256     // the tracker's MAX_LINES
 
 // The games found.
 extern Game         g_games[MAX_GAMES];
