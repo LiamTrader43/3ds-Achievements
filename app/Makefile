@@ -37,7 +37,7 @@ APP_DESCRIPTION	:=	Starts the tracker and shows your achievements
 APP_AUTHOR	:=	LiamTrader43
 # The app's version: the release tag without its "v" (v1.4.0 -> 1.4.0). The app offers to
 # update itself when GitHub's latest release is newer than this, so raise it for every release.
-VERSION		:=	2.0.0
+VERSION		:=	2.0.1
 BUILD		:=	build
 # Themes (source/theme.h): modern is in source/, every other theme is a folder themes/<id>/.
 # The ones listed here are preinstalled: compiled into the app (each also needs its Theme in
@@ -200,12 +200,15 @@ endif
 
 #---------------------------------------------------------------------------------
 # make cia: the app as a CIA with the logo's banner and icon (app/cia, from tools/cia_art.py).
+# Its title version is VERSION (tools/cia_version.py): the 3DS won't install a CIA over the
+# same title at the same version, so the app couldn't update itself as a CIA without it.
 #---------------------------------------------------------------------------------
 cia: all
 	@bannertool makebanner -i cia/banner.png -a cia/banner.wav -o $(BUILD)/banner.bnr
 	@bannertool makesmdh -s "3DS Achievements" -l "3DS Achievements" -p "LiamTrader43" -i cia/icon.png -o $(BUILD)/cia.smdh
 	@makerom -f cia -o $(TARGET).cia -elf $(TARGET).elf -rsf cia/cia.rsf -icon $(BUILD)/cia.smdh \
 		-banner $(BUILD)/banner.bnr -target t -exefslogo
+	@python3 ../tools/cia_version.py $(TARGET).cia $(VERSION)
 	@echo built ... $(TARGET).cia
 
 #---------------------------------------------------------------------------------
