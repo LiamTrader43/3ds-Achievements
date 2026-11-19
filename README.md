@@ -101,6 +101,8 @@ You can delete `tracker.log` any time; the tracker starts a new one.
 
 Create `achievements/<TitleID>/definitions.txt`, using the game's 16-digit title ID in uppercase. Lines starting with `#` are comments.
 
+New to finding addresses? [Finding memory addresses for 3DS achievements](docs/finding-addresses.md) walks through it, from planning a list to testing it on your 3DS.
+
 A simple line unlocks when an address holds a value:
 
 ```
