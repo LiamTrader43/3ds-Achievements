@@ -5,7 +5,7 @@
 // Every 100 ms it finds the running game, loads that game's definitions when
 // the game changes, and checks them by mapping the game's memory with Luma's
 // svcMapProcessMemoryEx. Unlocks are saved to the progress file, with a
-// banner on the bottom screen (overlay.c). A few seconds after a game starts,
+// banner on the bottom screen (overlay.c; more than 3 at once share one). A few seconds after a game starts,
 // a banner shows its progress (or that it has no achievements).
 // R + A + Left pauses the game and shows the achievement list (menu.c).
 
@@ -30,6 +30,7 @@ Result svcControlService(u32 op, Handle *out, const char *name);
 #define PROCESS_NAME        0x10000         // Luma svcGetProcessInfo extensions
 #define PROCESS_TITLE_ID    0x10001
 #define BANNER_MS           6000
+#define BANNERS_EACH        3               // unlocks in one poll that still get a banner each; more share one
 #define APP_TITLE_ID        0x000400000AC41000ULL   // the Achievements app, when installed as a CIA
 #define LUMA_PATCHGAMES_BIT 2                       // in Luma's config (loader: singleOptions PATCHGAMES)
 #define ALLOW_PATCHED_PATH  "/achievements/allow_patched"   // exists while the app's setting is on
@@ -189,8 +190,8 @@ static void LogBannerStats(void)
 static u32 g_statsWindows;      // stats windows since the current game started
 
 // Counts a poll, in windows of STATS_POLLS polls. Logs a window ("poll:" lines in
-// tracker.log: how long checking took and how game memory was read; a banner's
-// seconds count in a poll's time) when something went wrong in it (a skipped poll:
+// tracker.log: how long checking took and how game memory was read; unlock banners
+// come after the poll, so they don't count) when something went wrong in it (a skipped poll:
 // memory that was readable couldn't be read; or a failed unmap), for the first
 // window of a game, and every STATS_EVERY windows; so a normal session adds one
 // line per ~10 minutes, not one a minute. Map calls count each range or page
@@ -290,6 +291,15 @@ static void SetNotificationLight(bool on)
         Log("light: %08lX", res);
 }
 
+// What one poll unlocked (Platform_Unlocked; already saved), for ShowUnlocks after it.
+static struct
+{
+    int  count;
+    char names[BANNERS_EACH][64];   // the first ones, each with the count it brought
+    char progress[BANNERS_EACH][16];
+    char list[160];                 // every name, comma-separated (Overlay_Show cuts it to fit)
+} g_unlocks;
+
 void Platform_Unlocked(const char *name, const char *description)
 {
     (void)description;
@@ -298,12 +308,49 @@ void Platform_Unlocked(const char *name, const char *description)
 
     Achievements_Progress(&unlocked, &total);
     snprintf(progress, sizeof(progress), "%d/%d", unlocked, total);
-
     Log("unlocked: %s (%s)", name, progress);
+
+    int n = g_unlocks.count++;
+    if (n < BANNERS_EACH)
+    {
+        snprintf(g_unlocks.names[n], sizeof(g_unlocks.names[n]), "%s", name);
+        memcpy(g_unlocks.progress[n], progress, sizeof(progress));
+    }
+    size_t used = strlen(g_unlocks.list);
+    snprintf(g_unlocks.list + used, sizeof(g_unlocks.list) - used, "%s%s", used > 0 ? ", " : "", name);
+}
+
+// Shows what the last poll unlocked: a banner each, or, when more than BANNERS_EACH
+// unlocked at once (a save loading with many already done), one banner for all of
+// them ("13 achievements unlocked!" over their names) instead of a long run.
+static void ShowUnlocks(void)
+{
+    int count = g_unlocks.count;
+    if (count == 0)
+        return;
+
     SetNotificationLight(true);
-    Overlay_Show("Achievement unlocked!", name, progress, BANNER_MS);
+    if (count <= BANNERS_EACH)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            Overlay_Show("Achievement unlocked!", g_unlocks.names[i], g_unlocks.progress[i], BANNER_MS);
+            LogBannerStats();
+        }
+    }
+    else
+    {
+        int  unlocked, total;
+        char title[40], progress[16];
+        Achievements_Progress(&unlocked, &total);
+        snprintf(title, sizeof(title), "%d achievements unlocked!", count);
+        snprintf(progress, sizeof(progress), "%d/%d", unlocked, total);
+        Log("banner: %d unlocked at once, one banner", count);
+        Overlay_Show(title, g_unlocks.list, progress, BANNER_MS);
+        LogBannerStats();
+    }
     SetNotificationLight(false);
-    LogBannerStats();
+    memset(&g_unlocks, 0, sizeof(g_unlocks));
 }
 
 // Reads the game's SMDH ("icon" in its ExeFS) through the SaveDataAndContent
@@ -892,6 +939,7 @@ int main(void)
             }
             GameMem_EndPoll();
             PollStats(svcGetSystemTick() - start);
+            ShowUnlocks();          // after the poll, so several at once can share a banner
         }
         svcCloseHandle(g_game);
     }

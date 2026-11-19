@@ -2,7 +2,7 @@
 
 Achievements for Nintendo 3DS games, on real hardware with [Luma3DS](https://github.com/LumaTeam/Luma3DS).
 
-A background module watches the running game's memory. When you earn an achievement, it saves the unlock, shows a banner on the bottom screen and turns the notification light gold. A companion app lists every game and achievement, in 3D on the top screen, downloads new ones from this repository, makes an image of your progress to share, and turns your achievement points into Play Coins to spend on new themes. Your games aren't modified.
+A background module watches the running game's memory. When you earn an achievement, it saves the unlock, shows a banner on the bottom screen and turns the notification light gold. When more than three unlock at once, such as when you load a save that has already done them, they share one banner. A companion app lists every game and achievement, in 3D on the top screen, downloads new ones from this repository, makes an image of your progress to share, and turns your achievement points into Play Coins to spend on new themes. Your games aren't modified.
 
 Questions, bug reports and news: join the [Discord server](https://discord.gg/MWZKkPytYc).
 
