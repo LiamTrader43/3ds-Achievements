@@ -127,6 +127,9 @@ extern const ThemeApi *theme_api;
 #define g_partNames             (*theme_api->g_partNames)
 #define g_partDone              (*theme_api->g_partDone)
 #endif
+#if THEME_MODULE_API >= 5
+#define Ui_AchievementIcon      (theme_api->Ui_AchievementIcon)
+#endif
 
 // The theme's description (read without running it), the api it was handed, and its entry
 // point, which refuses an app older than the theme.

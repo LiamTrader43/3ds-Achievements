@@ -51,6 +51,7 @@ typedef struct
     bool        loaded;                     // its definitions were read
     bool        hasIcons, heroReady;
     u16         unlocked[ICON_SIZE * ICON_SIZE], locked[ICON_SIZE * ICON_SIZE];
+    GameIcons   icons;                      // each achievement's own picture, if any (until shown)
     int         count;
     const char *names[MAX_ACHIEVEMENTS], *descriptions[MAX_ACHIEVEMENTS];
     uint16_t    points[MAX_ACHIEVEMENTS];
@@ -140,6 +141,10 @@ static void LoadThread(void *arg)
         Achievements_Progress(&l->gameUnlocked, &l->total);
         Achievements_Score(&l->earned, &l->gamePoints);
         l->recentCount = RecentUnlocks(l->isUnlocked, l->count, l->recent);
+
+        static const char *ids[MAX_ACHIEVEMENTS];
+        if (Achievements_Ids(ids, MAX_ACHIEVEMENTS) == l->count)
+            Games_LoadIcons(Achievements_GameId(), ids, l->count, &l->icons);
     }
     l->heroReady = Games_LoadHero(titleId, g_hero);
     if (l->heroReady)
@@ -152,6 +157,7 @@ static void LoadThread(void *arg)
 static void StartLoading(int i)
 {
     s32 priority = 0x30;
+    Games_FreeIcons(&s_loaded.icons);           // from a load that wasn't shown
     s_loaded.game = i;
     s_loaderDone = false;
     svcGetThreadPriority(&priority, CUR_THREAD_HANDLE);
@@ -177,10 +183,13 @@ static bool LoadingDone(bool wait)
 // Shows what was loaded: the list in s_*, the counts in its Game.
 static void UseLoaded(void)
 {
-    const Loaded *l = &s_loaded;
+    Loaded *l = &s_loaded;
     Game *g = &g_games[l->game];
 
     g_hasGameIcons = l->hasIcons;
+    Games_FreeIcons(&g_icons);                  // the last game's pictures
+    g_icons = l->icons;
+    memset(&l->icons, 0, sizeof(l->icons));     // now g_icons'
     memcpy(g_gameUnlocked, l->unlocked, sizeof(g_gameUnlocked));
     memcpy(g_gameLocked, l->locked, sizeof(g_gameLocked));
     memcpy(g_names, l->names, sizeof(g_names));

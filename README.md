@@ -164,6 +164,8 @@ shift 0x0871E840 0x08724753 +0x92FD0
 
 The app shows one tile for the game, and unlocks count whichever version you play. `shift` lines are optional (up to 8): each one moves the addresses in a range for this release, here a block that sits 0x92FD0 higher in the European game. Only addresses written in the definitions move. Offsets added to a pointer the game stores (`I:` in a condition) stay as written. A `version.txt` with any other kind of line isn't used, so a release that needs more than moved addresses isn't tracked with wrong ones.
 
+### Art
+
 A game can also have its own background and achievement icons:
 
 ```bash
@@ -172,6 +174,14 @@ python tools/trophy_art.py <TitleID> unlocked.png locked.png
 ```
 
 Use a background at least 1.8 times as wide as it is tall: a little past each side of the screen comes into view with the 3D slider up.
+
+Each achievement can also have a picture of its own. Put one per achievement in a folder, named after its ID (`BEAT_BOSS.png`; `.jpg`, `.gif`, `.bmp` and `.webp` work too), then run:
+
+```bash
+python tools/achievement_icons.py <TitleID> <folder>
+```
+
+This writes `achievements/<TitleID>/icons.bin`, with each picture made 48x48 (one that isn't square is cut to its middle square) and mostly transparent parts see-through. A locked achievement shows its picture greyed and darker, unless the folder also has `BEAT_BOSS.locked.png`. Achievements without a picture keep the game's icon from `trophy_art.py`, or the usual trophy, so a game can have pictures for only some of them. Each picture adds about 4.5 KB. The app and the R + A + Left menu show them; older versions ignore the file.
 
 To contribute a game, open a pull request to `main`. Players get it automatically once it's merged.
 

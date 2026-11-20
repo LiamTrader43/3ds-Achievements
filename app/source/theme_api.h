@@ -18,8 +18,9 @@
 //
 // Compatibility: a theme says which THEME_API_VERSION it was built for (ThemeInfo). The app
 // loads themes built for THEME_API_OLDEST up to its own version.
-//   - Adding to the API: add entries at the END of a list below (never in between, never
-//     remove one), add hooks at the end of Theme, and raise THEME_API_VERSION. Older themes
+//   - Adding to the API: add entries at the END of the last list below, THEME_API_ADDED (never
+//     in between or to an earlier list: that would move what comes after it; never remove
+//     one), add hooks at the end of Theme, and raise THEME_API_VERSION. Older themes
 //     keep working; a theme built for the new version won't load in an older app.
 //     A theme can still be built for an older version, so that older apps load it too:
 //     theme_module.h's THEME_MODULE_API (it may then use only what that version had, and
@@ -39,9 +40,10 @@
 #include "ui.h"
 #include "update.h"
 
-#define THEME_API_VERSION   4       // 2: ThemeInfo.description, Theme.description/pickColumns, the menu (g_menu)
+#define THEME_API_VERSION   5       // 2: ThemeInfo.description, Theme.description/pickColumns, the menu (g_menu)
                                     // 3: g_missable
                                     // 4: achievements done in parts (g_partsDone ... g_partDone)
+                                    // 5: each achievement's own picture (Ui_AchievementIcon)
 #define THEME_API_OLDEST    2
 
 // What a theme says about itself (its THEME_MODULE_DEFINE), read before any of its code runs.
@@ -112,6 +114,9 @@ typedef struct
     X(g_missable) \
     X(g_partsDone) X(g_partsTotal) X(g_partFirst) X(g_partNames) X(g_partDone)
 
+// Added since (functions or globals), after everything above so it stays where it was.
+#define THEME_API_ADDED(X)     X(Ui_AchievementIcon)
+
 // A pointer to each of them, in the lists' order.
 typedef struct ThemeApi
 {
@@ -120,6 +125,7 @@ typedef struct ThemeApi
 #define THEME_API_FIELD(name) __typeof__(name) *name;
     THEME_API_FUNCTIONS(THEME_API_FIELD)
     THEME_API_DATA(THEME_API_FIELD)
+    THEME_API_ADDED(THEME_API_FIELD)
 #undef THEME_API_FIELD
 } ThemeApi;
 
@@ -127,7 +133,8 @@ typedef struct ThemeApi
 // for one checks that the app's is at least that big).
 #define THEME_API_SIZE_2    offsetof(ThemeApi, g_missable)
 #define THEME_API_SIZE_3    offsetof(ThemeApi, g_partsDone)
-#define THEME_API_SIZE_4    sizeof(ThemeApi)
+#define THEME_API_SIZE_4    offsetof(ThemeApi, Ui_AchievementIcon)
+#define THEME_API_SIZE_5    sizeof(ThemeApi)
 
 // A theme's entry point (the .theme file's ELF entry): keeps api and returns its Theme, or
 // NULL if it can't run with this app.

@@ -107,6 +107,7 @@ typedef struct
     FILE           *file;       // where the body goes; NULL = s_buffer
     UpdateSha256   *sha;        // and its hash, for a file
     bool            failed;     // writing the file failed
+    u8             *memory;     // where it goes when it isn't a file; NULL = s_buffer
 } Sink;
 
 static size_t WriteBody(char *data, size_t size, size_t count, void *user)
@@ -130,7 +131,7 @@ static size_t WriteBody(char *data, size_t size, size_t count, void *user)
         s_zipBytes = sink->used + (u32)bytes;
     }
     else
-        memcpy(s_buffer + sink->used, data, bytes);
+        memcpy((sink->memory != NULL ? sink->memory : s_buffer) + sink->used, data, bytes);
     sink->used += (u32)bytes;
     return bytes;
 }
@@ -183,14 +184,20 @@ static Result Http(const char *url, Sink *sink, long seconds, u32 *status, char 
     return 0;
 }
 
-// Fetches url into s_buffer (with room for a '\0' after it).
-static Result HttpGet(const char *url, u32 *size, u32 *status, char *error)
+// Fetches url into memory (capacity bytes, with room for a '\0' after it).
+static Result HttpGetInto(const char *url, u8 *memory, u32 capacity, u32 *size, u32 *status, char *error)
 {
-    Sink   sink = { 0, BUFFER_SIZE - 1, false, NULL, NULL, false };
+    Sink   sink = { 0, capacity - 1, false, NULL, NULL, false, memory };
     Result res = Http(url, &sink, TRANSFER_SECONDS, status, error);
 
     *size = R_SUCCEEDED(res) ? sink.used : 0;
     return res;
+}
+
+// The same into s_buffer.
+static Result HttpGet(const char *url, u32 *size, u32 *status, char *error)
+{
+    return HttpGetInto(url, s_buffer, BUFFER_SIZE, size, status, error);
 }
 
 static bool FileExists(const char *path);
@@ -422,18 +429,33 @@ bool Update_Poll(int *newGames, int *updatedGames, int *storeFiles, const char *
     return true;
 }
 
-// Fetches one file; it only replaces the old one once it's fully here and verified.
+static Result SaveFile(const UpdateFile *f, const u8 *data, u32 size);
+
+// Fetches one file; it only replaces the old one once it's fully here and verified. One bigger
+// than s_buffer (a game's icons.bin can be) gets memory of its own while it's fetched.
 static Result DownloadFile(const UpdateFile *f)
 {
-    char url[160], path[80], temporary[88], folder[40];
+    char url[160];
     u32  size;
 
+    u8 *data = f->size < BUFFER_SIZE ? s_buffer : malloc((size_t)f->size + 1);
+    if (data == NULL)
+        return ERROR_NO_MEMORY;
     snprintf(url, sizeof(url), RAW_URL "/%.16s/%.23s", f->titleId, f->name);
-    Result res = HttpGet(url, &size, &s_checkStatus, s_error);
-    if (R_FAILED(res))
-        return res;
-    if (size != f->size || !UpdateTree_Matches(s_buffer, size, f->sha))
-        return ERROR_MISMATCH;
+    Result res = HttpGetInto(url, data, data == s_buffer ? BUFFER_SIZE : f->size + 1, &size, &s_checkStatus, s_error);
+    if (R_SUCCEEDED(res) && (size != f->size || !UpdateTree_Matches(data, size, f->sha)))
+        res = ERROR_MISMATCH;
+    if (R_SUCCEEDED(res))
+        res = SaveFile(f, data, size);
+    if (data != s_buffer)
+        free(data);
+    return res;
+}
+
+// Puts a downloaded file in place: written beside it, then renamed over it.
+static Result SaveFile(const UpdateFile *f, const u8 *data, u32 size)
+{
+    char path[80], temporary[88], folder[40];
 
     snprintf(folder, sizeof(folder), DIRECTORY "/%.16s", f->titleId);
     mkdir(folder, 0777);
@@ -443,7 +465,7 @@ static Result DownloadFile(const UpdateFile *f)
     FILE *file = fopen(temporary, "wb");
     if (file == NULL)
         return ERROR_WRITE;
-    bool written = fwrite(s_buffer, 1, size, file) == size;
+    bool written = fwrite(data, 1, size, file) == size;
     fclose(file);
     if (!written)
     {
@@ -769,7 +791,7 @@ static Result DownloadZip(const UpdateRelease *release, const char *path, u32 *b
     if (file == NULL)
         return ERROR_WRITE;
     setvbuf(file, NULL, _IOFBF, FILE_BUFFER);
-    Sink   sink = { 0, release->size, false, file, &sha, false };
+    Sink   sink = { 0, release->size, false, file, &sha, false, NULL };
     Result res = Http(release->url, &sink, ZIP_SECONDS, status, error);
     if (fclose(file) != 0 && R_SUCCEEDED(res))
         res = ERROR_WRITE;

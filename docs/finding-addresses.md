@@ -428,7 +428,7 @@ Another region of the same game shares its achievements and progress, so you don
 
 ## 14. Sending it in
 
-1. Fork the repository and add `achievements/<TitleID>/definitions.txt`. If you like, add a background (`hero.bin`) and achievement icons (`trophy.bin`) with the tools described in the [README](https://github.com/LiamTrader43/3ds-Achievements#readme-adding-a-game).
+1. Fork the repository and add `achievements/<TitleID>/definitions.txt`. If you like, add a background (`hero.bin`), achievement icons (`trophy.bin`) or a picture for each achievement (`icons.bin`) with the tools described in the [README](https://github.com/LiamTrader43/3ds-Achievements#readme-adding-a-game).
 2. Open a pull request to `main`. Say which game, region and version you tested, and on which console.
 3. Once it's merged, everyone's app downloads it automatically.
 

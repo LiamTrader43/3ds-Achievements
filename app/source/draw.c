@@ -661,8 +661,9 @@ static u32 IconSample(const u16 *icon)
     return hash;
 }
 
-// Icons decoded into rows of colours, the last few used.
-#define DECODED_ICONS   6
+// Icons decoded into rows of colours, the last few used (game icons, and a list's achievements
+// when each has its own picture).
+#define DECODED_ICONS   10
 typedef struct
 {
     const u16  *icon;
@@ -735,7 +736,7 @@ void Draw_TrophyIcon(gfxScreen_t screen, int x, int y, const u16 *icon)
 // Trophies drawn smaller than the art: each pixel the average of the part of the art it covers,
 // the black around the trophy's rounded square see-through, so the corners and edges come out
 // smooth (a bilinear tile would blend that black into the edge). The last few kept.
-#define TROPHY_SLOTS    4
+#define TROPHY_SLOTS    8               // a list of achievements with pictures of their own, and recent unlocks
 #define TROPHY_TAPS     8               // source pixels along one side of an output pixel, at most
 typedef struct
 {

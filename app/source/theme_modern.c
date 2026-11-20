@@ -463,7 +463,7 @@ static void DrawBox(int i, int y)
     if (i == g_selected)
         Draw_RoundRing(GFX_BOTTOM, SELECT_X, y, SELECT_W, BOX_H, SELECT_RADIUS, SELECT_LINE, WHITE, 16);
 
-    Draw_TrophyIcon(GFX_BOTTOM, BOX_ICON_X, y + (BOX_H - ICON_SIZE) / 2, Ui_Trophy(unlocked));
+    Draw_TrophyIcon(GFX_BOTTOM, BOX_ICON_X, y + (BOX_H - ICON_SIZE) / 2, Ui_AchievementIcon(i, unlocked));
 
     snprintf(text, sizeof(text), "%u pts", g_points[i]);
     int pointsX = BOTTOM_WIDTH - MARGIN - Draw_TextWidth(text, 1);
@@ -571,7 +571,7 @@ static void DrawDetails(int i)
     Draw_Rect(GFX_BOTTOM, 0, 0, BOTTOM_WIDTH, PROGRESS_H, BG_TOP);      // the same background as the list
     Draw_Gradient(GFX_BOTTOM, PROGRESS_H, SCREEN_HEIGHT, BG_TOP, BG_BOTTOM);
 
-    Draw_TrophyIcon(GFX_BOTTOM, x, DETAIL_MARGIN, Ui_Trophy(unlocked));
+    Draw_TrophyIcon(GFX_BOTTOM, x, DETAIL_MARGIN, Ui_AchievementIcon(i, unlocked));
     int textX = x + ICON_SIZE + 10;
     Draw_Text(GFX_BOTTOM, textX, DETAIL_MARGIN + 4, 1, unlocked ? GREEN : GREY, unlocked ? "Unlocked" : "Locked", 0);
     snprintf(text, sizeof(text), "%u pts", g_points[i]);
@@ -637,7 +637,7 @@ static void DrawStats(int game, bool loaded)
         for (int k = 0; loaded && k < g_recentCount; k++)
         {
             int i = g_recent[k], y = 112 + 23 * k;
-            Draw_TrophyScaled(GFX_BOTTOM, MARGIN, y, 20, Ui_Trophy(true));
+            Draw_TrophyScaled(GFX_BOTTOM, MARGIN, y, 20, Ui_AchievementIcon(i, true));
             snprintf(text, sizeof(text), "%u pts", g_points[i]);
             int px = BOTTOM_WIDTH - MARGIN - Draw_TextWidth(text, 1);
             Draw_Text(GFX_BOTTOM, px, y + 3, 1, GOLD, text, 0);

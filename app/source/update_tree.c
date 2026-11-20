@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "hero.h"
+#include "icons.h"
 
 #define TROPHY_SIZE         9216u
 #define DEFINITIONS_MAX     65536u      // what the tracker can read (achievements.c FILE_CAPACITY)
@@ -63,6 +64,8 @@ static bool SizeAllowed(const char *name, uint32_t size)
         return size > 0 && size <= DEFINITIONS_MAX;
     if (strcmp(name, "version.txt") == 0)
         return size > 0 && size <= VERSION_MAX;
+    if (strcmp(name, "icons.bin") == 0)         // at least one picture, at most what the readers take
+        return size >= ICONS_HEADER_BYTES + ICONS_ENTRY_BYTES + ICONS_PICTURE_BYTES && size <= ICONS_FILE_MOST;
     return false;
 }
 

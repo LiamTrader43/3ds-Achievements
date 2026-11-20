@@ -196,6 +196,69 @@ bool Games_LoadTrophies(u64 titleId, u16 *unlocked, u16 *locked)
     return ok;
 }
 
+void Games_LoadIcons(u64 titleId, const char *const *ids, int count, GameIcons *icons)
+{
+    static IconsPlace places[ICONS_MOST];
+    char path[64];
+
+    memset(icons, 0, sizeof(*icons));
+    if (count > ICONS_MOST)
+        count = ICONS_MOST;
+    snprintf(path, sizeof(path), DIRECTORY "/%016llX/icons.bin", (unsigned long long)titleId);
+    FILE *f = fopen(path, "rb");
+    if (f == NULL)
+        return;
+
+    // The whole file in one read (much quicker than a read per picture), then room for the
+    // locked pictures it leaves to be made.
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    u8 *data = size >= ICONS_HEADER_BYTES && size <= (long)ICONS_FILE_MOST ? malloc((size_t)size) : NULL;
+    bool read = data != NULL && fread(data, 1, (size_t)size, f) == (size_t)size;
+    fclose(f);
+    int found = read ? Icons_Find(data, (u32)size, ids, count, places) : 0;
+    if (found == 0)
+    {
+        free(data);
+        return;
+    }
+    int made = 0;
+    for (int i = 0; i < count; i++)
+        made += places[i].unlocked != 0 && places[i].locked == 0;
+    size_t madeAt = ((size_t)size + 3) & ~(size_t)3;
+    u8 *memory = realloc(data, madeAt + (size_t)made * ICONS_PICTURE_BYTES);
+    if (memory == NULL)
+    {
+        free(data);
+        return;
+    }
+
+    u16 *next = (u16 *)(memory + madeAt);
+    for (int i = 0; i < count; i++)
+    {
+        if (places[i].unlocked == 0)
+            continue;
+        icons->unlocked[i] = (const u16 *)(memory + places[i].unlocked);
+        if (places[i].locked != 0)
+            icons->locked[i] = (const u16 *)(memory + places[i].locked);
+        else
+        {
+            Icons_MakeLocked(icons->unlocked[i], next);
+            icons->locked[i] = next;
+            next += ICONS_PIXELS;
+        }
+    }
+    icons->memory = memory;
+    icons->count = found;
+}
+
+void Games_FreeIcons(GameIcons *icons)
+{
+    free(icons->memory);
+    memset(icons, 0, sizeof(*icons));
+}
+
 int Games_Scan(Game *games, int capacity)
 {
     static u8 smdh[SMDH_SIZE];

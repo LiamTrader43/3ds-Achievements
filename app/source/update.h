@@ -4,7 +4,7 @@
 // Checks GitHub when the app opens: the repo's main branch for new games or achievements and
 // for the store's files (/achievements/store, store_file.h: what's for sale and its themes), and
 // its latest release for a newer version of the app. Downloads from the branch only ever write
-// definitions.txt, hero.bin, trophy.bin, version.txt and store/<name>.bin (progress is left
+// definitions.txt, hero.bin, trophy.bin, icons.bin, version.txt and store/<name>.bin (progress is left
 // alone); an app update replaces the tracker's .cxi and the app itself, and brings the store
 // files in the release zip.
 

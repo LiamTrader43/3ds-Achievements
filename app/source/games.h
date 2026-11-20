@@ -8,6 +8,7 @@
 
 #include "draw.h"
 #include "hero.h"
+#include "icons.h"
 
 #define MAX_GAMES   64
 #define MAX_RELEASES 4      // other releases (regions) of one game, from their version.txt
@@ -40,5 +41,20 @@ bool    Games_LoadHero(u64 titleId, u8 *pixels);
 // Reads /achievements/<TitleID>/trophy.bin, the game's own achievement icons
 // (tools/trophy_art.py makes it). False if the game doesn't have any.
 bool    Games_LoadTrophies(u64 titleId, u16 *unlocked, u16 *locked);
+
+// A game's picture for each achievement (/achievements/<TitleID>/icons.bin, made by
+// tools/achievement_icons.py; the tracker's icons.h has its format): unlocked[i] and
+// locked[i] for achievement i of the list, NULL for one without a picture.
+typedef struct
+{
+    void       *memory;                 // the file, then the locked pictures made for it
+    const u16  *unlocked[ICONS_MOST], *locked[ICONS_MOST];
+    int         count;                  // achievements with a picture
+} GameIcons;
+
+// Reads the pictures of the achievements ids[0..count) (in list order). Without a file, or
+// memory for it, there are none (icons->count 0). Games_FreeIcons gives back the memory.
+void    Games_LoadIcons(u64 titleId, const char *const *ids, int count, GameIcons *icons);
+void    Games_FreeIcons(GameIcons *icons);
 
 #endif

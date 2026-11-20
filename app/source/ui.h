@@ -40,6 +40,7 @@ extern int          g_count;
 extern int          g_selected;             // the achievement Up/Down have selected
 extern u16          g_gameUnlocked[ICON_SIZE * ICON_SIZE], g_gameLocked[ICON_SIZE * ICON_SIZE];
 extern bool         g_hasGameIcons;         // this game has its own achievement icons
+extern GameIcons    g_icons;                // and maybe a picture for each achievement (icons.bin)
 
 // Its most recently unlocked achievements, newest first: indices into g_names.
 #define RECENT_MAX  3
@@ -129,6 +130,10 @@ void    Ui_StoreBackground(u8 *pixels);
 
 // The achievement trophy to draw: the game's own icons if it has them.
 const u16 *Ui_Trophy(bool unlocked);
+
+// Achievement i's picture (48x48 like a trophy): its own from the game's icons.bin, else the
+// trophy (Ui_Trophy).
+const u16 *Ui_AchievementIcon(int i, bool unlocked);
 
 // Copies text cut to maxWidth pixels at the given text scale, ending in "..." if it was longer.
 void    Ui_EllipsizeScaled(char *out, size_t capacity, const char *text, int maxWidth, int scale);

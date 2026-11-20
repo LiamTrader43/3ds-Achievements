@@ -547,7 +547,7 @@ static void DrawItem(int i, int y)
     DrawButton(GFX_BOTTOM, ITEM_X, y, ITEM_W, ITEM_H, ITEM_RADIUS);
     if (i == g_selected)
         DrawCursor(GFX_BOTTOM, ITEM_X, y, ITEM_W, ITEM_H, ITEM_RADIUS);
-    Draw_TrophyScaled(GFX_BOTTOM, ITEM_X + 8, y + (ITEM_H - ITEM_ICON) / 2, ITEM_ICON, Ui_Trophy(unlocked));
+    Draw_TrophyScaled(GFX_BOTTOM, ITEM_X + 8, y + (ITEM_H - ITEM_ICON) / 2, ITEM_ICON, Ui_AchievementIcon(i, unlocked));
 
     snprintf(points, sizeof(points), "%u pts", g_points[i]);
     int bw = Draw_TextWidth(points, 1) + 10, bx = ITEM_X + ITEM_W - 8 - bw;
@@ -646,7 +646,7 @@ static void DrawStats(int game, bool loaded)
     for (int k = 0; loaded && k < g_recentCount; k++)
     {
         int i = g_recent[k], ry = y + 17 + 21 * k;
-        Draw_TrophyScaled(GFX_BOTTOM, x, ry, 18, Ui_Trophy(true));
+        Draw_TrophyScaled(GFX_BOTTOM, x, ry, 18, Ui_AchievementIcon(i, true));
         snprintf(text, sizeof(text), "%u pts", g_points[i]);
         int bw = Draw_TextWidth(text, 1) + 10, bx = x + w - bw;
         DrawBadge(GFX_BOTTOM, bx, ry + 1, text, BADGE);
@@ -800,7 +800,7 @@ static void DrawDetails(void)
     const int x = LIST_PANEL_X + 12, width = LIST_PANEL_W - 24;
 
     Draw_RoundRect(GFX_BOTTOM, LIST_PANEL_X, 6, LIST_PANEL_W, LIST_PANEL_Y + LIST_PANEL_H - 6, 10, PANEL);
-    Draw_TrophyIcon(GFX_BOTTOM, x, 16, Ui_Trophy(unlocked));
+    Draw_TrophyIcon(GFX_BOTTOM, x, 16, Ui_AchievementIcon(i, unlocked));
     int bx = x + ICON_SIZE + 12;
     int bw = DrawBadge(GFX_BOTTOM, bx, 20, unlocked ? "Unlocked" : "Locked", unlocked ? BADGE : BADGE_OFF);
     if (g_missable[i])

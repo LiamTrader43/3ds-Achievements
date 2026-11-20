@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "achievements.h"
+#include "icons.h"
 #include "overlay.h"
 #include "../../../app/source/trophy.h"
 
@@ -74,6 +75,23 @@ static const char MISSABLE_TEXT[] = "Missable";
 // Only held while the menu is open.
 static u16 *s_gameIcons;
 static bool s_hasGameIcons;
+
+// Each achievement's own picture (/achievements/<TitleID>/icons.bin, icons.h), if the game has
+// any: where each one's are in the file, which stays open while the menu is, and the last few
+// read (a screen shows at most BOX_ROWS + 1, so they're all still here while it's drawn).
+#define PICTURE_SLOTS       (BOX_ROWS + 3)
+typedef struct
+{
+    int     achievement;            // -1: empty
+    bool    unlocked;
+    u32     used;
+    u16     pixels[ICON_PIXELS];
+} PictureSlot;
+static Handle       s_iconsFile;
+static IconsPlace  *s_places;       // per achievement in the list; NULL without pictures
+static int          s_placeCount;
+static PictureSlot *s_pictures;
+static u32          s_pictureClock;
 
 static void ReadButtonsKernel(u32 *out)
 {
@@ -158,11 +176,48 @@ static int Wrap(const char *text, int width, char lines[][LINE_CHARS], int maxLi
     return n;
 }
 
-// The trophy for achievement i: the game's own, or the app's.
+// The trophy: the game's own, or the app's.
 static const u16 *Trophy(bool unlocked)
 {
     return s_hasGameIcons ? (unlocked ? s_gameIcons : s_gameIcons + ICON_PIXELS)
                           : (unlocked ? TROPHY_UNLOCKED : TROPHY_LOCKED);
+}
+
+// Achievement i's picture: its own from icons.bin (read now if it isn't one of the last few),
+// else the trophy. A locked picture the file leaves out is made from the unlocked one.
+static const u16 *Picture(int i, bool unlocked)
+{
+    if (s_places == NULL || i < 0 || i >= s_placeCount || s_places[i].unlocked == 0)
+        return Trophy(unlocked);
+
+    PictureSlot *slot = &s_pictures[0];
+    for (int k = 0; k < PICTURE_SLOTS; k++)
+    {
+        PictureSlot *p = &s_pictures[k];
+        if (p->achievement == i && p->unlocked == unlocked)
+        {
+            p->used = ++s_pictureClock;
+            return p->pixels;
+        }
+        if (p->used < slot->used)
+            slot = p;
+    }
+
+    u32 offset = unlocked || s_places[i].locked == 0 ? s_places[i].unlocked : s_places[i].locked;
+    u32 read = 0;
+    slot->achievement = -1;
+    if (R_FAILED(FSFILE_Read(s_iconsFile, &read, offset, slot->pixels, ICONS_PICTURE_BYTES)) ||
+        read != ICONS_PICTURE_BYTES)
+    {
+        s_places[i].unlocked = 0;           // the trophy from now on
+        return Trophy(unlocked);
+    }
+    if (!unlocked && s_places[i].locked == 0)
+        Icons_MakeLocked(slot->pixels, slot->pixels);
+    slot->achievement = i;
+    slot->unlocked = unlocked;
+    slot->used = ++s_pictureClock;
+    return slot->pixels;
 }
 
 // Achievement i in full, for names and descriptions too long for its box: its trophy,
@@ -181,7 +236,7 @@ static void DrawDetails(const char **names, const char **descriptions, const u16
     bool                got = unlocked[i];
     u32                 n = 0;
 
-    items[n++] = (OverlayItem){ x, DETAIL_MARGIN, 0, 0, WHITE, NULL, Trophy(got), 0, 0 };
+    items[n++] = (OverlayItem){ x, DETAIL_MARGIN, 0, 0, WHITE, NULL, Picture(i, got), 0, 0 };
     items[n++] = (OverlayItem){ textX, DETAIL_MARGIN + 4, 0, 0, got ? GREEN : GREY, got ? "Unlocked" : "Locked", NULL, 0, 0 };
     snprintf(pointsText, sizeof(pointsText), "%u pts", points[i]);
     items[n++] = (OverlayItem){ textX, DETAIL_MARGIN + 22, 0, 0, got ? GOLD : GREY, pointsText, NULL, 0, 0 };
@@ -312,7 +367,7 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
 
         if (i == selected)
             items[n++] = (OverlayItem){ SELECT_X, y, SELECT_W, BOX_H, WHITE, NULL, NULL, SELECT_LINE, SELECT_RADIUS };
-        items[n++] = (OverlayItem){ BOX_ICON_X, y + (BOX_H - OVERLAY_ICON_SIZE) / 2, 0, 0, WHITE, NULL, Trophy(got), 0, 0 };
+        items[n++] = (OverlayItem){ BOX_ICON_X, y + (BOX_H - OVERLAY_ICON_SIZE) / 2, 0, 0, WHITE, NULL, Picture(i, got), 0, 0 };
         items[n++] = (OverlayItem){ BOX_TEXT_X, y + 6, 0, 0, got ? GREEN : WHITE, boxName[row], NULL, 0, 0 };
         items[n++] = (OverlayItem){ pointsX, y + 6, 0, 0, got ? GOLD : GREY, boxPoints[row], NULL, 0, 0 };
         if (warn)
@@ -369,7 +424,55 @@ Result Menu_TouchResult(void)
     return s_touchResult;
 }
 
-static void LoadGameIcons(u64 titleId)
+static void FreePictures(void)
+{
+    if (s_iconsFile != 0)
+        FSFILE_Close(s_iconsFile);
+    s_iconsFile = 0;
+    free(s_places);
+    free(s_pictures);
+    s_places = NULL;
+    s_pictures = NULL;
+    s_placeCount = 0;
+}
+
+// Finds where the pictures of achievements ids[0..count) are in the game's icons.bin, if it has
+// one; they're read as they're shown (Picture).
+static void LoadPictures(u64 titleId, const char *const *ids, int count)
+{
+    char    path[64];
+    u8      header[ICONS_HEADER_BYTES];
+    u64     size = 0;
+    u32     read = 0;
+
+    snprintf(path, sizeof(path), "/achievements/%016llX/icons.bin", (unsigned long long)titleId);
+    if (count == 0 || R_FAILED(FSUSER_OpenFileDirectly(&s_iconsFile, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, ""),
+                                                       fsMakePath(PATH_ASCII, path), FS_OPEN_READ, 0)))
+    {
+        s_iconsFile = 0;
+        return;
+    }
+    u32 indexBytes = 0;
+    if (R_SUCCEEDED(FSFILE_GetSize(s_iconsFile, &size)) && size <= ICONS_FILE_MOST &&
+        R_SUCCEEDED(FSFILE_Read(s_iconsFile, &read, 0, header, sizeof(header))) && read == sizeof(header))
+        indexBytes = Icons_IndexBytes(header, (u32)size);
+    u8 *index = indexBytes != 0 ? malloc(indexBytes) : NULL;
+    s_places = index != NULL ? malloc((size_t)count * sizeof(IconsPlace)) : NULL;
+    s_pictures = s_places != NULL ? malloc(PICTURE_SLOTS * sizeof(PictureSlot)) : NULL;
+    bool found = s_pictures != NULL && R_SUCCEEDED(FSFILE_Read(s_iconsFile, &read, 0, index, indexBytes)) &&
+                 read == indexBytes && Icons_Find(index, (u32)size, ids, count, s_places) > 0;
+    free(index);
+    if (!found)
+    {
+        FreePictures();
+        return;
+    }
+    s_placeCount = count;
+    for (int k = 0; k < PICTURE_SLOTS; k++)
+        s_pictures[k] = (PictureSlot){ .achievement = -1 };
+}
+
+static void LoadGameIcons(u64 titleId, const char *const *ids, int count)
 {
     char path[64];
     u32  length = 0;
@@ -380,6 +483,7 @@ static void LoadGameIcons(u64 titleId)
     snprintf(path, sizeof(path), "/achievements/%016llX/trophy.bin", (unsigned long long)titleId);
     s_hasGameIcons = s_gameIcons != NULL && Platform_ReadFile(path, (char *)s_gameIcons, ICON_FILE_BYTES + 1, &length)
                      && length == ICON_FILE_BYTES;
+    LoadPictures(titleId, ids, count);
 }
 
 static void FreeGameIcons(void)
@@ -387,6 +491,7 @@ static void FreeGameIcons(void)
     free(s_gameIcons);
     s_gameIcons = NULL;
     s_hasGameIcons = false;
+    FreePictures();
 }
 
 // The scroll (in whole boxes) that keeps box `selected` on the screen, starting from scroll.
@@ -413,7 +518,7 @@ static int Direction(u32 keys)
 
 bool Menu_Open(Handle game, u64 titleId, const char *blockedPlugin)
 {
-    static const char  *names[MAX_ACHIEVEMENTS], *descriptions[MAX_ACHIEVEMENTS];
+    static const char  *names[MAX_ACHIEVEMENTS], *descriptions[MAX_ACHIEVEMENTS], *ids[MAX_ACHIEVEMENTS];
     static u16          points[MAX_ACHIEVEMENTS];
     static bool         unlocked[MAX_ACHIEVEMENTS], missable[MAX_ACHIEVEMENTS];
     static u8           partsDone[MAX_ACHIEVEMENTS], partsTotal[MAX_ACHIEVEMENTS];
@@ -424,7 +529,7 @@ bool Menu_Open(Handle game, u64 titleId, const char *blockedPlugin)
     Achievements_Points(points, MAX_ACHIEVEMENTS);
     Achievements_Missable(missable, MAX_ACHIEVEMENTS);
     Achievements_Parts(partsDone, partsTotal, MAX_ACHIEVEMENTS);
-    LoadGameIcons(titleId);
+    LoadGameIcons(titleId, ids, Achievements_Ids(ids, MAX_ACHIEVEMENTS) == count ? count : 0);
     int maxScroll = count > BOX_ROWS ? (count - BOX_ROWS) * BOX_H : 0;
 
     // Touch comes from the HID service; without it the buttons still work. Not

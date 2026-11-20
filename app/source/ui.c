@@ -30,6 +30,7 @@ int         g_count;
 int         g_selected;
 u16         g_gameUnlocked[ICON_SIZE * ICON_SIZE], g_gameLocked[ICON_SIZE * ICON_SIZE];
 bool        g_hasGameIcons;
+GameIcons   g_icons;
 int         g_recent[RECENT_MAX];
 int         g_recentCount;
 
@@ -386,6 +387,12 @@ const u16 *Ui_Trophy(bool unlocked)
     if (g_hasGameIcons)
         return unlocked ? g_gameUnlocked : g_gameLocked;
     return unlocked ? TROPHY_UNLOCKED : TROPHY_LOCKED;
+}
+
+const u16 *Ui_AchievementIcon(int i, bool unlocked)
+{
+    const u16 *own = i >= 0 && i < g_count && i < ICONS_MOST ? (unlocked ? g_icons.unlocked[i] : g_icons.locked[i]) : NULL;
+    return own != NULL ? own : Ui_Trophy(unlocked);
 }
 
 void Ui_EllipsizeScaled(char *out, size_t capacity, const char *text, int maxWidth, int scale)
