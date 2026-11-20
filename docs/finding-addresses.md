@@ -371,7 +371,7 @@ Luma can load plugins (`.3gx` files) into a game. Some change it so much that it
 - The app's **Patched games** setting doesn't override it.
 - Versions 2.0.2 and older skip these lines, so the rest of the file still works there, without the block.
 
-Before you write your list, look up the popular plugins and mods for your game and what they do. A plugin that only adds practice tools or a timer can stay allowed. One that unlocks things or edits the save would give away every achievement that reads those values. The [README](https://github.com/LiamTrader43/3ds-Achievements#readme-plugins) has the same rules.
+Before you write your list, look up the popular plugins and mods for your game and what they do. A plugin that only adds practice tools or a timer can stay allowed. One that unlocks things or edits the save would give away every achievement that reads those values. [Adding a game](adding-a-game.md#plugins) has the same rules.
 
 ### Missable achievements
 
@@ -424,11 +424,11 @@ If a line never unlocks on the 3DS, check the address in Azahar with gdb in the 
 
 ## 13. Other regions
 
-Another region of the same game shares its achievements and progress, so you don't write a second list. Check your addresses in that version: the global variables are sometimes at the same addresses, and things on the heaps often moved by a fixed amount. Then give that title ID a folder with only a `version.txt`, as the [README](https://github.com/LiamTrader43/3ds-Achievements#readme-other-regions) explains. If the differences are more than a fixed shift, that release can't share the list yet.
+Another region of the same game shares its achievements and progress, so you don't write a second list. Check your addresses in that version: the global variables are sometimes at the same addresses, and things on the heaps often moved by a fixed amount. Then give that title ID a folder with only a `version.txt`, as [Other regions](adding-a-game.md#other-regions) explains. If the differences are more than a fixed shift, that release can't share the list yet.
 
 ## 14. Sending it in
 
-1. Fork the repository and add `achievements/<TitleID>/definitions.txt`. If you like, add a background (`hero.bin`), achievement icons (`trophy.bin`) or a picture for each achievement (`icons.bin`) with the tools described in the [README](https://github.com/LiamTrader43/3ds-Achievements#readme-adding-a-game).
+1. Fork the repository and add `achievements/<TitleID>/definitions.txt`. If you like, add a background (`hero.bin`), achievement icons (`trophy.bin`) or a picture for each achievement (`icons.bin`) with the tools described in [Art](adding-a-game.md#art).
 2. Open a pull request to `main`. Say which game, region and version you tested, and on which console.
 3. Once it's merged, everyone's app downloads it automatically.
 
