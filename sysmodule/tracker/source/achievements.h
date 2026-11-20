@@ -65,6 +65,11 @@ int     Achievements_Ids(const char **ids, int capacity);
 // Each achievement's points, in the same order as Achievements_List().
 int     Achievements_Points(uint16_t *points, int capacity);
 
+// Whether each achievement is missable (it can be missed for good in a playthrough, like
+// RetroAchievements' "missable" type): "@missable <id> [<id> ...]" lines name them. In the same
+// order as Achievements_List().
+int     Achievements_Missable(bool *missable, int capacity);
+
 // Points of the unlocked achievements, and of all of them.
 void    Achievements_Score(int *earned, int *total);
 

@@ -21,11 +21,15 @@
 //   - Adding to the API: add entries at the END of a list below (never in between, never
 //     remove one), add hooks at the end of Theme, and raise THEME_API_VERSION. Older themes
 //     keep working; a theme built for the new version won't load in an older app.
+//     A theme can still be built for an older version, so that older apps load it too:
+//     theme_module.h's THEME_MODULE_API (it may then use only what that version had, and
+//     THEME_API_SIZE_<version> must give that version's sizeof(ThemeApi)).
 //   - Changing anything a theme already uses (a function's parameters, the layout of Game,
 //     PopupText, UiSetting, ShareView, Theme..., what a hook means): raise THEME_API_VERSION
 //     and set THEME_API_OLDEST to it. Every theme then has to be built again.
 
 #include <3ds.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <time.h>
 
@@ -35,7 +39,8 @@
 #include "ui.h"
 #include "update.h"
 
-#define THEME_API_VERSION   2       // 2: ThemeInfo.description, Theme.description/pickColumns, the menu (g_menu)
+#define THEME_API_VERSION   3       // 2: ThemeInfo.description, Theme.description/pickColumns, the menu (g_menu)
+                                    // 3: g_missable
 #define THEME_API_OLDEST    2
 
 // What a theme says about itself (its THEME_MODULE_DEFINE), read before any of its code runs.
@@ -102,7 +107,8 @@ typedef struct
     X(g_trackerRunning) X(g_patchedAllowed) X(g_popup) X(g_popupResult) \
     X(g_tabs) X(g_tabPressed) \
     X(g_storeTile) X(g_coins) X(g_rewards) X(g_buyItem) X(g_paidOwed) \
-    X(g_menu) X(g_menuScroll)
+    X(g_menu) X(g_menuScroll) \
+    X(g_missable)
 
 // A pointer to each of them, in the lists' order.
 typedef struct ThemeApi
@@ -114,6 +120,11 @@ typedef struct ThemeApi
     THEME_API_DATA(THEME_API_FIELD)
 #undef THEME_API_FIELD
 } ThemeApi;
+
+// sizeof(ThemeApi) in an app of each THEME_API_VERSION from THEME_API_OLDEST on (a theme built
+// for one checks that the app's is at least that big).
+#define THEME_API_SIZE_2    offsetof(ThemeApi, g_missable)
+#define THEME_API_SIZE_3    sizeof(ThemeApi)
 
 // A theme's entry point (the .theme file's ELF entry): keeps api and returns its Theme, or
 // NULL if it can't run with this app.

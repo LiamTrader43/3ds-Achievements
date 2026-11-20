@@ -373,6 +373,19 @@ Luma can load plugins (`.3gx` files) into a game. Some change it so much that it
 
 Before you write your list, look up the popular plugins and mods for your game and what they do. A plugin that only adds practice tools or a timer can stay allowed. One that unlocks things or edits the save would give away every achievement that reads those values. The [README](https://github.com/LiamTrader43/3ds-Achievements#readme-plugins) has the same rules.
 
+### Missable achievements
+
+Mark achievements that can be missed for good in a playthrough, so players know to watch for them: a challenge in a boss fight that can't be fought again, a scene that only happens once, an item that stops being available. A line starting with `@missable` lists their IDs:
+
+```
+@missable BEAT_BOSS_NO_HIT SECRET_DIALOGUE
+```
+
+- A line can list several IDs, and a file can have several of these lines, anywhere in it.
+- The app and the R + A + Left menu show "Missable" next to a locked one's points, and in its full view.
+- If you're porting a RetroAchievements set, mark the ones it marks as Missable.
+- Versions 2.0.2 and older skip these lines.
+
 ### Limits
 
 - At most 256 lines per file (comments don't count), and the file must stay under 64 KB. Versions 2.0.2 and older read only the first 128 lines and 32 KB, and their updater doesn't download a bigger file.

@@ -129,6 +129,16 @@ Some Luma plugins change a game so much that its achievements shouldn't count, l
 
 `@block-plugin *` blocks every plugin. A game can have several of these lines. The start banner says when one applies, the R + A + Left menu shows why instead of the list, and the **Patched games** setting doesn't override it. Older versions of the app and tracker skip these lines.
 
+### Missable achievements
+
+Some achievements can be missed for good in a playthrough, like a challenge in a boss fight that can't be fought again. A line starting with `@missable` marks them by ID, like RetroAchievements' "Missable" type:
+
+```
+@missable BEAT_BOSS_NO_HIT SECRET_DIALOGUE
+```
+
+A line can list several IDs, and a file can have several of these lines, anywhere in it. The app and the R + A + Left menu show "Missable" next to a locked one's points, and in its full view. Older versions of the app and tracker skip these lines.
+
 ### Other regions
 
 Another region (or release) of a game shares its achievements and progress. Instead of definitions, its folder holds a `version.txt` naming the game's folder:

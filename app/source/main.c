@@ -54,7 +54,7 @@ typedef struct
     int         count;
     const char *names[MAX_ACHIEVEMENTS], *descriptions[MAX_ACHIEVEMENTS];
     uint16_t    points[MAX_ACHIEVEMENTS];
-    bool        isUnlocked[MAX_ACHIEVEMENTS];
+    bool        isUnlocked[MAX_ACHIEVEMENTS], missable[MAX_ACHIEVEMENTS];
     int         gameUnlocked, total, earned, gamePoints;
     int         recent[RECENT_MAX], recentCount;
 } Loaded;
@@ -121,6 +121,7 @@ static void LoadThread(void *arg)
         l->count = Achievements_List(l->names, l->isUnlocked, MAX_ACHIEVEMENTS);
         Achievements_Descriptions(l->descriptions, MAX_ACHIEVEMENTS);
         Achievements_Points(l->points, MAX_ACHIEVEMENTS);
+        Achievements_Missable(l->missable, MAX_ACHIEVEMENTS);
         Achievements_Progress(&l->gameUnlocked, &l->total);
         Achievements_Score(&l->earned, &l->gamePoints);
         l->recentCount = RecentUnlocks(l->isUnlocked, l->count, l->recent);
@@ -171,6 +172,7 @@ static void UseLoaded(void)
     memcpy(g_descriptions, l->descriptions, sizeof(g_descriptions));
     memcpy(g_points, l->points, sizeof(g_points));
     memcpy(g_unlocked, l->isUnlocked, sizeof(g_unlocked));
+    memcpy(g_missable, l->missable, sizeof(g_missable));
     memcpy(g_recent, l->recent, sizeof(g_recent));
     g_recentCount = l->recentCount;
     g_count = l->count;

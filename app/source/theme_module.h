@@ -7,8 +7,19 @@
 // too (then this does nothing but THEME_MODULE_DEFINE).
 //
 // The theme ends with THEME_MODULE_DEFINE(itsTheme, "id", "Name", "What it looks like.").
+//
+// A theme is built for this app's THEME_API_VERSION, so an older app won't load it. To keep
+// older apps loading it (e.g. a store theme that was already sold), #define THEME_MODULE_API
+// to the version it was made for before including this: it can then use only what that
+// version had (theme_api.h's lists), and newer apps still load it.
 
 #include "theme_api.h"
+
+#ifndef THEME_MODULE_API
+#define THEME_MODULE_API        THEME_API_VERSION
+#endif
+#define THEME_MODULE_API_SIZE_(version) THEME_API_SIZE_##version
+#define THEME_MODULE_API_SIZE(version)  THEME_MODULE_API_SIZE_(version)
 
 #ifdef THEME_MODULE
 
@@ -106,6 +117,9 @@ extern const ThemeApi *theme_api;
 #define g_paidOwed              (*theme_api->g_paidOwed)
 #define g_menu                  (*theme_api->g_menu)
 #define g_menuScroll            (*theme_api->g_menuScroll)
+#if THEME_MODULE_API >= 3
+#define g_missable              (*theme_api->g_missable)
+#endif
 
 // The theme's description (read without running it), the api it was handed, and its entry
 // point, which refuses an app older than the theme.
@@ -117,10 +131,11 @@ extern const ThemeApi *theme_api;
 #endif
 #define THEME_MODULE_DEFINE(theme, id, name, description) \
     const ThemeApi *theme_api; \
-    THEME_INFO_SECTION const ThemeInfo theme_info = { THEME_INFO_MAGIC, THEME_API_VERSION, id, name, description }; \
+    THEME_INFO_SECTION const ThemeInfo theme_info = { THEME_INFO_MAGIC, THEME_MODULE_API, id, name, description }; \
     __attribute__((visibility("default"))) const Theme *ThemeModule_Entry(const ThemeApi *api) \
     { \
-        if (api == NULL || api->version < theme_info.apiVersion || api->size < sizeof(ThemeApi)) \
+        if (api == NULL || api->version < theme_info.apiVersion || \
+            api->size < THEME_MODULE_API_SIZE(THEME_MODULE_API)) \
             return NULL; \
         theme_api = api; \
         return &theme; \

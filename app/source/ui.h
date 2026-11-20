@@ -28,6 +28,7 @@ extern const char  *g_names[MAX_ACHIEVEMENTS];
 extern const char  *g_descriptions[MAX_ACHIEVEMENTS];
 extern uint16_t     g_points[MAX_ACHIEVEMENTS];
 extern bool         g_unlocked[MAX_ACHIEVEMENTS];
+extern bool         g_missable[MAX_ACHIEVEMENTS];   // can be missed for good ("@missable" lines)
 extern int          g_count;
 extern int          g_selected;             // the achievement Up/Down have selected
 extern u16          g_gameUnlocked[ICON_SIZE * ICON_SIZE], g_gameLocked[ICON_SIZE * ICON_SIZE];

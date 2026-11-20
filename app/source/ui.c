@@ -20,6 +20,7 @@ const char *g_names[MAX_ACHIEVEMENTS];
 const char *g_descriptions[MAX_ACHIEVEMENTS];
 uint16_t    g_points[MAX_ACHIEVEMENTS];
 bool        g_unlocked[MAX_ACHIEVEMENTS];
+bool        g_missable[MAX_ACHIEVEMENTS];
 int         g_count;
 int         g_selected;
 u16         g_gameUnlocked[ICON_SIZE * ICON_SIZE], g_gameLocked[ICON_SIZE * ICON_SIZE];

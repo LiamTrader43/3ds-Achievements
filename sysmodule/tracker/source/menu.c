@@ -64,6 +64,9 @@ static const Rgb LIGHT = { 205, 205, 212 };         // longer text, easier to re
 static const Rgb HINT = { 255, 209, 102 };
 static const Rgb DARK = { 50, 50, 58 };
 static const Rgb SCROLLBAR = { 110, 110, 120 };
+static const Rgb MISSABLE = { 255, 128, 64 };       // can be missed for good (as in the app)
+
+static const char MISSABLE_TEXT[] = "Missable";
 
 // The game's own achievement icons (/achievements/<TitleID>/trophy.bin), if it has any.
 // Only held while the menu is open.
@@ -162,7 +165,8 @@ static const u16 *Trophy(bool unlocked)
 
 // Achievement i in full, for names and descriptions too long for its box: its trophy,
 // whether it's unlocked and its points, then the whole name and description.
-static void DrawDetails(const char **names, const char **descriptions, const u16 *points, const bool *unlocked, int count, int i)
+static void DrawDetails(const char **names, const char **descriptions, const u16 *points, const bool *unlocked,
+                        const bool *missable, int count, int i)
 {
     static char         pointsText[12], position[24];
     static char         nameLines[DETAIL_NAME_LINES][LINE_CHARS], lines[DETAIL_LINES][LINE_CHARS];
@@ -178,6 +182,9 @@ static void DrawDetails(const char **names, const char **descriptions, const u16
     items[n++] = (OverlayItem){ textX, DETAIL_MARGIN + 22, 0, 0, got ? GOLD : GREY, pointsText, NULL, 0, 0 };
     snprintf(position, sizeof(position), "%d of %d", i + 1, count);
     items[n++] = (OverlayItem){ WIDTH - DETAIL_MARGIN - Overlay_TextWidth(position), DETAIL_MARGIN + 4, 0, 0, GREY, position, NULL, 0, 0 };
+    if (missable[i])
+        items[n++] = (OverlayItem){ WIDTH - DETAIL_MARGIN - Overlay_TextWidth(MISSABLE_TEXT), DETAIL_MARGIN + 22, 0, 0,
+                                    got ? GREY : MISSABLE, MISSABLE_TEXT, NULL, 0, 0 };
 
     int y = DETAIL_MARGIN + OVERLAY_ICON_SIZE + 10;
     int nameCount = Wrap(names[i], width, nameLines, DETAIL_NAME_LINES);
@@ -225,8 +232,8 @@ static void DrawBlocked(const char *plugin)
 
 // scroll is in pixels, so a drag can stop between two boxes. The selected box has a
 // white outline.
-static void Draw(const char **names, const char **descriptions, const u16 *points, const bool *unlocked, int count,
-                 int scroll, int selected)
+static void Draw(const char **names, const char **descriptions, const u16 *points, const bool *unlocked,
+                 const bool *missable, int count, int scroll, int selected)
 {
     enum { ROWS = BOX_ROWS + 1 };           // a partly scrolled list shows one more
     static const Rgb    BLACK = { 0, 0, 0 };
@@ -239,7 +246,8 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
     if (count == 0)
         items[n++] = (OverlayItem){ MARGIN, PROGRESS_H + 8, 0, 0, WHITE, "No achievements for this game.", NULL, 0, 0 };
 
-    // One box per achievement: icon | name, points / description.
+    // One box per achievement: icon | name, "Missable" while it's locked and can be missed,
+    // points / description.
     int first = scroll / BOX_H;
     int top = PROGRESS_H - scroll % BOX_H;
     for (int row = 0; row < ROWS && first + row < count && top + row * BOX_H < HEIGHT; row++)
@@ -249,7 +257,11 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
 
         snprintf(boxPoints[row], sizeof(boxPoints[row]), "%u pts", points[i]);
         int pointsX = WIDTH - MARGIN - Overlay_TextWidth(boxPoints[row]);
-        Overlay_Ellipsize(boxName[row], LINE_CHARS, names[i], pointsX - 6 - BOX_TEXT_X);
+        int nameEnd = pointsX;
+        bool warn = missable[i] && !got;
+        if (warn)
+            nameEnd -= Overlay_TextWidth(MISSABLE_TEXT) + 8;
+        Overlay_Ellipsize(boxName[row], LINE_CHARS, names[i], nameEnd - 6 - BOX_TEXT_X);
         Wrap(descriptions[i][0] != '\0' ? descriptions[i] : "No description.", BOX_TEXT_W, boxLines[row], 2);
 
         if (i == selected)
@@ -257,6 +269,8 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
         items[n++] = (OverlayItem){ BOX_ICON_X, y + (BOX_H - OVERLAY_ICON_SIZE) / 2, 0, 0, WHITE, NULL, Trophy(got), 0, 0 };
         items[n++] = (OverlayItem){ BOX_TEXT_X, y + 6, 0, 0, got ? GREEN : WHITE, boxName[row], NULL, 0, 0 };
         items[n++] = (OverlayItem){ pointsX, y + 6, 0, 0, got ? GOLD : GREY, boxPoints[row], NULL, 0, 0 };
+        if (warn)
+            items[n++] = (OverlayItem){ nameEnd, y + 6, 0, 0, MISSABLE, MISSABLE_TEXT, NULL, 0, 0 };
         items[n++] = (OverlayItem){ BOX_TEXT_X, y + 24, 0, 0, GREY, boxLines[row][0], NULL, 0, 0 };
         items[n++] = (OverlayItem){ BOX_TEXT_X, y + 24 + OVERLAY_LINE_H + 2, 0, 0, GREY, boxLines[row][1], NULL, 0, 0 };
     }
@@ -353,12 +367,13 @@ bool Menu_Open(Handle game, u64 titleId, const char *blockedPlugin)
 {
     static const char  *names[MAX_ACHIEVEMENTS], *descriptions[MAX_ACHIEVEMENTS];
     static u16          points[MAX_ACHIEVEMENTS];
-    static bool         unlocked[MAX_ACHIEVEMENTS];
+    static bool         unlocked[MAX_ACHIEVEMENTS], missable[MAX_ACHIEVEMENTS];
 
     // Blocked: no list, so nothing to select, open or scroll.
     int count = blockedPlugin != NULL ? 0 : Achievements_List(names, unlocked, MAX_ACHIEVEMENTS);
     Achievements_Descriptions(descriptions, MAX_ACHIEVEMENTS);
     Achievements_Points(points, MAX_ACHIEVEMENTS);
+    Achievements_Missable(missable, MAX_ACHIEVEMENTS);
     LoadGameIcons(titleId);
     int maxScroll = count > BOX_ROWS ? (count - BOX_ROWS) * BOX_H : 0;
 
@@ -518,9 +533,9 @@ bool Menu_Open(Handle game, u64 titleId, const char *blockedPlugin)
             if (blockedPlugin != NULL)
                 DrawBlocked(blockedPlugin);
             else if (details)
-                DrawDetails(names, descriptions, points, unlocked, count, selected);
+                DrawDetails(names, descriptions, points, unlocked, missable, count, selected);
             else
-                Draw(names, descriptions, points, unlocked, count, scroll, selected);
+                Draw(names, descriptions, points, unlocked, missable, count, scroll, selected);
             redraw = false;
             lastBuffer = buffer;
             lastDraw = now;

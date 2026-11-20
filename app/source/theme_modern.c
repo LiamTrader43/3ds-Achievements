@@ -26,6 +26,7 @@ static const Color LIGHT = { 205, 205, 212 };       // longer text, easier to re
 static const Color DARK = { 50, 50, 58 };
 static const Color SCROLLBAR = { 110, 110, 120 };
 static const Color RED = { 235, 70, 70 };
+static const Color MISSABLE = { 255, 128, 64 };     // an achievement that can be missed for good
 static const Color SHINE = { 255, 255, 245 };       // the light running around the selected game's frame
 static const Color PILL = { 22, 22, 28 };           // behind each button hint
 static const Color COIN_RIM = { 232, 168, 24 };     // a Play Coin next to a number, as on the store's bag
@@ -451,8 +452,8 @@ static void DrawPrompts(void)
     }
 }
 
-// One achievement's box: trophy | name, points / description. The selected one has a
-// white outline.
+// One achievement's box: trophy | name, "Missable" while it's locked and can be missed, points /
+// description. The selected one has a white outline.
 static void DrawBox(int i, int y)
 {
     char text[24];
@@ -466,9 +467,15 @@ static void DrawBox(int i, int y)
     snprintf(text, sizeof(text), "%u pts", g_points[i]);
     int pointsX = BOTTOM_WIDTH - MARGIN - Draw_TextWidth(text, 1);
     Draw_Text(GFX_BOTTOM, pointsX, y + 6, 1, unlocked ? GOLD : GREY, text, 0);
+    int nameEnd = pointsX;
+    if (g_missable[i] && !unlocked)
+    {
+        nameEnd -= Draw_TextWidth("Missable", 1) + 8;
+        Draw_Text(GFX_BOTTOM, nameEnd, y + 6, 1, MISSABLE, "Missable", 0);
+    }
 
     char name[80];
-    Ui_Ellipsize(name, sizeof(name), g_names[i], pointsX - 6 - BOX_TEXT_X);
+    Ui_Ellipsize(name, sizeof(name), g_names[i], nameEnd - 6 - BOX_TEXT_X);
     Draw_Text(GFX_BOTTOM, BOX_TEXT_X, y + 6, 1, unlocked ? GREEN : WHITE, name, 0);
 
     const char *description = g_descriptions[i][0] != '\0' ? g_descriptions[i] : "No description.";
@@ -536,6 +543,9 @@ static void DrawDetails(int i)
     Draw_Text(GFX_BOTTOM, textX, DETAIL_MARGIN + 22, 1, unlocked ? GOLD : GREY, text, 0);
     snprintf(text, sizeof(text), "%d of %d", i + 1, g_count);
     Draw_Text(GFX_BOTTOM, BOTTOM_WIDTH - DETAIL_MARGIN - Draw_TextWidth(text, 1), DETAIL_MARGIN + 4, 1, GREY, text, 0);
+    if (g_missable[i])
+        Draw_Text(GFX_BOTTOM, BOTTOM_WIDTH - DETAIL_MARGIN - Draw_TextWidth("Missable", 1), DETAIL_MARGIN + 22, 1,
+                  unlocked ? GREY : MISSABLE, "Missable", 0);
 
     int y = Ui_DrawWrappedScaled(GFX_BOTTOM, x, DETAIL_MARGIN + ICON_SIZE + 10, width, DETAIL_NAME_LINE, 1,
                                  unlocked ? GREEN : WHITE, g_names[i], 3);

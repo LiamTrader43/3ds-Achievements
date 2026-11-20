@@ -16,6 +16,7 @@
 #define MAX_SHIFTS      8       // "shift" lines in a version.txt
 #define VERSION_CAPACITY 1024
 #define PLUGIN_KEYWORD  "@block-plugin"     // "@block-plugin <text>": see Achievements_PluginBlocked
+#define MISSABLE_KEYWORD "@missable"        // "@missable <id> [<id> ...]": see Achievements_Missable
 #define MAX_PLUGIN_BLOCKS 8
 #define PLUGIN_TEXT     64
 
@@ -42,6 +43,7 @@ typedef struct
     char            description[DESCRIPTION_CAPACITY];
     uint16_t        points;
     bool            unlocked;
+    bool            missable;   // named on a "@missable" line
     uint8_t         matches;
 } Achievement;
 
@@ -244,6 +246,7 @@ static bool ParseLine(const char *line, const char *end, Achievement *a)
 
     a->trigger = NULL;
     a->unlocked = false;
+    a->missable = false;
     a->matches = 0;
     if (!NextToken(&pos, end, a->id, sizeof(a->id)))
         return false;
@@ -310,7 +313,8 @@ static bool NextLine(const char **pos, const char *end, const char **first, cons
 }
 
 // A line starting with '@' is for the tracker, never an achievement (older builds skip it as an
-// invalid line). "@block-plugin <text>" is recorded; other keywords are left for later builds.
+// invalid line). "@block-plugin <text>" is recorded here, "@missable" lines by MarkMissable once
+// every achievement is read; other keywords are left for later builds.
 static bool TrackerLine(const char *line, const char *end)
 {
     const size_t keyword = strlen(PLUGIN_KEYWORD);
@@ -366,6 +370,30 @@ static void MarkUnlocked(const char *id)
     for (int i = 0; i < g_count; i++)
         if (strcmp(g_ach[i].id, id) == 0)
             g_ach[i].unlocked = true;
+}
+
+// "@missable <id> [<id> ...]" anywhere in the file (before or after those achievements' lines):
+// each ID's achievement can be missed for good in a playthrough. Unknown IDs match nothing.
+static void MarkMissable(const char *file, const char *end)
+{
+    const size_t keyword = strlen(MISSABLE_KEYWORD);
+    const char  *pos = file, *first, *lineEnd;
+
+    while (NextLine(&pos, end, &first, &lineEnd))
+    {
+        if ((size_t)(lineEnd - first) <= keyword || memcmp(first, MISSABLE_KEYWORD, keyword) != 0
+            || !IsSpace(first[keyword]))
+            continue;
+        const char *p = first + keyword;
+        char        id[32];
+        while (p < lineEnd)
+        {
+            bool ok = NextToken(&p, lineEnd, id, sizeof(id));
+            for (int i = 0; ok && i < g_count; i++)
+                if (strcmp(g_ach[i].id, id) == 0)
+                    g_ach[i].missable = true;
+        }
+    }
 }
 
 // A title ID written as 16 hex digits (no 0x).
@@ -524,6 +552,7 @@ bool Achievements_Load(uint64_t titleId)
         if (!TrackerLine(first, lineEnd) && g_count < lines && ParseLine(first, lineEnd, &g_ach[g_count]))
             g_count++;
     g_spare = g_spareEnd = NULL;
+    MarkMissable(file, file + length);
 
     // Unknown IDs (e.g. removed achievements) simply match nothing.
     if (g_count > 0 && Platform_ReadFile(g_unlockPath, file, FILE_CAPACITY, &length))
@@ -659,6 +688,15 @@ int Achievements_Points(uint16_t *points, int capacity)
     for (int i = 0; i < g_count && n < capacity; i++)
         if (IsFirstLine(i))
             points[n++] = g_ach[i].points;
+    return n;
+}
+
+int Achievements_Missable(bool *missable, int capacity)
+{
+    int n = 0;
+    for (int i = 0; i < g_count && n < capacity; i++)
+        if (IsFirstLine(i))
+            missable[n++] = g_ach[i].missable;
     return n;
 }
 

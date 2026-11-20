@@ -29,6 +29,7 @@ static const Color MUTED = { 170, 163, 105 };           // labels along the bott
 static const Color ORANGE = { 232, 140, 20 };           // the header, progress
 static const Color BADGE = { 230, 150, 20 };            // points of an unlocked achievement
 static const Color BADGE_OFF = { 190, 184, 152 };       // and a locked one
+static const Color MISSABLE = { 205, 75, 45 };          // a locked achievement that can be missed for good
 static const Color WHITE = { 255, 255, 255 };
 static const Color BUTTON_TOP = { 255, 253, 246 };      // a button: white fading to cream,
 static const Color BUTTON_BOTTOM = { 220, 215, 193 };
@@ -550,6 +551,11 @@ static void DrawItem(int i, int y)
     snprintf(points, sizeof(points), "%u pts", g_points[i]);
     int bw = Draw_TextWidth(points, 1) + 10, bx = ITEM_X + ITEM_W - 8 - bw;
     DrawBadge(GFX_BOTTOM, bx, y + 5, points, unlocked ? BADGE : BADGE_OFF);
+    if (g_missable[i] && !unlocked)
+    {
+        bx -= Draw_TextWidth("Missable", 1) + 10 + 4;
+        DrawBadge(GFX_BOTTOM, bx, y + 5, "Missable", MISSABLE);
+    }
 
     Ui_Ellipsize(text, sizeof(text), g_names[i], bx - 8 - ITEM_TEXT_X);
     Draw_Text(GFX_BOTTOM, ITEM_TEXT_X, y + 5, 1, unlocked ? TEXT : SOFT, text, 0);
@@ -760,7 +766,9 @@ static void DrawDetails(void)
     Draw_RoundRect(GFX_BOTTOM, LIST_PANEL_X, 6, LIST_PANEL_W, LIST_PANEL_Y + LIST_PANEL_H - 6, 10, PANEL);
     Draw_TrophyIcon(GFX_BOTTOM, x, 16, Ui_Trophy(unlocked));
     int bx = x + ICON_SIZE + 12;
-    DrawBadge(GFX_BOTTOM, bx, 20, unlocked ? "Unlocked" : "Locked", unlocked ? BADGE : BADGE_OFF);
+    int bw = DrawBadge(GFX_BOTTOM, bx, 20, unlocked ? "Unlocked" : "Locked", unlocked ? BADGE : BADGE_OFF);
+    if (g_missable[i])
+        DrawBadge(GFX_BOTTOM, bx + bw + 4, 20, "Missable", unlocked ? BADGE_OFF : MISSABLE);
     snprintf(text, sizeof(text), "%u points", g_points[i]);
     Draw_Text(GFX_BOTTOM, bx, 42, 1, TEXT, text, 0);
 
