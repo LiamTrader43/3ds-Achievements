@@ -55,6 +55,10 @@ typedef struct
     const char *names[MAX_ACHIEVEMENTS], *descriptions[MAX_ACHIEVEMENTS];
     uint16_t    points[MAX_ACHIEVEMENTS];
     bool        isUnlocked[MAX_ACHIEVEMENTS], missable[MAX_ACHIEVEMENTS];
+    uint8_t     partsDone[MAX_ACHIEVEMENTS], partsTotal[MAX_ACHIEVEMENTS];
+    uint16_t    partFirst[MAX_ACHIEVEMENTS];
+    const char *partNames[MAX_ACHIEVEMENTS];
+    bool        partDone[MAX_ACHIEVEMENTS];
     int         gameUnlocked, total, earned, gamePoints;
     int         recent[RECENT_MAX], recentCount;
 } Loaded;
@@ -122,6 +126,17 @@ static void LoadThread(void *arg)
         Achievements_Descriptions(l->descriptions, MAX_ACHIEVEMENTS);
         Achievements_Points(l->points, MAX_ACHIEVEMENTS);
         Achievements_Missable(l->missable, MAX_ACHIEVEMENTS);
+        Achievements_Parts(l->partsDone, l->partsTotal, MAX_ACHIEVEMENTS);
+        for (int i = 0, parts = 0; i < l->count; i++)
+        {
+            l->partFirst[i] = (uint16_t)parts;
+            if (l->partsTotal[i] > 0)
+            {
+                int n = Achievements_PartList(i, l->partNames + parts, l->partDone + parts, MAX_ACHIEVEMENTS - parts);
+                l->partsTotal[i] = (uint8_t)n;      // as many as fit (all of them: parts are lines too)
+                parts += n;
+            }
+        }
         Achievements_Progress(&l->gameUnlocked, &l->total);
         Achievements_Score(&l->earned, &l->gamePoints);
         l->recentCount = RecentUnlocks(l->isUnlocked, l->count, l->recent);
@@ -173,6 +188,11 @@ static void UseLoaded(void)
     memcpy(g_points, l->points, sizeof(g_points));
     memcpy(g_unlocked, l->isUnlocked, sizeof(g_unlocked));
     memcpy(g_missable, l->missable, sizeof(g_missable));
+    memcpy(g_partsDone, l->partsDone, sizeof(g_partsDone));
+    memcpy(g_partsTotal, l->partsTotal, sizeof(g_partsTotal));
+    memcpy(g_partFirst, l->partFirst, sizeof(g_partFirst));
+    memcpy(g_partNames, l->partNames, sizeof(g_partNames));
+    memcpy(g_partDone, l->partDone, sizeof(g_partDone));
     memcpy(g_recent, l->recent, sizeof(g_recent));
     g_recentCount = l->recentCount;
     g_count = l->count;

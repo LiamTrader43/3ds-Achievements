@@ -24,7 +24,7 @@ typedef struct
     u8          outline, radius;    // rectangles only
 } OverlayItem;
 
-#define OVERLAY_MAX_ITEMS   40      // menu.c's list takes 38 at most
+#define OVERLAY_MAX_ITEMS   44      // menu.c's list takes 43 at most
 #define OVERLAY_ICON_SIZE   48
 #define OVERLAY_LINE_H      13      // a line of text: Inter, as in the app (app/source/font_inter.h)
 #define OVERLAY_BANNER_W    304     // room for a line of text in the banner

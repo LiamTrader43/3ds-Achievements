@@ -42,6 +42,11 @@ void Platform_Unlocked(const char *name, const char *description)
     (void)name; (void)description;
 }
 
+void Platform_PartDone(const char *name, const char *part, int done, int total)
+{
+    (void)name; (void)part; (void)done; (void)total;
+}
+
 // A game's folder is named with its title ID, 16 hex digits.
 static bool ParseFolderName(const char *name, u64 *titleId)
 {

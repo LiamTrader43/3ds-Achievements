@@ -97,6 +97,7 @@ _Static_assert(DEPTH_HERO >= -HERO_MARGIN && DEPTH_HERO <= HERO_MARGIN, "hero.bi
 #define DETAIL_MARGIN   10
 #define DETAIL_NAME_LINE (LINE_H + 4)                              // the name, the same size as in the game's list
 #define DETAIL_LINE     (LINE_H + 3)
+#define DETAIL_PART_LINES 3                                         // a description's lines above its parts
 #define PROMPT_Y        (SCREEN_HEIGHT - 16)                        // the button prompts in the bottom corners
 
 // The row: how far each position is from small (0) to big (256), and how far the row
@@ -452,8 +453,8 @@ static void DrawPrompts(void)
     }
 }
 
-// One achievement's box: trophy | name, "Missable" while it's locked and can be missed, points /
-// description. The selected one has a white outline.
+// One achievement's box: trophy | name, "Missable" while it's locked and can be missed, "3/6"
+// while it's locked and done in parts, points / description. The selected one has a white outline.
 static void DrawBox(int i, int y)
 {
     char text[24];
@@ -468,6 +469,12 @@ static void DrawBox(int i, int y)
     int pointsX = BOTTOM_WIDTH - MARGIN - Draw_TextWidth(text, 1);
     Draw_Text(GFX_BOTTOM, pointsX, y + 6, 1, unlocked ? GOLD : GREY, text, 0);
     int nameEnd = pointsX;
+    if (g_partsTotal[i] > 0 && !unlocked)
+    {
+        snprintf(text, sizeof(text), "%u/%u", g_partsDone[i], g_partsTotal[i]);
+        nameEnd -= Draw_TextWidth(text, 1) + 8;
+        Draw_Text(GFX_BOTTOM, nameEnd, y + 6, 1, GOLD, text, 0);
+    }
     if (g_missable[i] && !unlocked)
     {
         nameEnd -= Draw_TextWidth("Missable", 1) + 8;
@@ -524,6 +531,34 @@ static void DrawBoxes(const Game *g, int scroll, bool loaded)
         Draw_RoundRect(GFX_BOTTOM, 3, PROGRESS_H + 2, SCROLL_W, track, SCROLL_W / 2, SCROLLBAR);
 }
 
+// An achievement done in parts, under its description in the full view: how many are done, then
+// each part, green when done (in two columns when one isn't enough; "and N more" past the room).
+static void DrawParts(int i, int x, int y, int width)
+{
+    char text[64];
+    int  parts = g_partsTotal[i], first = g_partFirst[i];
+
+    snprintf(text, sizeof(text), "Parts: %u of %d done", g_partsDone[i], parts);
+    Draw_Text(GFX_BOTTOM, x, y, 1, WHITE, text, 0);
+    y += DETAIL_LINE + 2;
+    int rows = (PROMPT_Y - 4 - y) / DETAIL_LINE;
+    if (rows < 1)
+        return;
+    int columns = parts > rows ? 2 : 1;
+    int shown = parts < rows * columns ? parts : rows * columns;
+    int perColumn = (shown + columns - 1) / columns, columnW = width / columns;
+    for (int k = 0; k < shown; k++)
+    {
+        bool more = k == shown - 1 && shown < parts;
+        if (more)
+            snprintf(text, sizeof(text), "and %d more", parts - k);
+        else
+            Ui_Ellipsize(text, sizeof(text), g_partNames[first + k], columnW - 8);
+        Draw_Text(GFX_BOTTOM, x + (k / perColumn) * columnW, y + (k % perColumn) * DETAIL_LINE, 1,
+                  more ? GREY : g_partDone[first + k] ? GREEN : GREY, text, 0);
+    }
+}
+
 // Achievement i in full, for names and descriptions too long for its box: its trophy,
 // whether it's unlocked and its points, then the whole name and description (laid out as in
 // the game's list, menu.c).
@@ -551,7 +586,11 @@ static void DrawDetails(int i)
                                  unlocked ? GREEN : WHITE, g_names[i], 3);
     const char *description = g_descriptions[i][0] != '\0' ? g_descriptions[i] : "No description.";
     y += 4;
-    Ui_DrawWrapped(GFX_BOTTOM, x, y, width, DETAIL_LINE, LIGHT, description, (PROMPT_Y - 4 - y) / DETAIL_LINE);
+    int parts = g_partsTotal[i], room = (PROMPT_Y - 4 - y) / DETAIL_LINE;
+    y = Ui_DrawWrapped(GFX_BOTTOM, x, y, width, DETAIL_LINE, LIGHT, description,
+                       parts > 0 && room > DETAIL_PART_LINES ? DETAIL_PART_LINES : room);
+    if (parts > 0)
+        DrawParts(i, x, y + 6, width);
     DrawPrompts();
 }
 

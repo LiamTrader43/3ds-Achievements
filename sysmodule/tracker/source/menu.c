@@ -67,6 +67,8 @@ static const Rgb SCROLLBAR = { 110, 110, 120 };
 static const Rgb MISSABLE = { 255, 128, 64 };       // can be missed for good (as in the app)
 
 static const char MISSABLE_TEXT[] = "Missable";
+#define DETAIL_PART_LINES   3       // an achievement done in parts: its description gets this many lines
+#define MAX_PARTS_SHOWN     24
 
 // The game's own achievement icons (/achievements/<TitleID>/trophy.bin), if it has any.
 // Only held while the menu is open.
@@ -166,8 +168,11 @@ static const u16 *Trophy(bool unlocked)
 // Achievement i in full, for names and descriptions too long for its box: its trophy,
 // whether it's unlocked and its points, then the whole name and description.
 static void DrawDetails(const char **names, const char **descriptions, const u16 *points, const bool *unlocked,
-                        const bool *missable, int count, int i)
+                        const bool *missable, const u8 *partsTotal, int count, int i)
 {
+    static const char  *partNames[MAX_PARTS_SHOWN + 1];
+    static bool         partDone[MAX_PARTS_SHOWN + 1];
+    static char         partsHeading[32], partText[MAX_PARTS_SHOWN][LINE_CHARS];
     static char         pointsText[12], position[24];
     static char         nameLines[DETAIL_NAME_LINES][LINE_CHARS], lines[DETAIL_LINES][LINE_CHARS];
     static OverlayItem  items[OVERLAY_MAX_ITEMS];
@@ -195,9 +200,43 @@ static void DrawDetails(const char **names, const char **descriptions, const u16
     int room = (DETAIL_HINT_Y - 4 - y) / DETAIL_LINE;
     if (room > DETAIL_LINES)
         room = DETAIL_LINES;
+    if (partsTotal[i] > 0 && room > DETAIL_PART_LINES)
+        room = DETAIL_PART_LINES;           // leave the rest for its parts
     int lineCount = Wrap(descriptions[i][0] != '\0' ? descriptions[i] : "No description.", width, lines, room > 0 ? room : 1);
     for (int k = 0; k < lineCount; k++, y += DETAIL_LINE)
         items[n++] = (OverlayItem){ x, y, 0, 0, LIGHT, lines[k], NULL, 0, 0 };
+
+    // Done in parts: how many, then each part, green when done (two columns when needed).
+    int parts = partsTotal[i] > 0 ? Achievements_PartList(i, partNames, partDone, MAX_PARTS_SHOWN + 1) : 0;
+    if (parts > 0)
+    {
+        int done = 0;
+        for (int k = 0; k < parts; k++)
+            done += partDone[k];
+        y += 6;
+        snprintf(partsHeading, sizeof(partsHeading), "Parts: %d of %d done", done, partsTotal[i]);
+        items[n++] = (OverlayItem){ x, y, 0, 0, WHITE, partsHeading, NULL, 0, 0 };
+        y += DETAIL_LINE + 2;
+        int rows = (DETAIL_HINT_Y - 4 - y) / DETAIL_LINE;
+        int columns = parts > rows ? 2 : 1;
+        int shown = parts < rows * columns ? parts : rows * columns;
+        int itemsLeft = (int)OVERLAY_MAX_ITEMS - (int)n - 2;    // the hints take 2
+        if (shown > itemsLeft)
+            shown = itemsLeft;
+        if (shown > MAX_PARTS_SHOWN)
+            shown = MAX_PARTS_SHOWN;
+        int perColumn = (shown + columns - 1) / columns, columnW = width / columns;
+        for (int k = 0; k < shown; k++)
+        {
+            bool more = k == shown - 1 && shown < partsTotal[i];
+            if (more)
+                snprintf(partText[k], LINE_CHARS, "and %d more", partsTotal[i] - k);
+            else
+                Overlay_Ellipsize(partText[k], LINE_CHARS, partNames[k], columnW - 8);
+            items[n++] = (OverlayItem){ x + (k / perColumn) * columnW, y + (k % perColumn) * DETAIL_LINE, 0, 0,
+                                        more ? GREY : partDone[k] ? GREEN : GREY, partText[k], NULL, 0, 0 };
+        }
+    }
 
     items[n++] = (OverlayItem){ x, DETAIL_HINT_Y, 0, 0, HINT, "B: Back", NULL, 0, 0 };
     items[n++] = (OverlayItem){ WIDTH - DETAIL_MARGIN - Overlay_TextWidth(other), DETAIL_HINT_Y, 0, 0, HINT, other, NULL, 0, 0 };
@@ -233,11 +272,11 @@ static void DrawBlocked(const char *plugin)
 // scroll is in pixels, so a drag can stop between two boxes. The selected box has a
 // white outline.
 static void Draw(const char **names, const char **descriptions, const u16 *points, const bool *unlocked,
-                 const bool *missable, int count, int scroll, int selected)
+                 const bool *missable, const u8 *partsDone, const u8 *partsTotal, int count, int scroll, int selected)
 {
     enum { ROWS = BOX_ROWS + 1 };           // a partly scrolled list shows one more
     static const Rgb    BLACK = { 0, 0, 0 };
-    static char         progress[24], score[24];
+    static char         progress[24], score[24], boxParts[ROWS][12];
     static char         boxPoints[ROWS][12], boxName[ROWS][LINE_CHARS], boxLines[ROWS][2][LINE_CHARS];
     static OverlayItem  items[OVERLAY_MAX_ITEMS];
     u32                 n = 0;
@@ -247,7 +286,7 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
         items[n++] = (OverlayItem){ MARGIN, PROGRESS_H + 8, 0, 0, WHITE, "No achievements for this game.", NULL, 0, 0 };
 
     // One box per achievement: icon | name, "Missable" while it's locked and can be missed,
-    // points / description.
+    // "3/6" while it's locked and done in parts, points / description.
     int first = scroll / BOX_H;
     int top = PROGRESS_H - scroll % BOX_H;
     for (int row = 0; row < ROWS && first + row < count && top + row * BOX_H < HEIGHT; row++)
@@ -258,7 +297,14 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
         snprintf(boxPoints[row], sizeof(boxPoints[row]), "%u pts", points[i]);
         int pointsX = WIDTH - MARGIN - Overlay_TextWidth(boxPoints[row]);
         int nameEnd = pointsX;
-        bool warn = missable[i] && !got;
+        bool warn = missable[i] && !got, parts = partsTotal[i] > 0 && !got;
+        int  partsX = 0;
+        if (parts)
+        {
+            snprintf(boxParts[row], sizeof(boxParts[row]), "%u/%u", partsDone[i], partsTotal[i]);
+            nameEnd -= Overlay_TextWidth(boxParts[row]) + 8;
+            partsX = nameEnd;
+        }
         if (warn)
             nameEnd -= Overlay_TextWidth(MISSABLE_TEXT) + 8;
         Overlay_Ellipsize(boxName[row], LINE_CHARS, names[i], nameEnd - 6 - BOX_TEXT_X);
@@ -271,6 +317,8 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
         items[n++] = (OverlayItem){ pointsX, y + 6, 0, 0, got ? GOLD : GREY, boxPoints[row], NULL, 0, 0 };
         if (warn)
             items[n++] = (OverlayItem){ nameEnd, y + 6, 0, 0, MISSABLE, MISSABLE_TEXT, NULL, 0, 0 };
+        if (parts)
+            items[n++] = (OverlayItem){ partsX, y + 6, 0, 0, GOLD, boxParts[row], NULL, 0, 0 };
         items[n++] = (OverlayItem){ BOX_TEXT_X, y + 24, 0, 0, GREY, boxLines[row][0], NULL, 0, 0 };
         items[n++] = (OverlayItem){ BOX_TEXT_X, y + 24 + OVERLAY_LINE_H + 2, 0, 0, GREY, boxLines[row][1], NULL, 0, 0 };
     }
@@ -368,12 +416,14 @@ bool Menu_Open(Handle game, u64 titleId, const char *blockedPlugin)
     static const char  *names[MAX_ACHIEVEMENTS], *descriptions[MAX_ACHIEVEMENTS];
     static u16          points[MAX_ACHIEVEMENTS];
     static bool         unlocked[MAX_ACHIEVEMENTS], missable[MAX_ACHIEVEMENTS];
+    static u8           partsDone[MAX_ACHIEVEMENTS], partsTotal[MAX_ACHIEVEMENTS];
 
     // Blocked: no list, so nothing to select, open or scroll.
     int count = blockedPlugin != NULL ? 0 : Achievements_List(names, unlocked, MAX_ACHIEVEMENTS);
     Achievements_Descriptions(descriptions, MAX_ACHIEVEMENTS);
     Achievements_Points(points, MAX_ACHIEVEMENTS);
     Achievements_Missable(missable, MAX_ACHIEVEMENTS);
+    Achievements_Parts(partsDone, partsTotal, MAX_ACHIEVEMENTS);
     LoadGameIcons(titleId);
     int maxScroll = count > BOX_ROWS ? (count - BOX_ROWS) * BOX_H : 0;
 
@@ -533,9 +583,9 @@ bool Menu_Open(Handle game, u64 titleId, const char *blockedPlugin)
             if (blockedPlugin != NULL)
                 DrawBlocked(blockedPlugin);
             else if (details)
-                DrawDetails(names, descriptions, points, unlocked, missable, count, selected);
+                DrawDetails(names, descriptions, points, unlocked, missable, partsTotal, count, selected);
             else
-                Draw(names, descriptions, points, unlocked, missable, count, scroll, selected);
+                Draw(names, descriptions, points, unlocked, missable, partsDone, partsTotal, count, scroll, selected);
             redraw = false;
             lastBuffer = buffer;
             lastDraw = now;

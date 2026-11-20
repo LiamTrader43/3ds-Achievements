@@ -120,6 +120,13 @@ extern const ThemeApi *theme_api;
 #if THEME_MODULE_API >= 3
 #define g_missable              (*theme_api->g_missable)
 #endif
+#if THEME_MODULE_API >= 4
+#define g_partsDone             (*theme_api->g_partsDone)
+#define g_partsTotal            (*theme_api->g_partsTotal)
+#define g_partFirst             (*theme_api->g_partFirst)
+#define g_partNames             (*theme_api->g_partNames)
+#define g_partDone              (*theme_api->g_partDone)
+#endif
 
 // The theme's description (read without running it), the api it was handed, and its entry
 // point, which refuses an app older than the theme.

@@ -30,6 +30,7 @@ static const Color ORANGE = { 232, 140, 20 };           // the header, progress
 static const Color BADGE = { 230, 150, 20 };            // points of an unlocked achievement
 static const Color BADGE_OFF = { 190, 184, 152 };       // and a locked one
 static const Color MISSABLE = { 205, 75, 45 };          // a locked achievement that can be missed for good
+static const Color PART_DONE = { 46, 140, 40 };         // a part of an achievement that's done
 static const Color WHITE = { 255, 255, 255 };
 static const Color BUTTON_TOP = { 255, 253, 246 };      // a button: white fading to cream,
 static const Color BUTTON_BOTTOM = { 220, 215, 193 };
@@ -551,6 +552,13 @@ static void DrawItem(int i, int y)
     snprintf(points, sizeof(points), "%u pts", g_points[i]);
     int bw = Draw_TextWidth(points, 1) + 10, bx = ITEM_X + ITEM_W - 8 - bw;
     DrawBadge(GFX_BOTTOM, bx, y + 5, points, unlocked ? BADGE : BADGE_OFF);
+    if (g_partsTotal[i] > 0 && !unlocked)
+    {
+        char parts[12];
+        snprintf(parts, sizeof(parts), "%u/%u", g_partsDone[i], g_partsTotal[i]);
+        bx -= Draw_TextWidth(parts, 1) + 10 + 4;
+        DrawBadge(GFX_BOTTOM, bx, y + 5, parts, BADGE);
+    }
     if (g_missable[i] && !unlocked)
     {
         bx -= Draw_TextWidth("Missable", 1) + 10 + 4;
@@ -755,6 +763,34 @@ static void DrawStoreList(int scroll, bool loaded)
     DrawTabs();
 }
 
+// An achievement done in parts, under its description in the full view: how many are done, then
+// each part, green when done (two columns when one isn't enough; "and N more" past the room).
+static void DrawParts(int i, int x, int y, int width, int bottom)
+{
+    char text[64];
+    int  parts = g_partsTotal[i], first = g_partFirst[i], line = LINE_H + 3;
+
+    snprintf(text, sizeof(text), "Parts: %u of %d done", g_partsDone[i], parts);
+    Draw_Text(GFX_BOTTOM, x, y, 1, TITLE, text, 0);
+    y += line + 2;
+    int rows = (bottom - y) / line;
+    if (rows < 1)
+        return;
+    int columns = parts > rows ? 2 : 1;
+    int shown = parts < rows * columns ? parts : rows * columns;
+    int perColumn = (shown + columns - 1) / columns, columnW = width / columns;
+    for (int k = 0; k < shown; k++)
+    {
+        bool more = k == shown - 1 && shown < parts;
+        if (more)
+            snprintf(text, sizeof(text), "and %d more", parts - k);
+        else
+            Ui_Ellipsize(text, sizeof(text), g_partNames[first + k], columnW - 8);
+        Draw_Text(GFX_BOTTOM, x + (k / perColumn) * columnW, y + (k % perColumn) * line, 1,
+                  !more && g_partDone[first + k] ? PART_DONE : SOFT, text, 0);
+    }
+}
+
 // The selected achievement in full.
 static void DrawDetails(void)
 {
@@ -775,7 +811,11 @@ static void DrawDetails(void)
     int y = Ui_DrawWrapped(GFX_BOTTOM, x, 16 + ICON_SIZE + 12, width, LINE_H + 4, TITLE, g_names[i], 3);
     const char *description = g_descriptions[i][0] != '\0' ? g_descriptions[i] : "No description.";
     y += 6;
-    Ui_DrawWrapped(GFX_BOTTOM, x, y, width, LINE_H + 3, TEXT, description, (LIST_PANEL_Y + LIST_PANEL_H - 6 - y) / (LINE_H + 3));
+    int bottom = LIST_PANEL_Y + LIST_PANEL_H - 6, room = (bottom - y) / (LINE_H + 3);
+    y = Ui_DrawWrapped(GFX_BOTTOM, x, y, width, LINE_H + 3, TEXT, description,
+                       g_partsTotal[i] > 0 && room > 3 ? 3 : room);
+    if (g_partsTotal[i] > 0)
+        DrawParts(i, x, y + 6, width, bottom);
 
     DrawPage(GFX_BOTTOM, BOTTOM_WIDTH / 2, BAR_Y, i + 1, g_count);
     DrawTabs();

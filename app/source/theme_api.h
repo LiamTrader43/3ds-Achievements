@@ -39,8 +39,9 @@
 #include "ui.h"
 #include "update.h"
 
-#define THEME_API_VERSION   3       // 2: ThemeInfo.description, Theme.description/pickColumns, the menu (g_menu)
+#define THEME_API_VERSION   4       // 2: ThemeInfo.description, Theme.description/pickColumns, the menu (g_menu)
                                     // 3: g_missable
+                                    // 4: achievements done in parts (g_partsDone ... g_partDone)
 #define THEME_API_OLDEST    2
 
 // What a theme says about itself (its THEME_MODULE_DEFINE), read before any of its code runs.
@@ -108,7 +109,8 @@ typedef struct
     X(g_tabs) X(g_tabPressed) \
     X(g_storeTile) X(g_coins) X(g_rewards) X(g_buyItem) X(g_paidOwed) \
     X(g_menu) X(g_menuScroll) \
-    X(g_missable)
+    X(g_missable) \
+    X(g_partsDone) X(g_partsTotal) X(g_partFirst) X(g_partNames) X(g_partDone)
 
 // A pointer to each of them, in the lists' order.
 typedef struct ThemeApi
@@ -124,7 +126,8 @@ typedef struct ThemeApi
 // sizeof(ThemeApi) in an app of each THEME_API_VERSION from THEME_API_OLDEST on (a theme built
 // for one checks that the app's is at least that big).
 #define THEME_API_SIZE_2    offsetof(ThemeApi, g_missable)
-#define THEME_API_SIZE_3    sizeof(ThemeApi)
+#define THEME_API_SIZE_3    offsetof(ThemeApi, g_partsDone)
+#define THEME_API_SIZE_4    sizeof(ThemeApi)
 
 // A theme's entry point (the .theme file's ELF entry): keeps api and returns its Theme, or
 // NULL if it can't run with this app.

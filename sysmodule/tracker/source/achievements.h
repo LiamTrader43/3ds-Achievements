@@ -15,6 +15,12 @@
 // "<id> rc:<condition> <name> | <description>" with a RetroAchievements
 // condition string, evaluated by rcheevos (AND, ResetIf, hit counts, deltas).
 // Either form may end in "| <points>" after the description (default 10).
+//
+// An achievement done in parts (e.g. "win on all six courses"): "<id> @parts <name> | ...",
+// and a line "@part <id> <part> <condition> <name>" per part, with either kind of condition.
+// Each part is saved to progress.txt as "<id>/<part>" when done, so parts done in different
+// sessions add up; the achievement unlocks once every part is done. Parts aren't achievements:
+// lists, counts and points skip them. Older builds skip both kinds of line.
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -24,6 +30,9 @@ bool    Platform_ReadMemory(uint32_t address, uint8_t size, uint32_t *value);
 bool    Platform_ReadFile(const char *path, char *buffer, uint32_t capacity, uint32_t *length);
 bool    Platform_AppendFile(const char *path, const char *text);
 void    Platform_Unlocked(const char *name, const char *description);
+// A part of an achievement was done (already saved): done of total, not the last one (the
+// last unlocks the achievement: Platform_Unlocked).
+void    Platform_PartDone(const char *name, const char *part, int done, int total);
 
 // Loads the game's definitions and progress. Returns false, leaving
 // Achievements_Update() a no-op, if the game has no definitions. For another
@@ -72,6 +81,14 @@ int     Achievements_Missable(bool *missable, int capacity);
 
 // Points of the unlocked achievements, and of all of them.
 void    Achievements_Score(int *earned, int *total);
+
+// For each achievement (Achievements_List order): how many of its parts are done and how many
+// it has; 0 and 0 for one that isn't done in parts.
+int     Achievements_Parts(uint8_t *done, uint8_t *total, int capacity);
+
+// The parts of the index-th achievement (Achievements_List order), in file order: their names
+// and whether each is done. 0 for one that isn't done in parts.
+int     Achievements_PartList(int index, const char **names, bool *done, int capacity);
 
 // "@block-plugin <text>" lines in the loaded definitions: while a Luma plugin whose file path
 // contains that text (any case) runs in the game, its achievements are off. "*" blocks any

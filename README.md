@@ -139,6 +139,19 @@ Some achievements can be missed for good in a playthrough, like a challenge in a
 
 A line can list several IDs, and a file can have several of these lines, anywhere in it. The app and the R + A + Left menu show "Missable" next to a locked one's points, and in its full view. Older versions of the app and tracker skip these lines.
 
+### Achievements done in parts
+
+Some achievements take several steps that can happen in different sessions, like winning on every course. Write the achievement with `@parts` instead of a condition, then a `@part` line for each step, with its own condition and name:
+
+```
+ALL_COURSES @parts World Tour | Win on all three courses. | 10
+@part ALL_COURSES COURSE_1 rc:<condition> First Course
+@part ALL_COURSES COURSE_2 rc:<condition> Second Course
+@part ALL_COURSES COURSE_3 0x0812ABCD 1 1 Third Course
+```
+
+Each part is saved to progress.txt as soon as it's done (`ALL_COURSES/COURSE_1`), with a small banner ("World Tour: First Course, 1/3"), and the achievement unlocks when the last one is done. Parts aren't achievements of their own: they don't count in the totals or points. The app and the R + A + Left menu show "1/3" next to a locked one's points, and every part in its full view. A part ID can be up to 31 characters, and the achievement's ID, a `/` and the part's ID together up to 47. Older versions of the app and tracker skip both kinds of line, so the achievement doesn't appear in them.
+
 ### Other regions
 
 Another region (or release) of a game shares its achievements and progress. Instead of definitions, its folder holds a `version.txt` naming the game's folder:

@@ -298,7 +298,21 @@ static struct
     char names[BANNERS_EACH][64];   // the first ones, each with the count it brought
     char progress[BANNERS_EACH][16];
     char list[160];                 // every name, comma-separated (Overlay_Show cuts it to fit)
+    int  parts;                     // parts of achievements done (Platform_PartDone)
+    char partNames[BANNERS_EACH][96];   // "<achievement>: <part>"
+    char partProgress[BANNERS_EACH][12];
 } g_unlocks;
+
+void Platform_PartDone(const char *name, const char *part, int done, int total)
+{
+    Log("part done: %s: %s (%d/%d)", name, part, done, total);
+    int n = g_unlocks.parts++;
+    if (n < BANNERS_EACH)
+    {
+        snprintf(g_unlocks.partNames[n], sizeof(g_unlocks.partNames[n]), "%s: %s", name, part);
+        snprintf(g_unlocks.partProgress[n], sizeof(g_unlocks.partProgress[n]), "%d/%d", done, total);
+    }
+}
 
 void Platform_Unlocked(const char *name, const char *description)
 {
@@ -322,15 +336,15 @@ void Platform_Unlocked(const char *name, const char *description)
 
 // Shows what the last poll unlocked: a banner each, or, when more than BANNERS_EACH
 // unlocked at once (a save loading with many already done), one banner for all of
-// them ("13 achievements unlocked!" over their names) instead of a long run.
+// them ("13 achievements unlocked!" over their names) instead of a long run. Then a
+// banner for each part of an achievement done (up to BANNERS_EACH; the rest are logged).
 static void ShowUnlocks(void)
 {
     int count = g_unlocks.count;
-    if (count == 0)
-        return;
 
-    SetNotificationLight(true);
-    if (count <= BANNERS_EACH)
+    if (count > 0)
+        SetNotificationLight(true);
+    if (count > 0 && count <= BANNERS_EACH)
     {
         for (int i = 0; i < count; i++)
         {
@@ -338,7 +352,7 @@ static void ShowUnlocks(void)
             LogBannerStats();
         }
     }
-    else
+    else if (count > BANNERS_EACH)
     {
         int  unlocked, total;
         char title[40], progress[16];
@@ -349,7 +363,13 @@ static void ShowUnlocks(void)
         Overlay_Show(title, g_unlocks.list, progress, BANNER_MS);
         LogBannerStats();
     }
-    SetNotificationLight(false);
+    if (count > 0)
+        SetNotificationLight(false);
+    for (int i = 0; i < g_unlocks.parts && i < BANNERS_EACH; i++)
+    {
+        Overlay_Show("Achievement progress", g_unlocks.partNames[i], g_unlocks.partProgress[i], BANNER_MS);
+        LogBannerStats();
+    }
     memset(&g_unlocks, 0, sizeof(g_unlocks));
 }
 

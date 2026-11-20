@@ -386,6 +386,24 @@ Mark achievements that can be missed for good in a playthrough, so players know 
 - If you're porting a RetroAchievements set, mark the ones it marks as Missable.
 - Versions 2.0.2 and older skip these lines.
 
+### Achievements done in parts
+
+When an achievement takes several steps that a player may do in different sessions ("win on every course", "find all six"), the game often doesn't record them anywhere you can read later. Give the tracker the steps instead: write the achievement with `@parts` in place of a condition, then one `@part` line per step, each with its own condition (either kind) and name:
+
+```
+ALL_COURSES @parts World Tour | Win on all three courses. | 10
+@part ALL_COURSES COURSE_1 rc:<condition> First Course
+@part ALL_COURSES COURSE_2 rc:<condition> Second Course
+@part ALL_COURSES COURSE_3 0x0812ABCD 1 1 Third Course
+```
+
+- Each part is saved to progress.txt as `ALL_COURSES/COURSE_1` when it's done, so steps done in different sessions add up; the achievement unlocks with the last one.
+- Several `@part` lines with the same achievement and part ID are alternatives, like achievement lines that share an ID.
+- Parts don't count in the totals or points; a description or points written on a part line are ignored.
+- The achievement's line takes a name, description and points as usual. An `@parts` achievement with no parts isn't shown.
+- IDs: a part ID up to 31 characters, and `<achievement ID>/<part ID>` up to 47.
+- Versions 2.0.2 and older skip both kinds of line.
+
 ### Limits
 
 - At most 256 lines per file (comments don't count), and the file must stay under 64 KB. Versions 2.0.2 and older read only the first 128 lines and 32 KB, and their updater doesn't download a bigger file.

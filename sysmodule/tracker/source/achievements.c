@@ -17,6 +17,9 @@
 #define VERSION_CAPACITY 1024
 #define PLUGIN_KEYWORD  "@block-plugin"     // "@block-plugin <text>": see Achievements_PluginBlocked
 #define MISSABLE_KEYWORD "@missable"        // "@missable <id> [<id> ...]": see Achievements_Missable
+#define PARTS_KEYWORD   "@parts"            // "<id> @parts <name> | ...": an achievement done in parts
+#define PART_KEYWORD    "@part"             // "@part <id> <part> <condition> <name>": one of its parts
+#define ID_CAPACITY     32                  // an ID's (and a part's own ID's) longest length + 1
 #define MAX_PLUGIN_BLOCKS 8
 #define PLUGIN_TEXT     64
 
@@ -33,7 +36,7 @@
 
 typedef struct
 {
-    char            id[32];
+    char            id[48];     // a part's is "<achievement id>/<part id>" (what progress.txt gets)
     uint32_t        address;
     uint8_t         size;
     bool            atLeast;
@@ -44,6 +47,9 @@ typedef struct
     uint16_t        points;
     bool            unlocked;
     bool            missable;   // named on a "@missable" line
+    bool            isParent;   // "<id> @parts ...": no condition of its own, done once all its parts are
+    bool            isPart;     // "@part ...": saved like an achievement, but only counts for its parent
+    int16_t         parent;     // a part's achievement (its first line), -1 for none
     uint8_t         matches;
 } Achievement;
 
@@ -127,7 +133,7 @@ static void ParseText(const char *pos, const char *end, Achievement *a)
     a->points = DEFAULT_POINTS;
     CopyTrimmed(a->name, sizeof(a->name), pos, bar ? bar : end);
     if (a->name[0] == '\0')
-        memcpy(a->name, a->id, strlen(a->id) + 1);  // id[32] always fits name[64]
+        memcpy(a->name, a->id, strlen(a->id) + 1);  // an ID (< ID_CAPACITY here) always fits name[64]
     if (bar == NULL)
     {
         a->description[0] = '\0';
@@ -238,6 +244,14 @@ static bool ParseCondition(const char *pos, const char *end, Achievement *a)
     return true;
 }
 
+// Whether [pos, end) starts with the word (followed by a space or the end).
+static bool StartsWord(const char *pos, const char *end, const char *word)
+{
+    size_t length = strlen(word);
+    return (size_t)(end - pos) >= length && memcmp(pos, word, length) == 0
+           && (pos + length == end || IsSpace(pos[length]));
+}
+
 static bool ParseLine(const char *line, const char *end, Achievement *a)
 {
     char        address[16], size[8], expected[16];
@@ -247,10 +261,21 @@ static bool ParseLine(const char *line, const char *end, Achievement *a)
     a->trigger = NULL;
     a->unlocked = false;
     a->missable = false;
+    a->isParent = false;
+    a->isPart = false;
+    a->parent = -1;
     a->matches = 0;
-    if (!NextToken(&pos, end, a->id, sizeof(a->id)))
+    if (!NextToken(&pos, end, a->id, ID_CAPACITY))
         return false;
     while (pos < end && IsSpace(*pos)) pos++;
+    if (StartsWord(pos, end, PARTS_KEYWORD))
+    {
+        // "<id> @parts <name> | <description> | <points>": done once all its parts are
+        // (see ParsePart). Older builds skip the line ("@parts" isn't an address).
+        a->isParent = true;
+        ParseText(pos + strlen(PARTS_KEYWORD), end, a);
+        return true;
+    }
     if ((size_t)(end - pos) > strlen(RC_PREFIX) && memcmp(pos, RC_PREFIX, strlen(RC_PREFIX)) == 0)
         return ParseCondition(pos + strlen(RC_PREFIX), end, a);
 
@@ -273,6 +298,41 @@ static bool ParseLine(const char *line, const char *end, Achievement *a)
     a->address = ShiftAddress(a->address);
 
     ParseText(pos, end, a);
+    return true;
+}
+
+// "@part <id> <part> ...": one of achievement <id>'s parts (an "@parts" line). Older builds
+// skip it like every line starting with '@'.
+static bool IsPartLine(const char *line, const char *end)
+{
+    return StartsWord(line, end, PART_KEYWORD);
+}
+
+// Where a part line's own line starts: "<part> <condition> <name>", after "@part <id>".
+static const char *PartRest(const char *line, const char *end, char *parent, size_t capacity)
+{
+    const char *pos = line + strlen(PART_KEYWORD);
+    return NextToken(&pos, end, parent, capacity) ? pos : NULL;
+}
+
+// "@part <id> <part> <condition> <name> | <description>": the rest is read like an achievement's
+// line (either kind of condition; lines sharing <id> and <part> are alternatives), and the part
+// is kept as "<id>/<part>", the name progress.txt gets when it's done. It counts for nothing on
+// its own: <id> is done once every one of its parts is.
+static bool ParsePart(const char *line, const char *end, Achievement *a)
+{
+    char        parent[ID_CAPACITY];
+    const char *rest = PartRest(line, end, parent, sizeof(parent));
+
+    if (rest == NULL || !ParseLine(rest, end, a) || a->isParent)
+        return false;
+    size_t parentLength = strlen(parent), partLength = strlen(a->id);
+    if (parentLength + 1 + partLength >= sizeof(a->id))
+        return false;
+    memmove(a->id + parentLength + 1, a->id, partLength + 1);
+    memcpy(a->id, parent, parentLength);
+    a->id[parentLength] = '/';
+    a->isPart = true;
     return true;
 }
 
@@ -394,6 +454,51 @@ static void MarkMissable(const char *file, const char *end)
                     g_ach[i].missable = true;
         }
     }
+}
+
+static bool IsFirstLine(int i);
+
+// Links each part to its achievement: the first "@parts" line with the ID before its '/'.
+// A part whose achievement isn't in the file stays unlinked and is never checked.
+static void FindParents(void)
+{
+    for (int i = 0; i < g_count; i++)
+    {
+        Achievement *a = &g_ach[i];
+        if (!a->isPart)
+            continue;
+        size_t length = (size_t)(strchr(a->id, '/') - a->id);
+        for (int j = 0; j < g_count && a->parent < 0; j++)
+            if (g_ach[j].isParent && strlen(g_ach[j].id) == length && memcmp(g_ach[j].id, a->id, length) == 0)
+                a->parent = (int16_t)j;
+    }
+}
+
+// How many parts the achievement on line p has (lines sharing a part's ID count once), and
+// how many of them are done.
+static void PartsOf(int p, int *done, int *total)
+{
+    *done = *total = 0;
+    for (int i = 0; i < g_count; i++)
+        if (g_ach[i].isPart && g_ach[i].parent == p && IsFirstLine(i))
+        {
+            (*total)++;
+            if (g_ach[i].unlocked)
+                (*done)++;
+        }
+}
+
+// Whether line i is an achievement: the first line with its ID, not a part, and (one done in
+// parts) with at least one part.
+static bool Listed(int i)
+{
+    if (g_ach[i].isPart || !IsFirstLine(i))
+        return false;
+    if (!g_ach[i].isParent)
+        return true;
+    int done, total;
+    PartsOf(i, &done, &total);
+    return total > 0;
 }
 
 // A title ID written as 16 hex digits (no 0x).
@@ -525,11 +630,16 @@ bool Achievements_Load(uint64_t titleId)
     int    lines = 0;
     size_t conditionBytes = 0;
     for (pos = file, end = file + length; lines < MAX_LINES && NextLine(&pos, end, &first, &lineEnd); )
-        if (*first != '@')                  // the tracker's own lines (TrackerLine) aren't achievements
+    {
+        char        parent[ID_CAPACITY];
+        const char *line = *first != '@' ? first : IsPartLine(first, lineEnd)
+                           ? PartRest(first, lineEnd, parent, sizeof(parent)) : NULL;
+        if (line != NULL)                   // the tracker's own lines (TrackerLine) aren't achievements
         {
-            conditionBytes += ConditionBytes(first, lineEnd);
+            conditionBytes += ConditionBytes(line, lineEnd);
             lines++;
         }
+    }
     free(file);
     if (lines == 0 || g_noRoom)
         return false;
@@ -549,10 +659,16 @@ bool Achievements_Load(uint64_t titleId)
 
     // To the end of the file: a tracker line may come after the last achievement.
     for (pos = file, end = file + length; NextLine(&pos, end, &first, &lineEnd); )
-        if (!TrackerLine(first, lineEnd) && g_count < lines && ParseLine(first, lineEnd, &g_ach[g_count]))
+    {
+        bool parsed = IsPartLine(first, lineEnd)
+                      ? g_count < lines && ParsePart(first, lineEnd, &g_ach[g_count])
+                      : !TrackerLine(first, lineEnd) && g_count < lines && ParseLine(first, lineEnd, &g_ach[g_count]);
+        if (parsed)
             g_count++;
+    }
     g_spare = g_spareEnd = NULL;
     MarkMissable(file, file + length);
+    FindParents();
 
     // Unknown IDs (e.g. removed achievements) simply match nothing.
     if (g_count > 0 && Platform_ReadFile(g_unlockPath, file, FILE_CAPACITY, &length))
@@ -560,7 +676,7 @@ bool Achievements_Load(uint64_t titleId)
         for (const char *line = file, *fileEnd = file + length; line < fileEnd; )
         {
             const char *next = memchr(line, '\n', (size_t)(fileEnd - line));
-            char id[32];
+            char id[sizeof(g_ach[0].id)];
             CopyTrimmed(id, sizeof(id), line, next ? next : fileEnd);
             if (id[0] != '\0')
                 MarkUnlocked(id);
@@ -581,6 +697,36 @@ static uint32_t Peek(uint32_t address, uint32_t numBytes, void *userData)
     return numBytes <= 4 && Platform_ReadMemory(address, (uint8_t)numBytes, &value) ? value : 0;
 }
 
+// Saves line i's ID as done (every line with that ID): an achievement or a part.
+static void SaveDone(int i)
+{
+    const char *id = g_ach[i].id;
+    char        line[sizeof(g_ach[0].id) + 1];
+    size_t      length = strlen(id);
+
+    MarkUnlocked(id);
+    memcpy(line, id, length);
+    line[length] = '\n';
+    line[length + 1] = '\0';
+    Platform_AppendFile(g_unlockPath, line);
+}
+
+// The first line with line i's ID: its name and description are the achievement's (or part's).
+static int FirstLineOf(int i)
+{
+    for (int j = 0; j < i; j++)
+        if (strcmp(g_ach[j].id, g_ach[i].id) == 0)
+            return j;
+    return i;
+}
+
+static void Unlock(int i)
+{
+    SaveDone(i);
+    i = FirstLineOf(i);
+    Platform_Unlocked(g_ach[i].name, g_ach[i].description);
+}
+
 void Achievements_Update(void)
 {
     for (int i = 0; i < g_count; i++)
@@ -590,6 +736,18 @@ void Achievements_Update(void)
 
         if (a->unlocked)
             continue;
+        if (a->isParent)
+        {
+            // Done through its parts (below); this catches parts that were all done
+            // before it was saved (e.g. the console turned off in between).
+            int done, total;
+            PartsOf(i, &done, &total);
+            if (total > 0 && done == total && IsFirstLine(i))
+                Unlock(i);
+            continue;
+        }
+        if (a->isPart && a->parent < 0)
+            continue;                           // a part of no achievement in the file
 
         if (a->trigger != NULL)
         {
@@ -610,16 +768,19 @@ void Achievements_Update(void)
                 continue;
         }
 
-        // Lines sharing an ID are alternative conditions for one achievement.
-        MarkUnlocked(a->id);
-
-        char line[sizeof(a->id) + 1];
-        size_t length = strlen(a->id);
-        memcpy(line, a->id, length);
-        line[length] = '\n';
-        line[length + 1] = '\0';
-        Platform_AppendFile(g_unlockPath, line);
-        Platform_Unlocked(a->name, a->description);
+        // Lines sharing an ID are alternative conditions for one achievement (or part).
+        if (!a->isPart)
+        {
+            Unlock(i);
+            continue;
+        }
+        int p = a->parent, done, total;
+        SaveDone(i);
+        PartsOf(p, &done, &total);
+        if (done < total)
+            Platform_PartDone(g_ach[p].name, g_ach[FirstLineOf(i)].name, done, total);
+        else if (!g_ach[p].unlocked)
+            Unlock(p);                          // the last part: the achievement itself
     }
 }
 
@@ -642,7 +803,7 @@ void Achievements_Progress(int *unlocked, int *total)
     *unlocked = *total = 0;
     for (int i = 0; i < g_count; i++)
     {
-        if (!IsFirstLine(i))
+        if (!Listed(i))
             continue;
         (*total)++;
         if (g_ach[i].unlocked)
@@ -655,7 +816,7 @@ int Achievements_List(const char **names, bool *unlocked, int capacity)
     int n = 0;
     for (int i = 0; i < g_count && n < capacity; i++)
     {
-        if (!IsFirstLine(i))
+        if (!Listed(i))
             continue;
         names[n] = g_ach[i].name;
         unlocked[n] = g_ach[i].unlocked;
@@ -668,7 +829,7 @@ int Achievements_Descriptions(const char **descriptions, int capacity)
 {
     int n = 0;
     for (int i = 0; i < g_count && n < capacity; i++)
-        if (IsFirstLine(i))
+        if (Listed(i))
             descriptions[n++] = g_ach[i].description;
     return n;
 }
@@ -677,7 +838,7 @@ int Achievements_Ids(const char **ids, int capacity)
 {
     int n = 0;
     for (int i = 0; i < g_count && n < capacity; i++)
-        if (IsFirstLine(i))
+        if (Listed(i))
             ids[n++] = g_ach[i].id;
     return n;
 }
@@ -686,7 +847,7 @@ int Achievements_Points(uint16_t *points, int capacity)
 {
     int n = 0;
     for (int i = 0; i < g_count && n < capacity; i++)
-        if (IsFirstLine(i))
+        if (Listed(i))
             points[n++] = g_ach[i].points;
     return n;
 }
@@ -695,7 +856,7 @@ int Achievements_Missable(bool *missable, int capacity)
 {
     int n = 0;
     for (int i = 0; i < g_count && n < capacity; i++)
-        if (IsFirstLine(i))
+        if (Listed(i))
             missable[n++] = g_ach[i].missable;
     return n;
 }
@@ -705,10 +866,45 @@ void Achievements_Score(int *earned, int *total)
     *earned = *total = 0;
     for (int i = 0; i < g_count; i++)
     {
-        if (!IsFirstLine(i))
+        if (!Listed(i))
             continue;
         *total += g_ach[i].points;
         if (g_ach[i].unlocked)
             *earned += g_ach[i].points;
     }
+}
+
+int Achievements_Parts(uint8_t *done, uint8_t *total, int capacity)
+{
+    int n = 0;
+    for (int i = 0; i < g_count && n < capacity; i++)
+        if (Listed(i))
+        {
+            int d = 0, t = 0;
+            if (g_ach[i].isParent)
+                PartsOf(i, &d, &t);
+            done[n] = (uint8_t)(d > 255 ? 255 : d);
+            total[n] = (uint8_t)(t > 255 ? 255 : t);
+            n++;
+        }
+    return n;
+}
+
+int Achievements_PartList(int index, const char **names, bool *done, int capacity)
+{
+    int p = -1;
+    for (int i = 0, n = 0; i < g_count && p < 0; i++)
+        if (Listed(i) && n++ == index)
+            p = i;
+    if (p < 0 || !g_ach[p].isParent)
+        return 0;
+    int n = 0;
+    for (int i = 0; i < g_count && n < capacity; i++)
+        if (g_ach[i].isPart && g_ach[i].parent == p && IsFirstLine(i))
+        {
+            names[n] = g_ach[i].name;
+            done[n] = g_ach[i].unlocked;
+            n++;
+        }
+    return n;
 }
