@@ -185,7 +185,7 @@ static void ShiftTrigger(rc_trigger_t *trigger)
 // evaluated by rcheevos, which adds AND, ResetIf/PauseIf, hit counts, deltas
 // and every comparison. Like on RetroAchievements, it can't unlock until it
 // has been false once.
-#define CONDITION_CAPACITY 1024
+#define CONDITION_CAPACITY 4096    // a condition's longest length + 1 (1024 before 2026-11-19: longer lines were skipped)
 #define PARSE_ROOM      8192    // heap room rcheevos' temporaries get while it parses one condition
 
 static bool g_noRoom;           // a condition couldn't be given that room: the load fails

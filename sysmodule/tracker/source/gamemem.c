@@ -18,8 +18,8 @@ Result svcUnmapProcessMemoryEx(Handle process, u32 address, u32 size);
 #define MERGE_GAP       (64 * PAGE)     // planned pages this close share a range
 #define MAX_FAILURES    8               // ranges that wouldn't map: then this game copies page by page
 
-#define COPY_PAGES      24              // pages copied per poll (OoT needs ~9, Mario Kart 7 up to ~19)
-#define PLAN_PAGES      32
+#define COPY_PAGES      40              // pages copied per poll (OoT needs ~9, Mario Kart 7 up to ~33)
+#define PLAN_PAGES      48
 #define UNREADABLE      8               // pages found unreadable this poll (not tried again)
 
 static Handle       s_game;

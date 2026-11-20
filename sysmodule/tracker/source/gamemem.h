@@ -31,7 +31,7 @@ typedef struct
     u32 lastError, lastErrorAddress; // the last failed map/unmap: result and address
 } GameMemStats;
 
-// Takes the memory the copies need (100 KB; true if it's there). GameMem_BeginPoll
+// Takes the memory the copies need (164 KB; true if it's there). GameMem_BeginPoll
 // takes it too when it's missing. Only while a game is tracked: GameMem_Release
 // gives it back when the game closes, and forgets the game.
 bool    GameMem_Acquire(void);
