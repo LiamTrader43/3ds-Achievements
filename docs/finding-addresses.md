@@ -373,6 +373,20 @@ Luma can load plugins (`.3gx` files) into a game. Some change it so much that it
 
 Before you write your list, look up the popular plugins and mods for your game and what they do. A plugin that only adds practice tools or a timer can stay allowed. One that unlocks things or edits the save would give away every achievement that reads those values. [Adding a game](adding-a-game.md#plugins) has the same rules.
 
+### Game versions
+
+If your game has an update, the addresses you found are for the version you played. An update can move them, and an unupdated cartridge runs the old version. To support only your version, add a line starting with `@version`: a short name for it, then a value only that version has at an address, written like a simple line's address, size and value:
+
+```
+@version 1.2 0x0064E4FC 4 0xD899E1C9
+```
+
+- The tracker reads the address once, when the game starts. If the value isn't there, the game's achievements aren't loaded: the start banner says "achievements need version 1.2" and R + A + Left tells the player to update the game.
+- Choose a value that never changes while the game runs and that the update replaced: something in the game's code or read-only data. To find one, look at the same address with and without the update installed (in Azahar, remove the update from its SD folder), or compare the two versions' `code.bin`.
+- The name is one word of up to 15 characters. Several `@version` lines let several versions in.
+- A line the tracker can't read matches nothing, so test with the right version too.
+- Versions 2.1.0 and older skip the line and track any version.
+
 ### Missable achievements
 
 Mark achievements that can be missed for good in a playthrough, so players know to watch for them: a challenge in a boss fight that can't be fought again, a scene that only happens once, an item that stops being available. A line starting with `@missable` lists their IDs:
@@ -413,7 +427,7 @@ ALL_COURSES @parts World Tour | Win on all three courses. | 10
 ## 12. Testing on your 3DS
 
 1. Copy your file to `/achievements/<TitleID>/definitions.txt` on the SD card.
-2. Open the Achievements app, which starts the tracker, then start the game. After a few seconds, a banner shows how many achievements were found, like "0/12 achievements unlocked". If it says "achievements not supported", the folder name is wrong or no line in the file is valid. If it says "achievements off" with a plugin's name, one of your `@block-plugin` lines matched a plugin that's running.
+2. Open the Achievements app, which starts the tracker, then start the game. After a few seconds, a banner shows how many achievements were found, like "0/12 achievements unlocked". If it says "achievements not supported", the folder name is wrong or no line in the file is valid. If it says "achievements off" with a plugin's name, one of your `@block-plugin` lines matched a plugin that's running. If it says "achievements need version" with your version's name, your `@version` line didn't match the game that's running (`tracker.log` has a `version:` line with the value it read).
 3. Play. Each unlock shows a banner and is written to `/achievements/tracker.log`.
 4. To test an achievement again, delete its ID from `/achievements/<TitleID>/progress.txt`. Deleting the file resets the whole game.
 5. Check that nothing unlocks too early: on the title screen, on the file select, and when you load a file that hasn't done it yet.

@@ -20,10 +20,11 @@ bool    Menu_GameInFront(u32 *active);
 // Pauses the game, shows the achievement list on the bottom screen (laid out like
 // the app's: Up/Down select an achievement, A or a tap shows it in full, B goes back)
 // until B or Select closes it, then resumes the game once every button is released.
-// Returns false, showing nothing, if the game couldn't be paused. With blockedPlugin
-// (the file name of a plugin the game's definitions block, or "a plugin") it shows
-// that achievements aren't loaded because of it instead of the list.
-bool    Menu_Open(Handle game, u64 titleId, const char *blockedPlugin);
+// Returns false, showing nothing, if the game couldn't be paused. With blockedWhy (a
+// sentence: a plugin the game's definitions block runs, or the game isn't a version they're
+// for) it shows that achievements aren't loaded, why, and blockedAdvice (what to do, or
+// NULL) instead of the list.
+bool    Menu_Open(Handle game, u64 titleId, const char *blockedWhy, const char *blockedAdvice);
 
 // How setting up touch input went the last time the menu opened, for the log.
 Result  Menu_TouchResult(void);

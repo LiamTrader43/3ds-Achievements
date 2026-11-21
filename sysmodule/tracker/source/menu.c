@@ -325,14 +325,13 @@ static void DrawDetails(const char **names, const char **descriptions, const u16
     Overlay_DrawScreen(items, n);
 }
 
-// Instead of the list while a plugin the game's definitions block runs in it (main.c
-// PluginBlocked): its achievements aren't tracked. plugin = its file name, or "a plugin".
-static void DrawBlocked(const char *plugin)
+// Instead of the list when the game's achievements aren't loaded (main.c: a plugin its
+// definitions block runs in it, or it isn't a version they're for): why, then what to do.
+static void DrawBlocked(const char *why, const char *advice)
 {
-    static char         message[128], lines[4][LINE_CHARS];
+    static char         lines[3][LINE_CHARS], adviceLines[2][LINE_CHARS];
     static OverlayItem  items[OVERLAY_MAX_ITEMS];
     static const char   title[] = "Achievements aren't loaded";
-    static const char   advice[] = "Start the game without it to earn them.";
     const int           width = WIDTH - 2 * DETAIL_MARGIN;
     u32                 n = 0;
     int                 y = 52;
@@ -341,12 +340,14 @@ static void DrawBlocked(const char *plugin)
     y += OVERLAY_ICON_SIZE + 14;
     items[n++] = (OverlayItem){ (WIDTH - Overlay_TextWidth(title)) / 2, y, 0, 0, GOLD, title, NULL, 0, 0 };
     y += DETAIL_NAME_LINE + 6;
-    snprintf(message, sizeof(message), "This game's achievements can't be earned while %s is running.", plugin);
-    int count = Wrap(message, width, lines, 3);
+    int count = Wrap(why, width, lines, 3);
     for (int k = 0; k < count; k++, y += DETAIL_LINE)
         items[n++] = (OverlayItem){ (WIDTH - Overlay_TextWidth(lines[k])) / 2, y, 0, 0, LIGHT, lines[k], NULL, 0, 0 };
     y += 6;
-    items[n++] = (OverlayItem){ (WIDTH - Overlay_TextWidth(advice)) / 2, y, 0, 0, LIGHT, advice, NULL, 0, 0 };
+    count = advice != NULL ? Wrap(advice, width, adviceLines, 2) : 0;
+    for (int k = 0; k < count; k++, y += DETAIL_LINE)
+        items[n++] = (OverlayItem){ (WIDTH - Overlay_TextWidth(adviceLines[k])) / 2, y, 0, 0, LIGHT, adviceLines[k],
+                                    NULL, 0, 0 };
     items[n++] = (OverlayItem){ DETAIL_MARGIN, DETAIL_HINT_Y, 0, 0, HINT, "B: Close", NULL, 0, 0 };
     Overlay_DrawScreen(items, n);
 }
@@ -546,7 +547,7 @@ static int Direction(u32 keys)
     return 0;
 }
 
-bool Menu_Open(Handle game, u64 titleId, const char *blockedPlugin)
+bool Menu_Open(Handle game, u64 titleId, const char *blockedWhy, const char *blockedAdvice)
 {
     static const char  *names[MAX_ACHIEVEMENTS], *descriptions[MAX_ACHIEVEMENTS], *ids[MAX_ACHIEVEMENTS];
     static u16          points[MAX_ACHIEVEMENTS];
@@ -554,7 +555,7 @@ bool Menu_Open(Handle game, u64 titleId, const char *blockedPlugin)
     static u8           partsDone[MAX_ACHIEVEMENTS], partsTotal[MAX_ACHIEVEMENTS];
 
     // Blocked: no list, so nothing to select, open or scroll.
-    int count = blockedPlugin != NULL ? 0 : Achievements_List(names, unlocked, MAX_ACHIEVEMENTS);
+    int count = blockedWhy != NULL ? 0 : Achievements_List(names, unlocked, MAX_ACHIEVEMENTS);
     Achievements_Descriptions(descriptions, MAX_ACHIEVEMENTS);
     Achievements_Points(points, MAX_ACHIEVEMENTS);
     Achievements_Missable(missable, MAX_ACHIEVEMENTS);
@@ -715,8 +716,8 @@ bool Menu_Open(Handle game, u64 titleId, const char *blockedPlugin)
         u32 buffer = Overlay_Buffer();
         if (redraw || buffer != lastBuffer || now - lastDraw >= REDRAW_MS)
         {
-            if (blockedPlugin != NULL)
-                DrawBlocked(blockedPlugin);
+            if (blockedWhy != NULL)
+                DrawBlocked(blockedWhy, blockedAdvice);
             else if (details)
                 DrawDetails(names, descriptions, points, unlocked, missable, partsTotal, count, selected);
             else

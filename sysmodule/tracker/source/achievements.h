@@ -136,4 +136,20 @@ int     Achievements_PluginBlockCount(void);
 // is unknown, and only "*" blocks it.
 bool    Achievements_PluginBlocked(const char *path);
 
+// "@version <name> <address> <size> <value>" lines in the loaded definitions: the versions of the
+// game they're for, each known by the value it has at an address (read-only data or code, so it
+// holds from the game's start). How many there are, lines this build can't read included (they
+// never match); 0: any version is tracked.
+int     Achievements_VersionCount(void);
+
+// True if the running game is one of those versions (any line matching, through
+// Platform_ReadMemory; unreadable counts as no), or if there are none. Call it inside a poll.
+// seen (may be NULL) gets what the first readable line's address holds, for the log
+// (0xFFFFFFFF if none could be read).
+bool    Achievements_VersionMatches(uint32_t *seen);
+
+// The first "@version" line's name, e.g. "1.2" (up to 15 characters; "" if that line couldn't be
+// read), for the banner.
+const char *Achievements_VersionName(void);
+
 #endif

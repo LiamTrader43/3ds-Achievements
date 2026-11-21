@@ -20,6 +20,9 @@
 #define PARTS_KEYWORD   "@parts"            // "<id> @parts <name> | ...": an achievement done in parts
 #define PART_KEYWORD    "@part"             // "@part <id> <part> <condition> <name>": one of its parts
 #define TITLE_KEYWORD   "@title"            // "@title <name>": the game's name, instead of its SMDH title
+#define VERSION_KEYWORD "@version"          // "@version <name> <address> <size> <value>": see Achievements_VersionMatches
+#define MAX_VERSIONS    8
+#define VERSION_NAME    16                  // the longest version name kept + 1 (it shares the banner with the game's name)
 #define TITLE_CAPACITY  65                  // the longest name kept + 1 (the app's Game.title holds 64)
 #define ID_CAPACITY     32                  // an ID's (and a part's own ID's) longest length + 1
 #define MAX_PLUGIN_BLOCKS 8
@@ -80,6 +83,18 @@ static int          g_shiftCount;
 static char         g_pluginBlocks[MAX_PLUGIN_BLOCKS][PLUGIN_TEXT];
 static int          g_pluginBlockCount;
 static char         g_title[TITLE_CAPACITY];    // "@title": the game's name ("" for none)
+
+// "@version" lines: the value a version of the game the definitions are for has at an address.
+typedef struct
+{
+    uint32_t    address, value;
+    uint8_t     size;
+    bool        valid;                  // false: a line this build can't read, which never matches
+} VersionCheck;
+
+static VersionCheck g_versions[MAX_VERSIONS];
+static int          g_versionCount;
+static char         g_versionName[VERSION_NAME];    // the first "@version" line's name ("" for none)
 
 static bool IsSpace(char c)
 {
@@ -400,14 +415,47 @@ static bool IsKeyword(const char *line, const char *end, const char *keyword)
     return (size_t)(end - line) > length && memcmp(line, keyword, length) == 0 && IsSpace(line[length]);
 }
 
+// "@version <name> <address> <size> <value>": the version's name for the banner (one word, "1.2"),
+// then an address and value read like a simple line's (hex with 0x, else decimal; size 1, 2 or 4;
+// the value must fit the size; the address moved by version.txt's shifts), nothing after. The name
+// comes first so that builds from before "@version" can't read the line as a simple achievement
+// (they'd take the address for its size). A line that doesn't read this way still counts, but
+// never matches: a game isn't tracked on a check this build doesn't understand.
+static void ParseVersion(const char *pos, const char *end)
+{
+    VersionCheck *v = &g_versions[g_versionCount++];
+    char          name[64], address[16], size[8], value[16];
+    uint32_t      sizeValue = 0;
+
+    v->valid = NextToken(&pos, end, name, sizeof(name)) && NextToken(&pos, end, address, sizeof(address))
+               && NextToken(&pos, end, size, sizeof(size)) && NextToken(&pos, end, value, sizeof(value))
+               && ParseU32(address, &v->address)
+               && ParseU32(size, &sizeValue) && (sizeValue == 1 || sizeValue == 2 || sizeValue == 4)
+               && ParseU32(value, &v->value) && (sizeValue == 4 || (v->value >> (sizeValue * 8)) == 0);
+    while (pos < end && IsSpace(*pos))
+        pos++;
+    if (!v->valid || pos != end)            // anything after the value
+    {
+        v->valid = false;
+        return;
+    }
+    v->size = (uint8_t)sizeValue;
+    v->address = ShiftAddress(v->address);
+    if (g_versionCount == 1)
+        snprintf(g_versionName, sizeof(g_versionName), "%.*s", (int)sizeof(g_versionName) - 1, name);  // cut short
+}
+
 // A line starting with '@' is for the tracker, never an achievement (older builds skip it as an
-// invalid line). "@block-plugin <text>" and "@title <name>" are recorded here, "@missable" lines by
-// MarkMissable once every achievement is read; other keywords are left for later builds.
+// invalid line). "@block-plugin <text>", "@title <name>" and "@version ..." are recorded here,
+// "@missable" lines by MarkMissable once every achievement is read; other keywords are left for
+// later builds.
 static bool TrackerLine(const char *line, const char *end)
 {
     if (*line != '@')
         return false;
-    if (IsKeyword(line, end, PLUGIN_KEYWORD) && g_pluginBlockCount < MAX_PLUGIN_BLOCKS)
+    if (IsKeyword(line, end, VERSION_KEYWORD) && g_versionCount < MAX_VERSIONS)
+        ParseVersion(line + strlen(VERSION_KEYWORD), end);
+    else if (IsKeyword(line, end, PLUGIN_KEYWORD) && g_pluginBlockCount < MAX_PLUGIN_BLOCKS)
     {
         char *text = g_pluginBlocks[g_pluginBlockCount];
         CopyTrimmed(text, PLUGIN_TEXT, line + strlen(PLUGIN_KEYWORD), end);
@@ -447,6 +495,35 @@ static bool ContainsIgnoringCase(const char *path, const char *text)
 int Achievements_PluginBlockCount(void)
 {
     return g_pluginBlockCount;
+}
+
+int Achievements_VersionCount(void)
+{
+    return g_versionCount;
+}
+
+bool Achievements_VersionMatches(uint32_t *seen)
+{
+    bool read = false;
+    if (seen != NULL)
+        *seen = 0xFFFFFFFFu;
+    for (int i = 0; i < g_versionCount; i++)
+    {
+        uint32_t value;
+        if (!g_versions[i].valid || !Platform_ReadMemory(g_versions[i].address, g_versions[i].size, &value))
+            continue;
+        if (seen != NULL && !read)
+            *seen = value;
+        read = true;
+        if (value == g_versions[i].value)
+            return true;
+    }
+    return g_versionCount == 0;
+}
+
+const char *Achievements_VersionName(void)
+{
+    return g_versionName;
 }
 
 bool Achievements_PluginBlocked(const char *path)
@@ -615,6 +692,8 @@ void Achievements_Unload(void)
     g_count = 0;
     g_pluginBlockCount = 0;
     g_title[0] = '\0';
+    g_versionCount = 0;
+    g_versionName[0] = '\0';
     g_measuredChanged = false;
 }
 

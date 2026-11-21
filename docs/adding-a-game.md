@@ -40,6 +40,18 @@ Some Luma plugins change a game so much that its achievements shouldn't count, l
 
 `@block-plugin *` blocks every plugin. A game can have several of these lines. The start banner says when one applies, the R + A + Left menu shows why instead of the list, and the **Patched games** setting doesn't override it. Older versions of the app and tracker skip these lines.
 
+## Game versions
+
+A game update can move what achievements read, so a set may only work on one version of a game. A line starting with `@version` names the version the achievements are for, then how to recognize it: a value only that version has at an address, written like a simple line's address, size and expected value:
+
+```
+@version 1.2 0x0064E4FC 4 0xD899E1C9
+```
+
+When the game starts, the tracker reads that address once. If it doesn't hold that value, the game's achievements aren't loaded: the start banner says "achievements need version 1.2", and R + A + Left says to update the game instead of showing the list. Pick a value that can't change while the game runs, such as one in the game's code or read-only data that the update replaced.
+
+The name is one word of up to 15 characters (it shares the banner with the game's name). With several `@version` lines, any one matching is enough. A line the tracker can't read matches nothing, so a typo shows up the first time you test. For another region, its `version.txt` `shift` lines move this address too (see [Other regions](#other-regions)). Versions 2.1.0 and older of the tracker skip the line and track any version.
+
 ## Missable achievements
 
 Some achievements can be missed for good in a playthrough, like a challenge in a boss fight that can't be fought again. A line starting with `@missable` marks them by ID, like RetroAchievements' "Missable" type:

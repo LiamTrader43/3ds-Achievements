@@ -658,14 +658,33 @@ static bool PluginBlocked(char *name, size_t size)
     return blocked;
 }
 
+// The game isn't a version its definitions are for ("@version" lines), on its first poll
+// (GameMem_BeginPoll done). If so, name gets the version they need ("" if unnamed).
+static bool WrongVersion(char *name, size_t size)
+{
+    uint32_t seen;
+
+    if (Achievements_VersionCount() == 0)
+        return false;
+    bool match = Achievements_VersionMatches(&seen);
+    snprintf(name, size, "%s", Achievements_VersionName());
+    Log("version: %s%s (read %08lX), %s", match ? "" : "not ", name[0] != '\0' ? name : "the definitions' version",
+        seen, match ? "tracking" : "not tracking");
+    return !match;
+}
+
 // "<game>, <unlocked>/<total> achievements unlocked" (or why achievements are
 // off), the game's name cut with "..." to fit.
-static void ShowStartBanner(bool supported, bool patched, bool noMemory, const char *plugin)
+static void ShowStartBanner(bool supported, bool patched, bool noMemory, const char *plugin, const char *version)
 {
     char    suffix[64], title[96], message[160];
     int     unlocked, total;
 
-    if (plugin != NULL)
+    if (version != NULL && version[0] != '\0')
+        snprintf(suffix, sizeof(suffix), ", achievements need version %.15s", version);
+    else if (version != NULL)
+        snprintf(suffix, sizeof(suffix), ", achievements off: wrong version");
+    else if (plugin != NULL)
         snprintf(suffix, sizeof(suffix), ", achievements off: %.28s", plugin);
     else if (patched)
         snprintf(suffix, sizeof(suffix), ", patched, achievements off");
@@ -875,8 +894,12 @@ int main(void)
     u64     loadedTitle = 0;
     bool    active = false;
     bool    patched = false;        // has definitions, but isn't tracked (see FindGamePatch)
-    bool    pluginChecked = false;  // this game's plugin looked at (PluginBlocked, on its first poll)
+    bool    checked = false;        // this game's version and plugin looked at (on its first poll)
     char    blockedPlugin[32] = ""; // a plugin its definitions block runs in it: not tracked
+    bool    wrongVersion = false;   // it isn't a version its definitions are for: not loaded
+    char    neededVersion[24] = ""; // the version they're for ("@version" name)
+    bool    dropAchievements = false;   // unload them once this poll is over (wrongVersion)
+    char    blockedWhy[96];         // what the menu says instead of the list
     bool    noMemory = false;       // couldn't be loaded: too little memory left (see heap.c)
     bool    haveTitle = false;      // from the SMDH, not the process name
     bool    startShown = false;     // this game's start banner
@@ -973,24 +996,28 @@ int main(void)
                 Log("memory: heap %lu KB, %lu KB free%s", Heap_Size() / 1024, Heap_SystemFree() / 1024,
                     noMemory ? "; not enough left to load this game's achievements"
                     : !copies ? "; not enough left to read the game yet" : "");
-            pluginChecked = false;
+            checked = false;
             blockedPlugin[0] = '\0';
+            wrongVersion = false;
+            neededVersion[0] = '\0';
             startShown = false;
             startAt = osGetTime() + START_DELAY_MS;
             g_statsWindows = 0;     // this game's first stats window gets logged
         }
 
         // Once per launch, a few seconds in (the game is drawing by then and
-        // FS can read its title), unless it's suspended behind HOME.
+        // FS can read its title), unless it's suspended behind HOME. A tracked game's
+        // version and plugin are known first (its first poll).
         u32 applet;
-        if (!startShown && osGetTime() >= startAt && Menu_GameInFront(&applet))
+        if (!startShown && osGetTime() >= startAt && (checked || !active) && Menu_GameInFront(&applet))
         {
             if (!haveTitle)
             {
                 haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
                 Heap_Trim();
             }
-            ShowStartBanner(active, patched, noMemory, blockedPlugin[0] != '\0' ? blockedPlugin : NULL);
+            ShowStartBanner(active, patched, noMemory, blockedPlugin[0] != '\0' ? blockedPlugin : NULL,
+                            wrongVersion ? neededVersion : NULL);
             startShown = true;
         }
 
@@ -1002,10 +1029,25 @@ int main(void)
         {
             if (!haveTitle)     // FS may not have been ready right at launch
                 haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));
+            const char *advice = NULL;
+            if (wrongVersion)
+            {
+                if (neededVersion[0] != '\0')
+                    snprintf(blockedWhy, sizeof(blockedWhy), "This game's achievements need version %s.", neededVersion);
+                else
+                    snprintf(blockedWhy, sizeof(blockedWhy), "This game's achievements are for another version.");
+                advice = "Update the game to earn them.";
+            }
+            else if (blockedPlugin[0] != '\0')
+            {
+                snprintf(blockedWhy, sizeof(blockedWhy), "This game's achievements can't be earned while %s is running.",
+                         blockedPlugin);
+                advice = "Start the game without it to earn them.";
+            }
             if (!Menu_GameInFront(&applet))
                 Log("menu: game not in front (active applet %lX)", applet);
             else if (!Menu_Open(g_game, Achievements_GameId(),      // the game's folder (trophy.bin)
-                                blockedPlugin[0] != '\0' ? blockedPlugin : NULL))
+                                advice != NULL ? blockedWhy : NULL, advice))
                 Log("menu: couldn't pause the game (active applet %lX)", applet);
             else
                 Log("menu: touch %08lX", Menu_TouchResult());
@@ -1016,12 +1058,19 @@ int main(void)
             u64 start = svcGetSystemTick();
             if (GameMem_BeginPoll(g_game, pid))     // false: memory unreadable, don't check with zeros
             {
-                // Before any condition is checked: a plugin the definitions block turns it off.
-                if (!pluginChecked)
+                // Before any condition is checked: a version the definitions aren't for turns
+                // them off (and they're unloaded after this poll), as does a plugin they block.
+                if (!checked && active)
                 {
-                    pluginChecked = true;
-                    if (PluginBlocked(blockedPlugin, sizeof(blockedPlugin)))
+                    checked = true;
+                    if (WrongVersion(neededVersion, sizeof(neededVersion)))
+                    {
+                        wrongVersion = true;
+                        dropAchievements = true;
                         active = false;     // the menu says why instead of listing them
+                    }
+                    else if (PluginBlocked(blockedPlugin, sizeof(blockedPlugin)))
+                        active = false;
                     else
                         blockedPlugin[0] = '\0';
                 }
@@ -1039,6 +1088,15 @@ int main(void)
                 }
             }
             GameMem_EndPoll();
+            if (dropAchievements)
+            {
+                dropAchievements = false;
+                Achievements_Unload();
+                GameMem_Release();
+                Heap_Trim();
+                Log("memory: achievements not loaded, heap back to %lu KB, %lu KB free", Heap_Size() / 1024,
+                    Heap_SystemFree() / 1024);
+            }
             PollStats(svcGetSystemTick() - start);
             ShowUnlocks();          // after the poll, so several at once can share a banner
         }
