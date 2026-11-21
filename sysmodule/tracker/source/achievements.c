@@ -19,6 +19,8 @@
 #define MISSABLE_KEYWORD "@missable"        // "@missable <id> [<id> ...]": see Achievements_Missable
 #define PARTS_KEYWORD   "@parts"            // "<id> @parts <name> | ...": an achievement done in parts
 #define PART_KEYWORD    "@part"             // "@part <id> <part> <condition> <name>": one of its parts
+#define TITLE_KEYWORD   "@title"            // "@title <name>": the game's name, instead of its SMDH title
+#define TITLE_CAPACITY  65                  // the longest name kept + 1 (the app's Game.title holds 64)
 #define ID_CAPACITY     32                  // an ID's (and a part's own ID's) longest length + 1
 #define MAX_PLUGIN_BLOCKS 8
 #define PLUGIN_TEXT     64
@@ -77,6 +79,7 @@ static Shift        g_shift[MAX_SHIFTS];
 static int          g_shiftCount;
 static char         g_pluginBlocks[MAX_PLUGIN_BLOCKS][PLUGIN_TEXT];
 static int          g_pluginBlockCount;
+static char         g_title[TITLE_CAPACITY];    // "@title": the game's name ("" for none)
 
 static bool IsSpace(char c)
 {
@@ -375,24 +378,50 @@ static bool NextLine(const char **pos, const char *end, const char **first, cons
     return false;
 }
 
+// The game's name from a "@title" line: the first one, trimmed; a character outside ASCII (a UTF-8
+// sequence) becomes one '?', as in SMDH titles (the fonts only have ASCII).
+static void SetTitle(const char *start, const char *end)
+{
+    char text[TITLE_CAPACITY];
+    CopyTrimmed(text, sizeof(text), start, end);
+    size_t n = 0;
+    for (const unsigned char *p = (const unsigned char *)text; *p != '\0' && n + 1 < sizeof(g_title); p++)
+        if (*p < 0x80)
+            g_title[n++] = (char)*p;
+        else if (*p >= 0xC0)                    // the first byte of a character; its other bytes are skipped
+            g_title[n++] = '?';
+    g_title[n] = '\0';
+}
+
+// Whether line starts with the keyword and a space.
+static bool IsKeyword(const char *line, const char *end, const char *keyword)
+{
+    size_t length = strlen(keyword);
+    return (size_t)(end - line) > length && memcmp(line, keyword, length) == 0 && IsSpace(line[length]);
+}
+
 // A line starting with '@' is for the tracker, never an achievement (older builds skip it as an
-// invalid line). "@block-plugin <text>" is recorded here, "@missable" lines by MarkMissable once
-// every achievement is read; other keywords are left for later builds.
+// invalid line). "@block-plugin <text>" and "@title <name>" are recorded here, "@missable" lines by
+// MarkMissable once every achievement is read; other keywords are left for later builds.
 static bool TrackerLine(const char *line, const char *end)
 {
-    const size_t keyword = strlen(PLUGIN_KEYWORD);
-
     if (*line != '@')
         return false;
-    if ((size_t)(end - line) > keyword && memcmp(line, PLUGIN_KEYWORD, keyword) == 0 && IsSpace(line[keyword])
-        && g_pluginBlockCount < MAX_PLUGIN_BLOCKS)
+    if (IsKeyword(line, end, PLUGIN_KEYWORD) && g_pluginBlockCount < MAX_PLUGIN_BLOCKS)
     {
         char *text = g_pluginBlocks[g_pluginBlockCount];
-        CopyTrimmed(text, PLUGIN_TEXT, line + keyword, end);
+        CopyTrimmed(text, PLUGIN_TEXT, line + strlen(PLUGIN_KEYWORD), end);
         if (text[0] != '\0')
             g_pluginBlockCount++;
     }
+    else if (IsKeyword(line, end, TITLE_KEYWORD) && g_title[0] == '\0')
+        SetTitle(line + strlen(TITLE_KEYWORD), end);
     return true;
+}
+
+const char *Achievements_Title(void)
+{
+    return g_title;
 }
 
 static char Lower(char c)
@@ -585,6 +614,7 @@ void Achievements_Unload(void)
     g_ach = NULL;
     g_count = 0;
     g_pluginBlockCount = 0;
+    g_title[0] = '\0';
     g_measuredChanged = false;
 }
 

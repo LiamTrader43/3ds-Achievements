@@ -271,6 +271,7 @@ int Games_Scan(Game *games, int capacity)
     int count = 0;
 
     static u64 releaseIds[MAX_GAMES], releaseGames[MAX_GAMES];
+    static bool named[MAX_GAMES];               // the definitions' "@title" is in its title already
     int releases = 0;
 
     DIR *dir = opendir(DIRECTORY);
@@ -295,6 +296,9 @@ int Games_Scan(Game *games, int capacity)
         Achievements_Progress(&g->unlocked, &g->total);
         Achievements_Score(&g->earned, &g->points);
         g->releaseCount = 0;
+        named[count] = Achievements_Title()[0] != '\0';
+        if (named[count])
+            snprintf(g->title, sizeof(g->title), "%s", Achievements_Title());
         count++;
     }
     closedir(dir);  // before writing any cache file into the folder
@@ -317,10 +321,12 @@ int Games_Scan(Game *games, int capacity)
         else
             g->hasIcon = ReadCachedSmdh(g->titleId, smdh);
 
-        g->title[0] = '\0';
+        if (!named[i])                          // else the definitions' "@title", set above
+            g->title[0] = '\0';
         if (g->hasIcon)
         {
-            ReadTitle(smdh, g->title);
+            if (!named[i])
+                ReadTitle(smdh, g->title);
             memcpy(g->icon, smdh + SMDH_ICON, sizeof(g->icon));
         }
         g->hasTitle = g->title[0] != '\0';

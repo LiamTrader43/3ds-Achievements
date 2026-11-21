@@ -460,7 +460,20 @@ static void CacheSmdh(u64 titleId, const u8 *smdh)
     FSFILE_Close(file);
 }
 
+// The game's title: the definitions' "@title" if they have one, else its SMDH's (else the process
+// name). Returns whether the SMDH could be read (it's cached for the app either way), so a launch
+// that couldn't read it yet tries again.
+static bool ReadSmdhTitle(u32 pid, u64 titleId, char *out, size_t capacity);
+
 static bool ReadGameTitle(u32 pid, u64 titleId, char *out, size_t capacity)
+{
+    bool read = ReadSmdhTitle(pid, titleId, out, capacity);
+    if (Achievements_Title()[0] != '\0')
+        snprintf(out, capacity, "%s", Achievements_Title());
+    return read;
+}
+
+static bool ReadSmdhTitle(u32 pid, u64 titleId, char *out, size_t capacity)
 {
     u8 *smdh = malloc(SMDH_SIZE);   // only while reading (14 KB)
 

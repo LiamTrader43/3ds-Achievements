@@ -21,6 +21,9 @@
 // Each part is saved to progress.txt as "<id>/<part>" when done, so parts done in different
 // sessions add up; the achievement unlocks once every part is done. Parts aren't achievements:
 // lists, counts and points skip them. Older builds skip both kinds of line.
+//
+// "@title <name>": the game's name, shown instead of the title in its SMDH (the tracker's banner,
+// the app). Older builds skip it.
 
 //
 // Measured progress: an "rc:" condition with a Measured condition (M:, or G: to show it as a
@@ -118,6 +121,11 @@ void    Achievements_SaveMeasured(void);
 // value is shown at most as the target.
 void    Achievements_MeasuredText(uint32_t value, uint32_t target, bool percent, bool full, char *out,
                                   size_t size);
+
+// The game's name from the loaded definitions' "@title <name>" line, shown instead of the title in
+// its SMDH (some cartridges only say "PAPER MARIO"); "" when there's none. ASCII: a character
+// outside it becomes '?'. Up to 64 characters.
+const char *Achievements_Title(void);
 
 // "@block-plugin <text>" lines in the loaded definitions: while a Luma plugin whose file path
 // contains that text (any case) runs in the game, its achievements are off. "*" blocks any

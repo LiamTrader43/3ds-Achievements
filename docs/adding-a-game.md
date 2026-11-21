@@ -20,6 +20,16 @@ For anything more involved, use a RetroAchievements condition string. These can'
 BEAT_LEVEL  rc:0xH1618fd9c=2  Level Clear | Beat the first level. | 10
 ```
 
+## The game's name
+
+The app and the tracker's banner normally use the short title from the game's own data, which on some cartridges is just "PAPER MARIO". A line starting with `@title` gives the name to show instead:
+
+```
+@title Paper Mario: Sticker Star
+```
+
+It can go anywhere in the file; the first one counts. Up to 64 characters of plain ASCII: a character outside it (like é) shows as `?`. Older versions of the app and tracker skip the line and keep using the game's own title.
+
 ## Plugins
 
 Some Luma plugins change a game so much that its achievements shouldn't count, like a cheat menu or a mod that brings its own save. A line starting with `@block-plugin` turns the game's achievements off while a plugin whose file path contains the given text (any case) is running:
