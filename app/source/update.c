@@ -372,6 +372,9 @@ bool Update_Poll(int *newGames, int *updatedGames, int *storeFiles, const char *
         FilePath(&s_files[i], "", path, sizeof(path));
         if (s_files[i].store)
             *storeFiles += s_files[i].wanted ? 1 : 0;       // (already compared: CheckThread)
+        else if (strcmp(s_files[i].name, "title.smdh") == 0)
+            s_files[i].wanted = !FileExists(path);          // only when the card has none: the app and the
+                                                            // tracker keep it current from the game itself
         else
             s_files[i].wanted = !FileExists(path) || !VersionMatches(&s_files[i]);
     }

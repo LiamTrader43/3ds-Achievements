@@ -14,8 +14,8 @@
 typedef struct
 {
     char        titleId[17];    // the game's folder, 16 hex digits, uppercase; or "store"
-    char        name[24];       // definitions.txt, hero.bin, trophy.bin, icons.bin or version.txt; a store
-                                // file's <name>.bin
+    char        name[24];       // definitions.txt, hero.bin, trophy.bin, icons.bin, title.smdh or version.txt;
+                                // a store file's <name>.bin
     char        sha[41];        // GitHub's ID for this version of the file
     uint32_t    size;
     bool        store;          // one of the store's files
@@ -23,7 +23,7 @@ typedef struct
 } UpdateFile;
 
 // Finds every downloadable file in a "git/trees/main?recursive=1" response: games' files (only
-// the five known file names, at their allowed sizes, in a folder named with a title ID) and the
+// the six known file names, at their allowed sizes, in a folder named with a title ID) and the
 // store's (achievements/store/<name>.bin, name 1-15 of a-z 0-9 _ -), so nothing in the listing
 // can choose where a file gets written. Returns the number found, or -1 if GitHub cut the
 // listing short.

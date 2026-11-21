@@ -89,6 +89,14 @@ The app shows one tile for the game, and unlocks count whichever version you pla
 
 ## Art
 
+Add the game's icon and title, so the app can show them to players who don't have the game installed or its card inserted. This takes them from a decrypted copy of the game and writes `achievements/<TitleID>/title.smdh`:
+
+```bash
+python tools/smdh_from_rom.py game.cci achievements
+```
+
+The app downloads it only for players who don't have one yet; once the game is installed or its card inserted, the app and the tracker keep it up to date from the game itself. A `@title` line still sets the name shown (see [The game's name](#the-games-name)).
+
 A game can also have its own background and achievement icons:
 
 ```bash

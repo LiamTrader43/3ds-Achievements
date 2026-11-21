@@ -7,6 +7,5 @@ tools/sm3dl_live.py
 tools/sm3dl_spots.py
 sysmodule/menu-preview.png
 sysmodule/overlay-preview.png
-# Each player's progress and cached game data
+# Each player's progress (a game's title.smdh is kept: the app shows its icon and title without the game)
 achievements/*/progress.txt
-achievements/*/title.smdh

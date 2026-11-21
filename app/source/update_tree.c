@@ -11,6 +11,7 @@
 #define TROPHY_SIZE         9216u
 #define DEFINITIONS_MAX     65536u      // what the tracker can read (achievements.c FILE_CAPACITY)
 #define VERSION_MAX         1024u       // the same for version.txt (another release of a game)
+#define SMDH_BYTES          0x36C0u     // title.smdh: a game's SMDH (games.c SMDH_SIZE)
 #define FOLDER_PREFIX       "achievements/"
 #define STORE_PREFIX        FOLDER_PREFIX UPDATE_STORE_FOLDER "/"
 
@@ -66,6 +67,8 @@ static bool SizeAllowed(const char *name, uint32_t size)
         return size > 0 && size <= VERSION_MAX;
     if (strcmp(name, "icons.bin") == 0)         // at least one picture, at most what the readers take
         return size >= ICONS_HEADER_BYTES + ICONS_ENTRY_BYTES + ICONS_PICTURE_BYTES && size <= ICONS_FILE_MOST;
+    if (strcmp(name, "title.smdh") == 0)        // the game's icon and title, for a card without the game
+        return size == SMDH_BYTES;
     return false;
 }
 
