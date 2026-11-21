@@ -158,6 +158,21 @@ bool Platform_AppendFile(const char *path, const char *text)
     return ok;
 }
 
+bool Platform_WriteFile(const char *path, const char *text, uint32_t length)
+{
+    Handle  file;
+    u32     written = 0;
+
+    if (R_FAILED(OpenSdFile(&file, path, FS_OPEN_WRITE | FS_OPEN_CREATE)))
+        return false;
+
+    bool ok = R_SUCCEEDED(FSFILE_SetSize(file, length))
+              && (length == 0 || R_SUCCEEDED(FSFILE_Write(file, &written, 0, text, length, FS_WRITE_FLUSH)))
+              && written == length;
+    FSFILE_Close(file);
+    return ok;
+}
+
 static void Log(const char *format, ...)
 {
     char    line[512];
@@ -186,6 +201,7 @@ static void LogBannerStats(void)
 // Game memory is read through gamemem.c (one mapping at a time, copied; see there).
 #define STATS_POLLS     600     // one stats window: about a minute
 #define STATS_EVERY     10      // a routine "poll:" line every 10 windows (~10 minutes)
+#define MEASURED_SAVE_POLLS 600 // measured progress is written at most once a minute while a game runs
 
 static u32 g_statsWindows;      // stats windows since the current game started
 
@@ -793,6 +809,7 @@ static void UnloadGame(void)
 {
     bool tracked = Achievements_Count() > 0;
 
+    Achievements_SaveMeasured();        // the latest measured progress, for the app
     Achievements_Unload();
     GameMem_Release();
     Heap_Trim();
@@ -955,7 +972,17 @@ int main(void)
                         blockedPlugin[0] = '\0';
                 }
                 if (active)
+                {
                     Achievements_Update();
+                    // Measured progress goes to measured.txt now and then (only when it changed),
+                    // and when the game closes (UnloadGame).
+                    static int measuredPolls;
+                    if (++measuredPolls >= MEASURED_SAVE_POLLS)
+                    {
+                        measuredPolls = 0;
+                        Achievements_SaveMeasured();
+                    }
+                }
             }
             GameMem_EndPoll();
             PollStats(svcGetSystemTick() - start);
@@ -965,6 +992,7 @@ int main(void)
     }
 
     Log("tracker stopping");
+    Achievements_SaveMeasured();
     svcCloseHandle(notification);
     return 0;
 }

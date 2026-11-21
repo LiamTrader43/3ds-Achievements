@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "achievements.h"
 #include "autostart.h"
 #include "store_file.h"
 #include "store_icon.h"
@@ -26,6 +27,9 @@ uint8_t     g_partsTotal[MAX_ACHIEVEMENTS];
 uint16_t    g_partFirst[MAX_ACHIEVEMENTS];
 const char *g_partNames[MAX_ACHIEVEMENTS];
 bool        g_partDone[MAX_ACHIEVEMENTS];
+uint32_t    g_measured[MAX_ACHIEVEMENTS];
+uint32_t    g_measuredTarget[MAX_ACHIEVEMENTS];
+bool        g_measuredPercent[MAX_ACHIEVEMENTS];
 int         g_count;
 int         g_selected;
 u16         g_gameUnlocked[ICON_SIZE * ICON_SIZE], g_gameLocked[ICON_SIZE * ICON_SIZE];
@@ -393,6 +397,14 @@ const u16 *Ui_AchievementIcon(int i, bool unlocked)
 {
     const u16 *own = i >= 0 && i < g_count && i < ICONS_MOST ? (unlocked ? g_icons.unlocked[i] : g_icons.locked[i]) : NULL;
     return own != NULL ? own : Ui_Trophy(unlocked);
+}
+
+bool Ui_Measured(int i, bool full, char *out, size_t size)
+{
+    if (i < 0 || i >= g_count || g_unlocked[i] || g_measuredTarget[i] == 0 || g_measured[i] == 0)
+        return false;
+    Achievements_MeasuredText(g_measured[i], g_measuredTarget[i], g_measuredPercent[i], full, out, size);
+    return true;
 }
 
 void Ui_EllipsizeScaled(char *out, size_t capacity, const char *text, int maxWidth, int scale)

@@ -22,13 +22,24 @@
 // sessions add up; the achievement unlocks once every part is done. Parts aren't achievements:
 // lists, counts and points skip them. Older builds skip both kinds of line.
 
+//
+// Measured progress: an "rc:" condition with a Measured condition (M:, or G: to show it as a
+// percentage) has a target, e.g. "M:0xX1234>=5000". Meant for a number the game keeps in its
+// save (coins, tokens, records): the tracker keeps each locked achievement's latest value above 0
+// (0 = nothing to measure now, e.g. a MeasuredIf (Q:) that's false while the save isn't loaded)
+// and saves it to /achievements/<TitleID>/measured.txt ("<id> <value>" lines), so the app shows
+// it without the game running. Older builds parse the same lines and simply don't show it.
+
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 // Implemented by the platform (main.c).
 bool    Platform_ReadMemory(uint32_t address, uint8_t size, uint32_t *value);
 bool    Platform_ReadFile(const char *path, char *buffer, uint32_t capacity, uint32_t *length);
 bool    Platform_AppendFile(const char *path, const char *text);
+// Replaces the file with text (measured.txt). The app never calls anything that writes.
+bool    Platform_WriteFile(const char *path, const char *text, uint32_t length);
 void    Platform_Unlocked(const char *name, const char *description);
 // A part of an achievement was done (already saved): done of total, not the last one (the
 // last unlocks the achievement: Platform_Unlocked).
@@ -89,6 +100,24 @@ int     Achievements_Parts(uint8_t *done, uint8_t *total, int capacity);
 // The parts of the index-th achievement (Achievements_List order), in file order: their names
 // and whether each is done. 0 for one that isn't done in parts.
 int     Achievements_PartList(int index, const char **names, bool *done, int capacity);
+
+// Measured progress of each achievement (Achievements_List order): its latest value (0 = none
+// known yet), its target (0 = not measured) and whether to show it as a percentage.
+int     Achievements_Measured(uint32_t *value, uint32_t *target, bool *percent, int capacity);
+
+// The index-th achievement's (Achievements_List order) measured progress as text (see
+// Achievements_MeasuredText). False, and out untouched, if it isn't measured, no value is known
+// yet or it's unlocked.
+bool    Achievements_MeasuredTextAt(int index, bool full, char *out, size_t size);
+
+// Writes measured.txt if a value changed since it was last written. The tracker calls it now and
+// then while a game runs, and before the game's definitions are unloaded.
+void    Achievements_SaveMeasured(void);
+
+// A measured value as text: "4,200/5,000" (full: "4,200 of 5,000"), or "84%" when percent. The
+// value is shown at most as the target.
+void    Achievements_MeasuredText(uint32_t value, uint32_t target, bool percent, bool full, char *out,
+                                  size_t size);
 
 // "@block-plugin <text>" lines in the loaded definitions: while a Luma plugin whose file path
 // contains that text (any case) runs in the game, its achievements are off. "*" blocks any

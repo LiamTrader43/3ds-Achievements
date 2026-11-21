@@ -227,7 +227,7 @@ static void DrawDetails(const char **names, const char **descriptions, const u16
 {
     static const char  *partNames[MAX_PARTS_SHOWN + 1];
     static bool         partDone[MAX_PARTS_SHOWN + 1];
-    static char         partsHeading[32], partText[MAX_PARTS_SHOWN][LINE_CHARS];
+    static char         partsHeading[32], partText[MAX_PARTS_SHOWN][LINE_CHARS], measured[24], measuredLine[40];
     static char         pointsText[12], position[24];
     static char         nameLines[DETAIL_NAME_LINES][LINE_CHARS], lines[DETAIL_LINES][LINE_CHARS];
     static OverlayItem  items[OVERLAY_MAX_ITEMS];
@@ -257,9 +257,19 @@ static void DrawDetails(const char **names, const char **descriptions, const u16
         room = DETAIL_LINES;
     if (partsTotal[i] > 0 && room > DETAIL_PART_LINES)
         room = DETAIL_PART_LINES;           // leave the rest for its parts
+    bool progressShown = partsTotal[i] == 0 && Achievements_MeasuredTextAt(i, true, measured, sizeof(measured));
+    if (progressShown && room > 1)
+        room--;                             // a line for its progress
     int lineCount = Wrap(descriptions[i][0] != '\0' ? descriptions[i] : "No description.", width, lines, room > 0 ? room : 1);
     for (int k = 0; k < lineCount; k++, y += DETAIL_LINE)
         items[n++] = (OverlayItem){ x, y, 0, 0, LIGHT, lines[k], NULL, 0, 0 };
+
+    // Measured progress (a number the game keeps, e.g. coins collected).
+    if (progressShown)
+    {
+        snprintf(measuredLine, sizeof(measuredLine), "Progress: %s", measured);
+        items[n++] = (OverlayItem){ x, y + 6, 0, 0, WHITE, measuredLine, NULL, 0, 0 };
+    }
 
     // Done in parts: how many, then each part, green when done (two columns when needed).
     int parts = partsTotal[i] > 0 ? Achievements_PartList(i, partNames, partDone, MAX_PARTS_SHOWN + 1) : 0;
@@ -331,7 +341,7 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
 {
     enum { ROWS = BOX_ROWS + 1 };           // a partly scrolled list shows one more
     static const Rgb    BLACK = { 0, 0, 0 };
-    static char         progress[24], score[24], boxParts[ROWS][12];
+    static char         progress[24], score[24], boxParts[ROWS][24];
     static char         boxPoints[ROWS][12], boxName[ROWS][LINE_CHARS], boxLines[ROWS][2][LINE_CHARS];
     static OverlayItem  items[OVERLAY_MAX_ITEMS];
     u32                 n = 0;
@@ -355,8 +365,11 @@ static void Draw(const char **names, const char **descriptions, const u16 *point
         bool warn = missable[i] && !got, parts = partsTotal[i] > 0 && !got;
         int  partsX = 0;
         if (parts)
-        {
             snprintf(boxParts[row], sizeof(boxParts[row]), "%u/%u", partsDone[i], partsTotal[i]);
+        else            // measured progress ("4,200/5,000") goes where parts would
+            parts = Achievements_MeasuredTextAt(i, false, boxParts[row], sizeof(boxParts[row]));
+        if (parts)
+        {
             nameEnd -= Overlay_TextWidth(boxParts[row]) + 8;
             partsX = nameEnd;
         }

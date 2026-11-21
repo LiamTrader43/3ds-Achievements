@@ -552,10 +552,14 @@ static void DrawItem(int i, int y)
     snprintf(points, sizeof(points), "%u pts", g_points[i]);
     int bw = Draw_TextWidth(points, 1) + 10, bx = ITEM_X + ITEM_W - 8 - bw;
     DrawBadge(GFX_BOTTOM, bx, y + 5, points, unlocked ? BADGE : BADGE_OFF);
-    if (g_partsTotal[i] > 0 && !unlocked)
-    {
-        char parts[12];
+    char parts[24];
+    bool progress = g_partsTotal[i] > 0 && !unlocked;
+    if (progress)
         snprintf(parts, sizeof(parts), "%u/%u", g_partsDone[i], g_partsTotal[i]);
+    else                                        // measured progress, e.g. "4,200/5,000" coins
+        progress = Ui_Measured(i, false, parts, sizeof(parts));
+    if (progress)
+    {
         bx -= Draw_TextWidth(parts, 1) + 10 + 4;
         DrawBadge(GFX_BOTTOM, bx, y + 5, parts, BADGE);
     }
@@ -812,10 +816,19 @@ static void DrawDetails(void)
     const char *description = g_descriptions[i][0] != '\0' ? g_descriptions[i] : "No description.";
     y += 6;
     int bottom = LIST_PANEL_Y + LIST_PANEL_H - 6, room = (bottom - y) / (LINE_H + 3);
+    char measured[32], line[48];
+    bool progress = g_partsTotal[i] == 0 && Ui_Measured(i, true, measured, sizeof(measured));
+    if (progress && room > 1)
+        room--;                                 // a line for its progress
     y = Ui_DrawWrapped(GFX_BOTTOM, x, y, width, LINE_H + 3, TEXT, description,
                        g_partsTotal[i] > 0 && room > 3 ? 3 : room);
     if (g_partsTotal[i] > 0)
         DrawParts(i, x, y + 6, width, bottom);
+    if (progress)
+    {
+        snprintf(line, sizeof(line), "Progress: %s", measured);
+        Draw_Text(GFX_BOTTOM, x, y + 6, 1, TITLE, line, 0);
+    }
 
     DrawPage(GFX_BOTTOM, BOTTOM_WIDTH / 2, BAR_Y, i + 1, g_count);
     DrawTabs();

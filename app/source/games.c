@@ -37,6 +37,12 @@ bool Platform_AppendFile(const char *path, const char *text)
     return false;
 }
 
+bool Platform_WriteFile(const char *path, const char *text, uint32_t length)
+{
+    (void)path; (void)text; (void)length;
+    return false;
+}
+
 void Platform_Unlocked(const char *name, const char *description)
 {
     (void)name; (void)description;

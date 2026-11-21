@@ -53,6 +53,18 @@ ALL_COURSES @parts World Tour | Win on all three courses. | 10
 
 Each part is saved to progress.txt as soon as it's done (`ALL_COURSES/COURSE_1`), with a small banner ("World Tour: First Course, 1/3"), and the achievement unlocks when the last one is done. Parts aren't achievements of their own: they don't count in the totals or points. The app and the R + A + Left menu show "1/3" next to a locked one's points, and every part in its full view. A part ID can be up to 31 characters, and the achievement's ID, a `/` and the part's ID together up to 47. Older versions of the app and tracker skip both kinds of line, so the achievement doesn't appear in them.
 
+## Measured progress
+
+An achievement that counts up to a number the game keeps in its save, like coins collected or tokens found, can show how far you are: "4,200/5,000" next to its points while it's locked, and "Progress: 4,200 of 5,000" in its full view. Mark the condition that holds the number with `M:` (RetroAchievements' Measured), and the condition that checks the save is loaded with `Q:` (MeasuredIf):
+
+```
+COINS_5000  rc:Q:0xX1234=h43445353_M:0xX5678>=5000  Beast Mode | Collect 5,000 coins. | 10
+```
+
+`G:` instead of `M:` shows a percentage. A count of several things works too: add them up with `A:` (AddSource) and measure the sum, e.g. `A:0xM1000_A:0xM1001_M:0xM1002>=3` for three flags.
+
+The tracker writes the latest value to `measured.txt` in the game's folder (at most once a minute while the game runs, and when it closes), so the app can show it without the game running. A value of 0 isn't shown, since that's what `Q:` gives while the save isn't loaded. Use it for numbers the game saves: a count within one try, like hits in the current race, would keep showing its last value until the next try. Older versions of the app and tracker unlock these lines the same way and just don't show the progress.
+
 ## Other regions
 
 Another region (or release) of a game shares its achievements and progress. Instead of definitions, its folder holds a `version.txt` naming the game's folder:

@@ -130,6 +130,9 @@ extern const ThemeApi *theme_api;
 #if THEME_MODULE_API >= 5
 #define Ui_AchievementIcon      (theme_api->Ui_AchievementIcon)
 #endif
+#if THEME_MODULE_API >= 6
+#define Ui_Measured             (theme_api->Ui_Measured)
+#endif
 
 // The theme's description (read without running it), the api it was handed, and its entry
 // point, which refuses an app older than the theme.

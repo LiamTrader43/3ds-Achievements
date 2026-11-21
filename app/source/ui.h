@@ -36,6 +36,11 @@ extern uint8_t      g_partsTotal[MAX_ACHIEVEMENTS];
 extern uint16_t     g_partFirst[MAX_ACHIEVEMENTS];
 extern const char  *g_partNames[MAX_ACHIEVEMENTS];
 extern bool         g_partDone[MAX_ACHIEVEMENTS];
+// Measured progress (a number the game keeps, from the tracker's measured.txt): the latest value
+// (0 = none known), the target (0 = not measured), shown as a percentage. Themes use Ui_Measured.
+extern uint32_t     g_measured[MAX_ACHIEVEMENTS];
+extern uint32_t     g_measuredTarget[MAX_ACHIEVEMENTS];
+extern bool         g_measuredPercent[MAX_ACHIEVEMENTS];
 extern int          g_count;
 extern int          g_selected;             // the achievement Up/Down have selected
 extern u16          g_gameUnlocked[ICON_SIZE * ICON_SIZE], g_gameLocked[ICON_SIZE * ICON_SIZE];
@@ -134,6 +139,10 @@ const u16 *Ui_Trophy(bool unlocked);
 // Achievement i's picture (48x48 like a trophy): its own from the game's icons.bin, else the
 // trophy (Ui_Trophy).
 const u16 *Ui_AchievementIcon(int i, bool unlocked);
+
+// Achievement i's measured progress as text, while it's locked and a value is known: "4,200/5,000"
+// for a list (full: "4,200 of 5,000"), or "84%". False, and out untouched, otherwise.
+bool    Ui_Measured(int i, bool full, char *out, size_t size);
 
 // Copies text cut to maxWidth pixels at the given text scale, ending in "..." if it was longer.
 void    Ui_EllipsizeScaled(char *out, size_t capacity, const char *text, int maxWidth, int scale);

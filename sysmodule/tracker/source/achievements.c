@@ -51,6 +51,7 @@ typedef struct
     bool            isPart;     // "@part ...": saved like an achievement, but only counts for its parent
     int16_t         parent;     // a part's achievement (its first line), -1 for none
     uint8_t         matches;
+    uint32_t        measured;   // the trigger's latest Measured value above 0 (or measured.txt's)
 } Achievement;
 
 // Another release of a game (e.g. another region) may keep some data at other
@@ -69,6 +70,8 @@ static Achievement *g_ach;
 static uint8_t     *g_spare, *g_spareEnd;   // room left in g_block for conditions, while loading
 static int          g_count;
 static char         g_unlockPath[64];
+static char         g_measuredPath[64];
+static bool         g_measuredChanged;      // a value changed since measured.txt was written
 static uint64_t     g_gameId;
 static Shift        g_shift[MAX_SHIFTS];
 static int          g_shiftCount;
@@ -582,6 +585,25 @@ void Achievements_Unload(void)
     g_ach = NULL;
     g_count = 0;
     g_pluginBlockCount = 0;
+    g_measuredChanged = false;
+}
+
+// measured.txt: "<id> <value>" per line; values for IDs not in the definitions are ignored.
+static void LoadMeasured(char *file, uint32_t length)
+{
+    for (const char *line = file, *fileEnd = file + length; line < fileEnd; )
+    {
+        const char *next = memchr(line, '\n', (size_t)(fileEnd - line));
+        const char *pos = line, *end = next ? next : fileEnd;
+        char        id[sizeof(g_ach[0].id)], number[16];
+        uint32_t    value;
+        if (NextToken(&pos, end, id, sizeof(id)) && NextToken(&pos, end, number, sizeof(number))
+            && ParseU32(number, &value))
+            for (int i = 0; i < g_count; i++)
+                if (g_ach[i].trigger != NULL && strcmp(g_ach[i].id, id) == 0)
+                    g_ach[i].measured = value;
+        line = next ? next + 1 : fileEnd;
+    }
 }
 
 bool Achievements_Load(uint64_t titleId)
@@ -626,6 +648,7 @@ bool Achievements_Load(uint64_t titleId)
         g_shiftCount = shiftCount;
     }
     snprintf(g_unlockPath, sizeof(g_unlockPath), "/achievements/%016llX/progress.txt", (unsigned long long)g_gameId);
+    snprintf(g_measuredPath, sizeof(g_measuredPath), "/achievements/%016llX/measured.txt", (unsigned long long)g_gameId);
 
     int    lines = 0;
     size_t conditionBytes = 0;
@@ -683,6 +706,8 @@ bool Achievements_Load(uint64_t titleId)
             line = next ? next + 1 : fileEnd;
         }
     }
+    if (g_count > 0 && Platform_ReadFile(g_measuredPath, file, FILE_CAPACITY, &length))
+        LoadMeasured(file, length);
     free(file);
     if (g_count == 0 || g_noRoom)
         Achievements_Unload();
@@ -752,7 +777,15 @@ void Achievements_Update(void)
         if (a->trigger != NULL)
         {
             // One poll is one rcheevos frame (deltas compare with the last poll).
-            if (rc_evaluate_trigger(a->trigger, Peek, NULL, NULL) != RC_TRIGGER_STATE_TRIGGERED)
+            int state = rc_evaluate_trigger(a->trigger, Peek, NULL, NULL);
+            // Its Measured value, if it has one: 0 = nothing to measure now (a MeasuredIf is false).
+            uint32_t m = a->trigger->measured_value;
+            if (a->trigger->measured_target != 0 && m != RC_MEASURED_UNKNOWN && m != 0 && m != a->measured)
+            {
+                a->measured = m;
+                g_measuredChanged = true;
+            }
+            if (state != RC_TRIGGER_STATE_TRIGGERED)
                 continue;
         }
         else
@@ -907,4 +940,104 @@ int Achievements_PartList(int index, const char **names, bool *done, int capacit
             n++;
         }
     return n;
+}
+
+// The measured value, target and percent flag of the achievement whose first line is i: the
+// highest over the lines sharing its ID (each line is its own trigger, e.g. one per save file).
+static void MeasuredOf(int i, uint32_t *value, uint32_t *target, bool *percent)
+{
+    *value = *target = 0;
+    *percent = false;
+    for (int j = i; j < g_count; j++)
+    {
+        const rc_trigger_t *t = g_ach[j].trigger;
+        if (t == NULL || t->measured_target == 0 || strcmp(g_ach[j].id, g_ach[i].id) != 0)
+            continue;
+        if (t->measured_target > *target)
+            *target = t->measured_target;
+        if (g_ach[j].measured > *value)
+            *value = g_ach[j].measured;
+        *percent |= t->measured_as_percent != 0;
+    }
+}
+
+int Achievements_Measured(uint32_t *value, uint32_t *target, bool *percent, int capacity)
+{
+    int n = 0;
+    for (int i = 0; i < g_count && n < capacity; i++)
+        if (Listed(i))
+        {
+            MeasuredOf(i, &value[n], &target[n], &percent[n]);
+            n++;
+        }
+    return n;
+}
+
+bool Achievements_MeasuredTextAt(int index, bool full, char *out, size_t size)
+{
+    for (int i = 0, n = 0; i < g_count; i++)
+        if (Listed(i) && n++ == index)
+        {
+            uint32_t value, target;
+            bool     percent;
+            MeasuredOf(i, &value, &target, &percent);
+            if (target == 0 || value == 0 || g_ach[i].unlocked)
+                return false;
+            Achievements_MeasuredText(value, target, percent, full, out, size);
+            return true;
+        }
+    return false;
+}
+
+void Achievements_SaveMeasured(void)
+{
+    if (!g_measuredChanged || g_count == 0)
+        return;
+    size_t room = (size_t)g_count * (sizeof(g_ach[0].id) + 12) + 1;
+    char  *text = malloc(room);
+    if (text == NULL)
+        return;                                 // tried again next time
+    size_t length = 0;
+    for (int i = 0; i < g_count; i++)
+    {
+        uint32_t value, target;
+        bool     percent;
+        if (!IsFirstLine(i) || g_ach[i].isPart || g_ach[i].unlocked)
+            continue;                           // unlocked: its progress isn't shown any more
+        MeasuredOf(i, &value, &target, &percent);
+        if (target != 0 && value != 0)
+            length += (size_t)snprintf(text + length, room - length, "%s %lu\n", g_ach[i].id, (unsigned long)value);
+    }
+    if (Platform_WriteFile(g_measuredPath, text, (uint32_t)length))
+        g_measuredChanged = false;
+    free(text);
+}
+
+// n with a comma every three digits ("12,345").
+static void Grouped(uint32_t n, char *out, size_t size)
+{
+    char digits[16], *p = out;
+    int  count = snprintf(digits, sizeof(digits), "%lu", (unsigned long)n);
+    for (int i = 0; i < count && (size_t)(p - out) + 2 < size; i++)
+    {
+        if (i > 0 && (count - i) % 3 == 0)
+            *p++ = ',';
+        *p++ = digits[i];
+    }
+    *p = '\0';
+}
+
+void Achievements_MeasuredText(uint32_t value, uint32_t target, bool percent, bool full, char *out, size_t size)
+{
+    char a[16], b[16];
+    if (value > target)
+        value = target;
+    if (percent)
+    {
+        snprintf(out, size, "%lu%%", target ? (unsigned long)((uint64_t)value * 100 / target) : 0ul);
+        return;
+    }
+    Grouped(value, a, sizeof(a));
+    Grouped(target, b, sizeof(b));
+    snprintf(out, size, full ? "%s of %s" : "%s/%s", a, b);
 }

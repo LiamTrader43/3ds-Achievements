@@ -469,9 +469,13 @@ static void DrawBox(int i, int y)
     int pointsX = BOTTOM_WIDTH - MARGIN - Draw_TextWidth(text, 1);
     Draw_Text(GFX_BOTTOM, pointsX, y + 6, 1, unlocked ? GOLD : GREY, text, 0);
     int nameEnd = pointsX;
-    if (g_partsTotal[i] > 0 && !unlocked)
-    {
+    bool progress = g_partsTotal[i] > 0 && !unlocked;
+    if (progress)
         snprintf(text, sizeof(text), "%u/%u", g_partsDone[i], g_partsTotal[i]);
+    else                                        // measured progress, e.g. "4,200/5,000" coins
+        progress = Ui_Measured(i, false, text, sizeof(text));
+    if (progress)
+    {
         nameEnd -= Draw_TextWidth(text, 1) + 8;
         Draw_Text(GFX_BOTTOM, nameEnd, y + 6, 1, GOLD, text, 0);
     }
@@ -587,10 +591,20 @@ static void DrawDetails(int i)
     const char *description = g_descriptions[i][0] != '\0' ? g_descriptions[i] : "No description.";
     y += 4;
     int parts = g_partsTotal[i], room = (PROMPT_Y - 4 - y) / DETAIL_LINE;
+    char measured[32];
+    bool progress = parts == 0 && Ui_Measured(i, true, measured, sizeof(measured));
+    if (progress && room > 1)
+        room--;                                 // a line for its progress
     y = Ui_DrawWrapped(GFX_BOTTOM, x, y, width, DETAIL_LINE, LIGHT, description,
                        parts > 0 && room > DETAIL_PART_LINES ? DETAIL_PART_LINES : room);
     if (parts > 0)
         DrawParts(i, x, y + 6, width);
+    if (progress)
+    {
+        char line[48];
+        snprintf(line, sizeof(line), "Progress: %s", measured);
+        Draw_Text(GFX_BOTTOM, x, y + 6, 1, WHITE, line, 0);
+    }
     DrawPrompts();
 }
 

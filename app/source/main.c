@@ -60,6 +60,8 @@ typedef struct
     uint16_t    partFirst[MAX_ACHIEVEMENTS];
     const char *partNames[MAX_ACHIEVEMENTS];
     bool        partDone[MAX_ACHIEVEMENTS];
+    uint32_t    measured[MAX_ACHIEVEMENTS], measuredTarget[MAX_ACHIEVEMENTS];
+    bool        measuredPercent[MAX_ACHIEVEMENTS];
     int         gameUnlocked, total, earned, gamePoints;
     int         recent[RECENT_MAX], recentCount;
 } Loaded;
@@ -138,6 +140,7 @@ static void LoadThread(void *arg)
                 parts += n;
             }
         }
+        Achievements_Measured(l->measured, l->measuredTarget, l->measuredPercent, MAX_ACHIEVEMENTS);
         Achievements_Progress(&l->gameUnlocked, &l->total);
         Achievements_Score(&l->earned, &l->gamePoints);
         l->recentCount = RecentUnlocks(l->isUnlocked, l->count, l->recent);
@@ -202,6 +205,9 @@ static void UseLoaded(void)
     memcpy(g_partFirst, l->partFirst, sizeof(g_partFirst));
     memcpy(g_partNames, l->partNames, sizeof(g_partNames));
     memcpy(g_partDone, l->partDone, sizeof(g_partDone));
+    memcpy(g_measured, l->measured, sizeof(g_measured));
+    memcpy(g_measuredTarget, l->measuredTarget, sizeof(g_measuredTarget));
+    memcpy(g_measuredPercent, l->measuredPercent, sizeof(g_measuredPercent));
     memcpy(g_recent, l->recent, sizeof(g_recent));
     g_recentCount = l->recentCount;
     g_count = l->count;
