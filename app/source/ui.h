@@ -83,7 +83,11 @@ typedef enum
     POPUP_AUTOSTART_ON,             // "Start with the console" turned on
     POPUP_AUTOSTART_FAILED,         // couldn't turn it on or off (g_popupResult, autostart.h)
     POPUP_AUTOSTART_OFF,            // it was turned off since the app was last open (why: g_popupResult)
-    POPUP_AUTOSTART_CONFIRM         // before turning it on: what game patching also does (A turns it on)
+    POPUP_AUTOSTART_CONFIRM,        // before turning it on: what game patching also does (A turns it on)
+    POPUP_HOTKEY,                   // choosing the in-game list's buttons: hold them (g_hotkeyHeld, g_hotkeyProgress)
+    POPUP_HOTKEY_SET,               // they're saved (g_hotkey)
+    POPUP_HOTKEY_FAILED,            // they couldn't be saved
+    POPUP_HOTKEY_WARN               // they could get in the way while playing (g_hotkeyChosen): A uses them anyway
 } Popup;
 
 extern Popup        g_popup;
@@ -168,7 +172,18 @@ void    Ui_Totals(UiTotals *t);
 // The settings menu (X): each line's name, its value now, and what it does. Theme opens a list
 // of the themes (MENU_THEMES), drawn like the settings: g_menu says which list is showing,
 // g_menuScroll its first line shown.
-enum { SETTING_TRACKER, SETTING_AUTOSTART, SETTING_PATCHED, SETTING_THEME, SETTING_COUNT };
+enum { SETTING_TRACKER, SETTING_AUTOSTART, SETTING_PATCHED, SETTING_HOTKEY, SETTING_THEME, SETTING_COUNT };
+extern u32          g_hotkey;               // the buttons that open the in-game list (hotkey.h)
+extern u32          g_hotkeyHeld;           // POPUP_HOTKEY: the buttons held now
+extern int          g_hotkeyProgress;       // POPUP_HOTKEY: how long they've been held, 0..HOTKEY_HOLD_MS
+extern bool         g_hotkeyRosalina;       // POPUP_HOTKEY: the buttons held overlap Rosalina's menu (can't be chosen)
+extern u32          g_hotkeyChosen;         // POPUP_HOTKEY_WARN: the buttons held long enough
+extern u32          g_rosalina[2];          // Luma's Rosalina menu's combinations (Tracker_RosalinaCombos)
+extern int          g_rosalinaCount;
+#define HOTKEY_HOLD_MS 1500                 // held this long, they become the hotkey
+
+// Whether keys overlap a combination of Rosalina's menu (hotkey.h Hotkey_Overlaps).
+bool    Ui_HotkeyRosalina(u32 keys);
 enum { MENU_SETTINGS, MENU_THEMES };
 extern int          g_menu;
 extern int          g_menuScroll;

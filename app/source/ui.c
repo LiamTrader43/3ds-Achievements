@@ -6,6 +6,7 @@
 
 #include "achievements.h"
 #include "autostart.h"
+#include "hotkey.h"
 #include "store_file.h"
 #include "store_icon.h"
 #include "theme.h"
@@ -50,6 +51,13 @@ int         g_paidOwed;
 
 bool        g_trackerRunning;
 bool        g_patchedAllowed;
+u32         g_hotkey = HOTKEY_DEFAULT;
+u32         g_hotkeyHeld;
+int         g_hotkeyProgress;
+bool        g_hotkeyRosalina;
+u32         g_hotkeyChosen;
+u32         g_rosalina[2];
+int         g_rosalinaCount;
 bool        g_autostart;
 bool        g_autostartUsable;
 
@@ -68,6 +76,14 @@ int         g_menuScroll;
 
 UiTab       g_tabs[2];
 int         g_tabPressed = -1;
+
+bool Ui_HotkeyRosalina(u32 keys)
+{
+    for (int i = 0; i < g_rosalinaCount; i++)
+        if (Hotkey_Overlaps(keys, g_rosalina[i]))
+            return true;
+    return false;
+}
 
 static void Line(PopupText *t, const char *text)
 {
@@ -221,6 +237,84 @@ void Ui_PopupText(PopupText *t)
             Line(t, "Patched games on, a mod could unlock achievements.");
             t->buttonA = "Turn on", t->buttonB = "Cancel";
             break;
+        case POPUP_HOTKEY:
+        {
+            // Hold the new buttons for HOTKEY_HOLD_MS (the bar fills); B alone cancels. One line: with a bar, themes
+            // lay out a single line (like the downloads') and show no buttons, so the line says how to cancel.
+            char names[40];
+            int  held = Hotkey_Count(g_hotkeyHeld);
+            t->title = "Choose the menu buttons";
+            Hotkey_Text(g_hotkeyHeld, " + ", names, sizeof(names));
+            if (held == 0)
+                snprintf(t->lineText, sizeof(t->lineText), "Hold %d to %d buttons. B alone cancels.", HOTKEY_LEAST, HOTKEY_MOST);
+            else if (held < HOTKEY_LEAST)
+                snprintf(t->lineText, sizeof(t->lineText), "Holding %.12s: hold at least %d.", names, HOTKEY_LEAST);
+            else if (held > HOTKEY_MOST)
+                snprintf(t->lineText, sizeof(t->lineText), "That's more than %d buttons.", HOTKEY_MOST);
+            else if (g_hotkeyRosalina)
+                snprintf(t->lineText, sizeof(t->lineText), "Those also open Luma's Rosalina menu.");
+            else
+                snprintf(t->lineText, sizeof(t->lineText), "Holding %s", names);
+            Line(t, t->lineText);
+            t->progress = true, t->done = g_hotkeyProgress, t->total = HOTKEY_HOLD_MS;
+            t->buttonA = NULL, t->buttonB = "Cancel";
+            break;
+        }
+        case POPUP_HOTKEY_SET:
+        {
+            char names[40];
+            t->title = "Menu buttons set";
+            t->emphasizeFirst = true;
+            Hotkey_Text(g_hotkey, " + ", names, sizeof(names));
+            snprintf(t->lineText, sizeof(t->lineText), "In a game, hold %s", names);
+            Line(t, t->lineText);
+            Line(t, "to pause it and see its achievements.");
+            Line(t, "The tracker uses them from the next game you start.");
+            t->buttonA = "OK", t->buttonB = NULL;
+            break;
+        }
+        case POPUP_HOTKEY_FAILED:
+            t->title = "Couldn't save the menu buttons";
+            t->problem = true;
+            t->emphasizeFirst = true;
+            Line(t, "/achievements/hotkey.txt couldn't be written.");
+            Line(t, "The buttons stay as they were.");
+            t->buttonA = "OK", t->buttonB = NULL;
+            break;
+        case POPUP_HOTKEY_WARN:
+        {
+            // Allowed, but say how they could get in the way (hotkey.h Hotkey_Warning). Three lines at most.
+            u32 keys = g_hotkeyChosen;
+            t->title = "Use these buttons?";
+            t->emphasizeFirst = true;
+            Hotkey_Text(keys, " + ", t->lineText, sizeof(t->lineText));
+            Line(t, t->lineText);
+            switch (Hotkey_Warning(keys))
+            {
+                case HOTKEY_RESET:
+                    snprintf(t->lineText2, sizeof(t->lineText2), "Some games restart when L + R + %s is held,",
+                             (keys & (HOTKEY_L | HOTKEY_R | HOTKEY_START)) == (HOTKEY_L | HOTKEY_R | HOTKEY_START) ?
+                             "Start" : "Select");
+                    Line(t, t->lineText2);
+                    Line(t, "losing anything you haven't saved.");
+                    break;
+                case HOTKEY_FEW:
+                    Line(t, "With only 2 buttons, a game may have you press");
+                    Line(t, "them together and the list would open mid-play.");
+                    break;
+                case HOTKEY_IN_PLAY:
+                    Line(t, "Games often have you hold these together,");
+                    Line(t, "so the list could open in the middle of play.");
+                    break;
+                default:
+                    Line(t, keys & HOTKEY_START ? "Start opens the pause menu in many games,"
+                                                : "Select opens a map or menu in many games,");
+                    Line(t, "so it could open along with the list.");
+                    break;
+            }
+            t->buttonA = "Use them", t->buttonB = "Choose again";
+            break;
+        }
         case POPUP_AUTOSTART_OFF:
             t->title = "Start with the console is off";
             t->emphasizeFirst = true;
@@ -527,6 +621,18 @@ void Ui_Setting(int i, UiSetting *s)
             s->on = g_patchedAllowed;
             s->description = "Lets games patched through Luma (/luma/titles) earn achievements. Off: they aren't tracked.";
             break;
+        case SETTING_HOTKEY:
+        {
+            static char value[40];
+            Hotkey_Text(g_hotkey, "+", value, sizeof(value));
+            s->name = "Menu buttons";
+            s->on = true;
+            s->value = value;
+            s->description = Ui_HotkeyRosalina(g_hotkey) ?
+                "Luma's Rosalina menu uses these too and opens instead of the list. A changes them." :
+                "Hold these in a game to pause it and see its achievements. A changes them.";
+            return;
+        }
         default:
         {
             static char text[96];

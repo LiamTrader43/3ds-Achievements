@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "achievements.h"
+#include "hotkey.h"
 #include "icons.h"
 #include "overlay.h"
 #include "../../../app/source/trophy.h"
@@ -19,7 +20,8 @@ Result svcControlProcess(Handle process, u32 op, u32 varg2, u32 varg3);
 // menu.h). Only read in kernel mode here.
 #define HID_PAD             (*(vu32 *)(0x10146000 | (1u << 31)))
 
-#define HOTKEY              (KEY_R | KEY_A | KEY_DLEFT)
+static u32 s_hotkey = HOTKEY_DEFAULT;      // hotkey.h: R + A + Left, or the app's choice (Menu_SetHotkey)
+static u32 s_rosalina;                     // Luma's Rosalina menu's combination (Menu_SetRosalina), or 0
 #define CLOSE_KEYS          (KEY_B | KEY_SELECT)
 #define DIRECTION_KEYS      (KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT | KEY_L | KEY_R)
 #define TICK_NS             (16 * 1000 * 1000LL)
@@ -107,7 +109,22 @@ static u32 Buttons(void)
 
 bool Menu_HotkeyHeld(void)
 {
-    return (Buttons() & HOTKEY) == HOTKEY;
+    u32 buttons = Buttons();
+    // Rosalina's menu opens on its own buttons: never both. The app doesn't let the two overlap, but Rosalina's can
+    // change afterwards. A combination with ZL, ZR, the C-Stick... can't be seen here (only the 12 buttons are).
+    if (s_rosalina != 0 && (s_rosalina & ~HOTKEY_BUTTONS) == 0 && (buttons & s_rosalina) == s_rosalina)
+        return false;
+    return (buttons & s_hotkey) == s_hotkey;
+}
+
+void Menu_SetRosalina(u32 combo)
+{
+    s_rosalina = combo;
+}
+
+void Menu_SetHotkey(u32 keys)
+{
+    s_hotkey = Hotkey_Valid(keys) ? keys : HOTKEY_DEFAULT;
 }
 
 bool Menu_GameInFront(u32 *active)

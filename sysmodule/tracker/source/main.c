@@ -7,7 +7,7 @@
 // svcMapProcessMemoryEx. Unlocks are saved to the progress file, with a
 // banner on the bottom screen (overlay.c; more than 3 at once share one). A few seconds after a game starts,
 // a banner shows its progress (or that it has no achievements).
-// R + A + Left pauses the game and shows the achievement list (menu.c).
+// R + A + Left (or the buttons chosen in the app: hotkey.h) pauses the game and shows the achievement list (menu.c).
 
 #include <3ds.h>
 
@@ -20,6 +20,7 @@
 #include "autostart_files.h"
 #include "gamemem.h"
 #include "heap.h"
+#include "hotkey.h"
 #include "menu.h"
 #include "overlay.h"
 
@@ -511,6 +512,44 @@ static bool ReadSmdhTitle(u32 pid, u64 titleId, char *out, size_t capacity)
     return false;
 }
 
+// Luma's Rosalina menu's combination, as Rosalina read it at boot (L + Down + Select if none was set): the
+// in-game list leaves those buttons to it.
+static void LoadRosalina(void)
+{
+    s64 out = 0;
+    if (R_FAILED(svcGetSystemInfo(&out, 0x10000, 0x101)))
+        return;
+    u32 combo = out == 0 ? HOTKEY_ROSALINA_DEFAULT : (u32)out;
+    Menu_SetRosalina(combo);
+    char names[48];
+    if ((combo & ~HOTKEY_BUTTONS) == 0)
+        Hotkey_Text(combo, " + ", names, sizeof(names));
+    else
+        snprintf(names, sizeof(names), "%08lX", combo);
+    Log("menu: Rosalina's menu opens with %s", names);
+}
+
+// The menu's buttons: hotkey.txt (written by the app's settings), else R + A + Left. Logged when they change.
+static void LoadHotkey(void)
+{
+    static u32 last;
+    char       text[64];
+    u32        length, keys = 0;
+
+    if (Platform_ReadFile(HOTKEY_PATH, text, sizeof(text) - 1, &length))
+        keys = Hotkey_Parse(text);
+    if (keys == 0)
+        keys = HOTKEY_DEFAULT;
+    Menu_SetHotkey(keys);
+    if (keys != last)
+    {
+        char names[48];
+        Hotkey_Text(keys, " + ", names, sizeof(names));
+        Log("menu: opens with %s", names);
+        last = keys;
+    }
+}
+
 // True if the user chose in the app to earn achievements in patched games.
 static bool PatchedGamesAllowed(void)
 {
@@ -850,6 +889,7 @@ int main(void)
         "no heap until a game with achievements runs", g_status.freeMemory / 1024, Heap_LimitFree() / 1024,
         Heap_RegionFree() / 1024, g_status.heapSize / 1024, g_status.heapResult);
     g_status.stage = STAGE_LOGGED;
+    LoadRosalina();
     if (!BootGuard())
     {
         Log("tracker stopping");
@@ -916,6 +956,7 @@ int main(void)
                 Log("game: another release of %016llX (version.txt)", (unsigned long long)Achievements_GameId());
             const char *patch = active ? FindGamePatch(titleId) : NULL;
             patched = patch != NULL && !PatchedGamesAllowed();
+            LoadHotkey();           // the app may have changed it since the last game
             if (patched)
                 active = false;     // the menu can still list its achievements
             if (patch != NULL)

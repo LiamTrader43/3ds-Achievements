@@ -28,4 +28,16 @@ bool        Tracker_PatchedAllowed(void);
 // Remembers that choice. The tracker reads it each time a game starts.
 void        Tracker_SetPatchedAllowed(bool allowed);
 
+// The buttons that open the in-game achievement list (hotkey.h): /achievements/hotkey.txt, else R + A + Left.
+u32         Tracker_Hotkey(void);
+
+// Saves them (R + A + Left removes the file). False if it couldn't be written. The tracker reads it each time a
+// game starts.
+bool        Tracker_SetHotkey(u32 keys);
+
+// Luma's Rosalina menu's combinations: the one Luma started with (svcGetSystemInfo 0x10000/0x101, L + Down + Select
+// if none was set) and, if different, the one saved in /luma/config.ini since (used from the next boot, and maybe
+// already: Rosalina changes it at once). Returns how many (0 without Luma).
+int         Tracker_RosalinaCombos(u32 combos[2]);
+
 #endif

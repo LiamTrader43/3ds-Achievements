@@ -38,7 +38,7 @@ Since version 1.4.0, the app updates itself. When a new release is out, it offer
 | Drag the touch screen | Scroll achievements |
 | A, or tap an achievement | Show it in full: the whole name and description (B or a tap goes back, Up/Down show the next ones) |
 | L / R | Jump a page |
-| X | Settings: the tracker, starting it with the console, patched games and the theme |
+| X | Settings: the tracker, starting it with the console, patched games, the in-game menu buttons and the theme |
 | Y | Share the open game's progress (A saves the image to the SD card, B goes back) |
 | 3D slider | Depth on the top screen: the game's art sits behind the screen and the selected game comes forward |
 | START | Exit |
@@ -47,7 +47,7 @@ The prompts in the bottom corners of the touch screen, like **B: Back** and **A:
 
 <img src="assets/screenshots/details-app.png" alt="One achievement in full: Twins of Evil, locked, 10 points, 85 of 97, with its whole name and its long description, and B: Back in the corner" width="400">
 
-In a game, press **R + A + Left** to pause and see your achievements. It works like the app's list: Up/Down select an achievement, L/R (or Left/Right) jump a page, and A or a tap shows the selected one in full (B or a tap goes back). B or SELECT closes the list.
+In a game, press **R + A + Left** to pause and see your achievements (you can pick other buttons in the settings, under **Menu buttons**). It works like the app's list: Up/Down select an achievement, L/R (or Left/Right) jump a page, and A or a tap shows the selected one in full (B or a tap goes back). B or SELECT closes the list.
 
 **Sharing:** with a game open, press Y to make an image of your progress in it. With the 3DS on Wi-Fi, scan the QR code on the bottom screen with a phone on the same network. A page opens with the image and a **Save image** button; on an iPhone, touch and hold the image to save it to Photos. The 3DS sends it itself, so nothing is uploaded anywhere. Press A to save the image on the SD card instead, in `/achievements/share/`.
 
@@ -61,7 +61,7 @@ Patches and mods can change how a game behaves, so while Luma's game patching is
 
 ## Settings and themes
 
-Press X for the settings. **Tracker** turns the tracker on or off, **Patched games** is explained above, and **Theme** opens the list of themes: pick one with A and the app changes at once. Two come with the app: **Modern**, shown on this page, and **3DS**, which looks like the console's own System Settings and uses its system font. More are in the store.
+Press X for the settings. **Tracker** turns the tracker on or off, **Patched games** is explained above, **Menu buttons** changes the buttons that open the list in a game (press A, then hold 2 to 4 buttons until the bar fills; B alone cancels). Buttons that Luma's Rosalina menu uses can't be chosen, and if the ones you hold could get in the way while playing, such as only 2 buttons or L + R + Start, the app says why and asks before using them, and **Theme** opens the list of themes: pick one with A and the app changes at once. Two come with the app: **Modern**, shown on this page, and **3DS**, which looks like the console's own System Settings and uses its system font. More are in the store.
 
 | Settings (X) | Choosing a theme |
 |---|---|

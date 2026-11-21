@@ -20,6 +20,7 @@
 #include "bench.h"
 #include "draw.h"
 #include "games.h"
+#include "hotkey.h"
 #include "share.h"
 #include "theme.h"
 #include "tracker.h"
@@ -436,6 +437,14 @@ static void SetAutostart(bool on)
     g_popup = R_FAILED(res) ? POPUP_AUTOSTART_FAILED : on ? POPUP_AUTOSTART_ON : POPUP_NONE;
 }
 
+static bool s_hotkeyArmed;     // POPUP_HOTKEY: every button was up since it opened
+static bool s_hotkeyCancel;    // B is held on its own (let go alone, it cancels)
+static u64  s_hotkeySince;     // when the buttons held now were first held
+
+static void OpenHotkey(void);
+static void SaveHotkey(u32 keys);
+static bool ChooseHotkey(u32 down, u32 held, u32 up);
+
 static void ChangeSetting(int i)
 {
     if (i == SETTING_TRACKER)
@@ -461,6 +470,87 @@ static void ChangeSetting(int i)
         Tracker_SetPatchedAllowed(!g_patchedAllowed);
         g_patchedAllowed = Tracker_PatchedAllowed();    // what was actually saved
     }
+    else if (i == SETTING_HOTKEY)
+        OpenHotkey();
+}
+
+// POPUP_HOTKEY: hold the new buttons (ChooseHotkey).
+static void OpenHotkey(void)
+{
+    g_rosalinaCount = Tracker_RosalinaCombos(g_rosalina);  // Rosalina's menu can change it over the app
+    g_popup = POPUP_HOTKEY;
+    g_hotkeyHeld = 0;
+    g_hotkeyProgress = 0;
+    g_hotkeyRosalina = false;
+    s_hotkeyArmed = false;
+    s_hotkeyCancel = false;
+}
+
+// Saves the buttons chosen: POPUP_HOTKEY_SET, or POPUP_HOTKEY_FAILED.
+static void SaveHotkey(u32 keys)
+{
+    if (Tracker_SetHotkey(keys))
+    {
+        g_hotkey = keys;
+        g_popup = POPUP_HOTKEY_SET;
+    }
+    else
+    {
+        g_popup = POPUP_HOTKEY_FAILED;
+        g_popupResult = 0;
+    }
+}
+
+// POPUP_HOTKEY, once a frame: the buttons held for HOTKEY_HOLD_MS (2 to 4 of them, unchanged) become the hotkey,
+// after POPUP_HOTKEY_WARN if they could get in the way while playing; buttons that overlap Rosalina's menu's never
+// fill the bar. B pressed and let go on its own cancels. Nothing counts until every button is up after the A that
+// opened it. True when the popup needs drawing again.
+static bool ChooseHotkey(u32 down, u32 held, u32 up)
+{
+    u32 keys = held & HOTKEY_BUTTONS;
+    u64 now = osGetTime();
+
+    if (!s_hotkeyArmed)
+    {
+        s_hotkeyArmed = keys == 0;
+        return false;
+    }
+    if ((down & KEY_B) && keys == KEY_B)
+        s_hotkeyCancel = true;                      // B alone so far
+    if (keys & ~KEY_B)
+        s_hotkeyCancel = false;                     // with others: part of a choice
+    if ((up & KEY_B) && keys == 0 && s_hotkeyCancel)
+    {
+        ClosePopup();
+        return true;
+    }
+
+    bool changed = keys != g_hotkeyHeld;
+    if (changed)
+    {
+        g_hotkeyHeld = keys;
+        s_hotkeySince = now;
+    }
+    bool rosalina = Hotkey_Valid(keys) && Ui_HotkeyRosalina(keys);
+    if (rosalina != g_hotkeyRosalina)
+        changed = true, g_hotkeyRosalina = rosalina;
+    int progress = Hotkey_Valid(keys) && !rosalina ? (int)(now - s_hotkeySince) : 0;
+    if (progress > HOTKEY_HOLD_MS)
+        progress = HOTKEY_HOLD_MS;
+    if (progress != g_hotkeyProgress)
+        changed = true, g_hotkeyProgress = progress;
+    if (progress >= HOTKEY_HOLD_MS)
+    {
+        if (Hotkey_Warning(keys) != HOTKEY_FINE)
+        {
+            g_hotkeyChosen = keys;
+            g_popup = POPUP_HOTKEY_WARN;            // A uses them anyway, B chooses again
+        }
+        else
+            SaveHotkey(keys);
+        return true;
+    }
+    return changed;
 }
 
 // The direction key pressed this frame, or held (repeating after 400 ms).
@@ -513,6 +603,8 @@ int main(int argc, char **argv)
     g_gameCount = Games_Scan(g_games, MAX_GAMES);
     g_trackerRunning = Tracker_Running();
     g_patchedAllowed = Tracker_PatchedAllowed();
+    g_hotkey = Tracker_Hotkey();
+    g_rosalinaCount = Tracker_RosalinaCombos(g_rosalina);  // the settings say if the buttons clash with it
     Result autostartOff = Autostart_Check();    // turned off since? (a start that failed, a system update)
     g_autostart = Autostart_On();
     g_autostartUsable = Autostart_Usable();
@@ -744,6 +836,29 @@ int main(int argc, char **argv)
             else if (down & KEY_B)
             {
                 ClosePopup();
+                redrawTop = 2;
+            }
+        }
+        else if (g_popup == POPUP_HOTKEY)
+        {
+            if (ChooseHotkey(down, held, up))
+            {
+                redrawTop = 2;              // the buttons held, the bar
+                if (g_popup != POPUP_HOTKEY)
+                    redraw = 2;             // and the setting's new value
+            }
+        }
+        else if (g_popup == POPUP_HOTKEY_WARN)
+        {
+            if (down & KEY_A)               // use them anyway
+            {
+                SaveHotkey(g_hotkeyChosen);
+                redrawTop = 2;
+                redraw = 2;                 // the setting's new value
+            }
+            else if (down & KEY_B)          // choose others
+            {
+                OpenHotkey();
                 redrawTop = 2;
             }
         }

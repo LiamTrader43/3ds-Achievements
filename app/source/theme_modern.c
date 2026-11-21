@@ -939,7 +939,7 @@ static void DrawSettingsBottom(int item)
         int y = PROGRESS_H + (i - g_menuScroll) * BOX_H;
         if (i == item)
             Draw_RoundRing(GFX_BOTTOM, SELECT_X, y, SELECT_W, BOX_H, SELECT_RADIUS, SELECT_LINE, WHITE, 16);
-        Color value = g_menu == MENU_THEMES || i == SETTING_THEME ? HINT : set.on ? GREEN : RED;
+        Color value = g_menu == MENU_THEMES || i == SETTING_THEME || i == SETTING_HOTKEY ? HINT : set.on ? GREEN : RED;
         int vx = BOTTOM_WIDTH - MARGIN - 4 - Draw_TextWidth(set.value, 1);
         Draw_Text(GFX_BOTTOM, vx, y + 6, 1, value, set.value, 0);
         Draw_Text(GFX_BOTTOM, BOX_LEFT + 8, y + 6, 1, WHITE, set.name, 0);

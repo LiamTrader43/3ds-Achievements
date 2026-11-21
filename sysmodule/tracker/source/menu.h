@@ -3,8 +3,14 @@
 
 #include <3ds.h>
 
-// Whether the menu hotkey (R + A + Left) is held.
+// Whether the menu hotkey (R + A + Left, or the app's choice) is held.
 bool    Menu_HotkeyHeld(void);
+
+// The buttons that open the menu (hotkey.h); an invalid choice keeps R + A + Left.
+void    Menu_SetHotkey(u32 keys);
+
+// Luma's Rosalina menu's combination (0 = none): while all of it is held, the menu doesn't open.
+void    Menu_SetRosalina(u32 combo);
 
 // Whether the game is in front, not suspended behind the HOME Menu (from
 // APT). Unknown counts as yes. `active` gets APT's active applet ID (0 if
