@@ -76,6 +76,7 @@ static uint8_t     *g_spare, *g_spareEnd;   // room left in g_block for conditio
 static int          g_count;
 static char         g_unlockPath[64];
 static char         g_measuredPath[64];
+static char         g_folder[40];       // the loaded game's folder (Achievements_Folder)
 static bool         g_measuredChanged;      // a value changed since measured.txt was written
 static uint64_t     g_gameId;
 static Shift        g_shift[MAX_SHIFTS];
@@ -629,6 +630,28 @@ static bool ParseTitleId(const char *token, uint64_t *out)
 //
 // '#' starts a comment. Any other line makes the file invalid, so a release
 // with differences this version can't apply isn't tracked with wrong addresses.
+// The folders a game's files may be in, newest layout first (see ACHIEVEMENTS_GAMES).
+static const char *const ROOTS[] = { ACHIEVEMENTS_GAMES, ACHIEVEMENTS_OLD };
+#define ROOT_COUNT ((int)(sizeof(ROOTS) / sizeof(ROOTS[0])))
+
+// Reads one of a game's files from the first folder that has it. path gets that file's path,
+// folder (if not NULL) the folder's.
+static bool ReadGameFile(uint64_t titleId, const char *name, char *buffer, uint32_t capacity, uint32_t *length,
+                         char *path, size_t pathSize, char *folder, size_t folderSize)
+{
+    for (int r = 0; r < ROOT_COUNT; r++)
+    {
+        snprintf(path, pathSize, "%s/%016llX/%s", ROOTS[r], (unsigned long long)titleId, name);
+        if (Platform_ReadFile(path, buffer, capacity, length))
+        {
+            if (folder != NULL)
+                snprintf(folder, folderSize, "%s/%016llX", ROOTS[r], (unsigned long long)titleId);
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool ReadVersion(uint64_t titleId, uint64_t *gameId, Shift *shifts, int *shiftCount)
 {
     char        path[64], file[VERSION_CAPACITY + 1], word[24], first[24], last[24], amount[24];
@@ -636,8 +659,7 @@ static bool ReadVersion(uint64_t titleId, uint64_t *gameId, Shift *shifts, int *
     bool        haveGame = false;
 
     *shiftCount = 0;
-    snprintf(path, sizeof(path), "/achievements/%016llX/version.txt", (unsigned long long)titleId);
-    if (!Platform_ReadFile(path, file, VERSION_CAPACITY, &length))
+    if (!ReadGameFile(titleId, "version.txt", file, VERSION_CAPACITY, &length, path, sizeof(path), NULL, 0))
         return false;
 
     for (const char *line = file, *end = file + length; line < end; )
@@ -684,6 +706,11 @@ uint64_t Achievements_GameId(void)
     return g_gameId;
 }
 
+const char *Achievements_Folder(void)
+{
+    return g_folder;
+}
+
 void Achievements_Unload(void)
 {
     free(g_block);
@@ -723,6 +750,7 @@ bool Achievements_Load(uint64_t titleId)
 
     Achievements_Unload();
     g_gameId = titleId;
+    g_folder[0] = '\0';
     g_shiftCount = 0;
     g_noRoom = false;
 
@@ -734,30 +762,28 @@ bool Achievements_Load(uint64_t titleId)
     if (file == NULL)
         return false;
 
-    // The game's own folder, or (another release) the game named by its version.txt.
-    snprintf(path, sizeof(path), "/achievements/%016llX/definitions.txt", (unsigned long long)titleId);
-    if (!Platform_ReadFile(path, file, FILE_CAPACITY, &length))
+    // The game's own folder, or (another release) the game named by its version.txt. path
+    // keeps the definitions' path: they're read again below.
+    if (!ReadGameFile(titleId, "definitions.txt", file, FILE_CAPACITY, &length, path, sizeof(path), g_folder,
+                      sizeof(g_folder)))
     {
         uint64_t    gameId = 0;
         Shift       shifts[MAX_SHIFTS];
         int         shiftCount;
-        if (!ReadVersion(titleId, &gameId, shifts, &shiftCount))
+        if (!ReadVersion(titleId, &gameId, shifts, &shiftCount)
+            || !ReadGameFile(gameId, "definitions.txt", file, FILE_CAPACITY, &length, path, sizeof(path), g_folder,
+                             sizeof(g_folder)))
         {
             free(file);
-            return false;
-        }
-        snprintf(path, sizeof(path), "/achievements/%016llX/definitions.txt", (unsigned long long)gameId);
-        if (!Platform_ReadFile(path, file, FILE_CAPACITY, &length))
-        {
-            free(file);
+            g_folder[0] = '\0';
             return false;
         }
         g_gameId = gameId;
         memcpy(g_shift, shifts, sizeof(shifts));
         g_shiftCount = shiftCount;
     }
-    snprintf(g_unlockPath, sizeof(g_unlockPath), "/achievements/%016llX/progress.txt", (unsigned long long)g_gameId);
-    snprintf(g_measuredPath, sizeof(g_measuredPath), "/achievements/%016llX/measured.txt", (unsigned long long)g_gameId);
+    snprintf(g_unlockPath, sizeof(g_unlockPath), "%s/progress.txt", g_folder);
+    snprintf(g_measuredPath, sizeof(g_measuredPath), "%s/measured.txt", g_folder);
 
     int    lines = 0;
     size_t conditionBytes = 0;
@@ -802,9 +828,18 @@ bool Achievements_Load(uint64_t titleId)
     MarkMissable(file, file + length);
     FindParents();
 
-    // Unknown IDs (e.g. removed achievements) simply match nothing.
-    if (g_count > 0 && Platform_ReadFile(g_unlockPath, file, FILE_CAPACITY, &length))
+    // Unknown IDs (e.g. removed achievements) simply match nothing. With the game in the games
+    // folder, a progress.txt still in its old folder counts too: until the app moves it there,
+    // unlocks made before are only in the old one (new ones are written to the games folder).
+    for (int r = 0; r < 2 && g_count > 0; r++)
     {
+        char old[64];
+        bool games = strncmp(g_folder, ACHIEVEMENTS_GAMES "/", strlen(ACHIEVEMENTS_GAMES) + 1) == 0;
+        if (r == 1 && !games)
+            break;
+        snprintf(old, sizeof(old), ACHIEVEMENTS_OLD "/%016llX/progress.txt", (unsigned long long)g_gameId);
+        if (!Platform_ReadFile(r == 0 ? g_unlockPath : old, file, FILE_CAPACITY, &length))
+            continue;
         for (const char *line = file, *fileEnd = file + length; line < fileEnd; )
         {
             const char *next = memchr(line, '\n', (size_t)(fileEnd - line));

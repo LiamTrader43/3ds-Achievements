@@ -13,6 +13,7 @@
 #define VERSION_MAX         1024u       // the same for version.txt (another release of a game)
 #define SMDH_BYTES          0x36C0u     // title.smdh: a game's SMDH (games.c SMDH_SIZE)
 #define FOLDER_PREFIX       "achievements/"
+#define GAMES_PREFIX        FOLDER_PREFIX "games/"      // the games' folders (before 2026-11-21: in achievements/)
 #define STORE_PREFIX        FOLDER_PREFIX UPDATE_STORE_FOLDER "/"
 
 static bool IsHex(const char *text, int count)
@@ -101,13 +102,15 @@ int UpdateTree_Parse(const char *json, UpdateFile *files, int capacity)
         char        path[96], sha[41];
 
         const char *size = FindValue(entry, limit, "size");
-        const size_t prefix = strlen(FOLDER_PREFIX), storePrefix = strlen(STORE_PREFIX);
+        const size_t storePrefix = strlen(STORE_PREFIX);
         bool listed = ReadString(FindValue(entry, limit, "path"), path, sizeof(path)) &&
                       ReadString(FindValue(entry, limit, "sha"), sha, sizeof(sha)) &&
                       size != NULL && strlen(sha) == 40 && IsHex(sha, 40);
         uint32_t bytes = size != NULL ? (uint32_t)strtoul(size, NULL, 10) : 0;
         UpdateFile *f = &files[count];
-        if (listed && strncmp(path, FOLDER_PREFIX, prefix) == 0 && strlen(path) > prefix + 17 &&
+        bool legacy = strncmp(path, GAMES_PREFIX, strlen(GAMES_PREFIX)) != 0;
+        const size_t prefix = strlen(legacy ? FOLDER_PREFIX : GAMES_PREFIX);
+        if (listed && strncmp(path, FOLDER_PREFIX, strlen(FOLDER_PREFIX)) == 0 && strlen(path) > prefix + 17 &&
             path[prefix + 16] == '/' && IsHex(path + prefix, 16))
         {
             const char *name = path + prefix + 17;
@@ -120,8 +123,17 @@ int UpdateTree_Parse(const char *json, UpdateFile *files, int capacity)
                 strcpy(f->sha, sha);
                 f->size = bytes;
                 f->store = false;
+                f->legacy = legacy;
                 f->wanted = false;
-                count++;
+                // The same file listed both ways: the one in achievements/games/ counts.
+                int same = -1;
+                for (int i = 0; i < count && same < 0; i++)
+                    if (!files[i].store && strcmp(files[i].titleId, f->titleId) == 0 && strcmp(files[i].name, name) == 0)
+                        same = i;
+                if (same < 0)
+                    count++;
+                else if (files[same].legacy && !legacy)
+                    files[same] = *f;
             }
         }
         else if (listed && strncmp(path, STORE_PREFIX, storePrefix) == 0 && UpdateTree_StoreName(path + storePrefix) &&
@@ -132,6 +144,7 @@ int UpdateTree_Parse(const char *json, UpdateFile *files, int capacity)
             strcpy(f->sha, sha);
             f->size = bytes;
             f->store = true;
+            f->legacy = false;
             f->wanted = false;
             count++;
         }

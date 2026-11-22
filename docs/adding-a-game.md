@@ -1,6 +1,6 @@
 # Adding a game
 
-Create `achievements/<TitleID>/definitions.txt`, using the game's 16-digit title ID in uppercase. Lines starting with `#` are comments.
+Create `achievements/games/<TitleID>/definitions.txt` (on the SD card: `/achievements/games/<TitleID>/definitions.txt`), using the game's 16-digit title ID in uppercase. Lines starting with `#` are comments.
 
 New to finding addresses? [Finding memory addresses for 3DS achievements](finding-addresses.md) walks through it, from planning a list to testing it on your 3DS.
 
@@ -92,7 +92,7 @@ The tracker writes the latest value to `measured.txt` in the game's folder (at m
 Another region (or release) of a game shares its achievements and progress. Instead of definitions, its folder holds a `version.txt` naming the game's folder:
 
 ```
-# achievements/0004000000033600/version.txt: Ocarina of Time 3D (EUR)
+# achievements/games/0004000000033600/version.txt: Ocarina of Time 3D (EUR)
 game 0004000000033500
 shift 0x0871E840 0x08724753 +0x92FD0
 ```
@@ -101,10 +101,10 @@ The app shows one tile for the game, and unlocks count whichever version you pla
 
 ## Art
 
-Add the game's icon and title, so the app can show them to players who don't have the game installed or its card inserted. This takes them from a decrypted copy of the game and writes `achievements/<TitleID>/title.smdh`:
+Add the game's icon and title, so the app can show them to players who don't have the game installed or its card inserted. This takes them from a decrypted copy of the game and writes `achievements/games/<TitleID>/title.smdh`:
 
 ```bash
-python tools/smdh_from_rom.py game.cci achievements
+python tools/smdh_from_rom.py game.cci achievements/games
 ```
 
 The app downloads it only for players who don't have one yet; once the game is installed or its card inserted, the app and the tracker keep it up to date from the game itself. A `@title` line still sets the name shown (see [The game's name](#the-games-name)).
@@ -124,7 +124,7 @@ Each achievement can also have a picture of its own. Put one per achievement in 
 python tools/achievement_icons.py <TitleID> <folder>
 ```
 
-This writes `achievements/<TitleID>/icons.bin`, with each picture made 48x48 (one that isn't square is cut to its middle square) and mostly transparent parts see-through. A locked achievement shows its picture greyed and darker, unless the folder also has `BEAT_BOSS.locked.png`. Achievements without a picture keep the game's icon from `trophy_art.py`, or the usual trophy, so a game can have pictures for only some of them. Each picture adds about 4.5 KB. The app and the R + A + Left menu show them; older versions ignore the file.
+This writes `achievements/games/<TitleID>/icons.bin`, with each picture made 48x48 (one that isn't square is cut to its middle square) and mostly transparent parts see-through. A locked achievement shows its picture greyed and darker, unless the folder also has `BEAT_BOSS.locked.png`. Achievements without a picture keep the game's icon from `trophy_art.py`, or the usual trophy, so a game can have pictures for only some of them. Each picture adds about 4.5 KB. The app and the R + A + Left menu show them; older versions ignore the file.
 
 The art tools need Python 3 with Pillow.
 

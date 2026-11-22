@@ -2,8 +2,8 @@
 
     python tools/smdh_from_rom.py <game.cci|.3ds|.cxi> [out_dir]
 
-Writes <out_dir>/<TitleID>/title.smdh (default: the current folder). Put that
-folder in the SD card's /achievements/; the viewer uses it when the game isn't installed
+Writes <out_dir>/<TitleID>/title.smdh (default: the current folder; achievements/games in the repo). Put
+that folder in the SD card's /achievements/games/; the viewer uses it when the game isn't installed
 or its card isn't inserted (the tracker also saves it whenever the game runs).
 Works on decrypted ROMs only (what Azahar runs).
 """

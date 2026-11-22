@@ -3,7 +3,7 @@
     python tools/make_versions.py
 
 Lists every definitions.txt, hero.bin, trophy.bin, icons.bin and version.txt in
-sysmodule/dist/achievements with its Git blob ID, the same IDs the app compares against the main
+sysmodule/dist/achievements/games with its Git blob ID (as "<TitleID>/<file>", the keys the app uses), the same IDs the app compares against the main
 branch. Run from the repo root, after the files in dist are final and before zipping.
 """
 import hashlib
@@ -22,11 +22,12 @@ def blob_id(path):
 
 def main():
     lines = []
-    for game in sorted(os.listdir(DIST)):
+    games = os.path.join(DIST, "games")
+    for game in sorted(os.listdir(games)):
         if not re.fullmatch(r"[0-9A-Fa-f]{16}", game):
             continue
         for name in FILES:
-            path = os.path.join(DIST, game, name)
+            path = os.path.join(games, game, name)
             if os.path.isfile(path):
                 lines.append(f"{game}/{name} {blob_id(path)}\n")
     with open(os.path.join(DIST, "versions.txt"), "w", newline="\n") as f:

@@ -8,8 +8,8 @@ the tracker show the unlocked picture greyed and darker. Achievements without a 
 game's trophy.bin, or the usual trophy. Pictures are made 48x48 (a picture that isn't square is
 cut to its middle square); parts that are mostly transparent are see-through.
 
-Writes icons.bin in the game's folder (default: achievements/<TitleID>), which goes in
-/achievements/<TitleID>/ on the SD card. If the folder has a definitions.txt, the pictures are
+Writes icons.bin in the game's folder (default: achievements/games/<TitleID>), which goes in
+/achievements/games/<TitleID>/ on the SD card. If the folder has a definitions.txt, the pictures are
 checked against its IDs. The format is described in sysmodule/tracker/source/icons.h. Needs
 Pillow.
 """
@@ -123,7 +123,7 @@ def main():
         sys.exit("The title ID must be 16 hex digits, like 0004000000033500.")
     if not os.path.isdir(folder):
         sys.exit(f"{folder} isn't a folder.")
-    directory = directory or os.path.join("achievements", title_id)
+    directory = directory or os.path.join("achievements", "games", title_id)
 
     found = pictures(folder)
     for id_ in found:

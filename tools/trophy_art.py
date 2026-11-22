@@ -2,10 +2,10 @@
 
     python tools/trophy_art.py <TitleID> <unlocked image> [locked image] [--out game folder]
 
-Writes trophy.bin in the game's folder (default: achievements/<TitleID>): the unlocked icon,
+Writes trophy.bin in the game's folder (default: achievements/games/<TitleID>): the unlocked icon,
 then the locked one, each 48x48 RGB565 in the SMDH tile order the app draws. Without a locked
 image, the unlocked one is used in dimmed greyscale. Transparent areas become black, the app's
-background. The file goes in /achievements/<TitleID>/ on the SD card; a game without one gets
+background. The file goes in /achievements/games/<TitleID>/ on the SD card; a game without one gets
 the normal trophy. Needs Pillow.
 """
 import os
@@ -46,7 +46,7 @@ def main():
     if len(args) not in (2, 3):
         sys.exit(__doc__)
     title_id = args[0].upper()
-    directory = directory or os.path.join("achievements", title_id)
+    directory = directory or os.path.join("achievements", "games", title_id)
     if not re.fullmatch(r"[0-9A-F]{16}", title_id):
         sys.exit("The title ID must be 16 hex digits, like 0004000000033500.")
 

@@ -62,6 +62,19 @@ void    Achievements_Unload(void);
 // title ID given to Achievements_Load(), or the game its version.txt names.
 uint64_t Achievements_GameId(void);
 
+// Where each game's folder is on the SD card: /achievements/games/<TitleID> (since 2026-11-21).
+// Cards made before keep them directly in /achievements until the app moves them, so a game's
+// files are looked for there too (ACHIEVEMENTS_OLD).
+#ifndef ACHIEVEMENTS_GAMES                  // (a PC test can point them elsewhere)
+#define ACHIEVEMENTS_GAMES  "/achievements/games"
+#define ACHIEVEMENTS_OLD    "/achievements"
+#endif
+
+// The folder the loaded definitions came from, e.g. "/achievements/games/0004000000033500"
+// (its progress, measured values and art are there); "" before anything was loaded. It stays
+// after Achievements_Unload(), like Achievements_GameId().
+const char *Achievements_Folder(void);
+
 // Checks every locked achievement once. An achievement unlocks after its
 // condition holds for several consecutive calls.
 void    Achievements_Update(void);

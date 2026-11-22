@@ -291,9 +291,9 @@ If it fails any of these, the value is on a heap and moved. Look for a pointer (
 
 ## 11. Writing the lines
 
-A game's achievements go in `achievements/<TitleID>/definitions.txt`. The title ID is 16 hex digits. FBI shows it on the 3DS, and in Azahar it's in the save folder's path: `title/00040000/00033500` means `0004000000033500`.
+A game's achievements go in `achievements/games/<TitleID>/definitions.txt`. The title ID is 16 hex digits. FBI shows it on the 3DS, and in Azahar it's in the save folder's path: `title/00040000/00033500` means `0004000000033500`.
 
-Start the file with comments (lines beginning with `#`) saying which game, region and version it's for, and what you've learned about the game's memory. Look at [Ocarina of Time 3D's file](https://github.com/LiamTrader43/3ds-Achievements/blob/main/achievements/0004000000033500/definitions.txt) for an example.
+Start the file with comments (lines beginning with `#`) saying which game, region and version it's for, and what you've learned about the game's memory. Look at [Ocarina of Time 3D's file](https://github.com/LiamTrader43/3ds-Achievements/blob/main/achievements/games/0004000000033500/definitions.txt) for an example.
 
 ### Simple lines
 
@@ -426,10 +426,10 @@ ALL_COURSES @parts World Tour | Win on all three courses. | 10
 
 ## 12. Testing on your 3DS
 
-1. Copy your file to `/achievements/<TitleID>/definitions.txt` on the SD card.
+1. Copy your file to `/achievements/games/<TitleID>/definitions.txt` on the SD card.
 2. Open the Achievements app, which starts the tracker, then start the game. After a few seconds, a banner shows how many achievements were found, like "0/12 achievements unlocked". If it says "achievements not supported", the folder name is wrong or no line in the file is valid. If it says "achievements off" with a plugin's name, one of your `@block-plugin` lines matched a plugin that's running. If it says "achievements need version" with your version's name, your `@version` line didn't match the game that's running (`tracker.log` has a `version:` line with the value it read).
 3. Play. Each unlock shows a banner and is written to `/achievements/tracker.log`.
-4. To test an achievement again, delete its ID from `/achievements/<TitleID>/progress.txt`. Deleting the file resets the whole game.
+4. To test an achievement again, delete its ID from `/achievements/games/<TitleID>/progress.txt`. Deleting the file resets the whole game.
 5. Check that nothing unlocks too early: on the title screen, on the file select, and when you load a file that hasn't done it yet.
 
 To test without playing through everything, Luma's cheat menu (L + Down + Select → Cheats) can set values for you using Action Replay codes in `/cheats/<TitleID>.txt`. Afterwards, turn the cheats off and remove from `progress.txt` anything they unlocked.
@@ -442,7 +442,7 @@ Another region of the same game shares its achievements and progress, so you don
 
 ## 14. Sending it in
 
-1. Fork the repository and add `achievements/<TitleID>/definitions.txt`. If you like, add a background (`hero.bin`), achievement icons (`trophy.bin`) or a picture for each achievement (`icons.bin`) with the tools described in [Art](adding-a-game.md#art).
+1. Fork the repository and add `achievements/games/<TitleID>/definitions.txt`. If you like, add a background (`hero.bin`), achievement icons (`trophy.bin`) or a picture for each achievement (`icons.bin`) with the tools described in [Art](adding-a-game.md#art).
 2. Open a pull request to `main`. Say which game, region and version you tested, and on which console.
 3. Once it's merged, everyone's app downloads it automatically.
 

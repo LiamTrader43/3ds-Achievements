@@ -27,13 +27,20 @@ typedef struct
     int     earned, points;             // score: points unlocked, points in total
 } Game;
 
+// Moves game folders from /achievements, where cards kept them before 2026-11-21, into
+// /achievements/games (ACHIEVEMENTS_GAMES). Call it while no game runs (the tracker writes
+// progress.txt). A game already in the games folder (from a newer release zip, say) is merged:
+// progress.txt keeps every line of both, a known game file there already is kept and the old
+// copy deleted, any other file moved if it isn't there yet. Returns the folders emptied.
+int     Games_MoveOldFolders(void);
+
 // Finds every game with at least one valid achievement, sorted by title. Another
 // release of a game (a folder with a version.txt) isn't a game of its own: its title
 // ID is added to the game's releases, and its title and icon are used when it's the
 // release that's installed.
 int     Games_Scan(Game *games, int capacity);
 
-// Reads /achievements/<TitleID>/hero.bin, the game's background (tools/hero_art.py
+// Reads hero.bin in the game's folder, the game's background (tools/hero_art.py
 // makes it), into pixels (HERO_BYTES, the wide format of hero.h; an older screen-sized
 // file gets its edges mirrored into the margins). False if the game doesn't have one.
 bool    Games_LoadHero(u64 titleId, u8 *pixels);

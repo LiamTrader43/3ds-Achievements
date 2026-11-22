@@ -10,6 +10,7 @@
 
 #include <curl/curl.h>
 
+#include "achievements.h"     // ACHIEVEMENTS_GAMES
 #include "hero.h"
 #include "update_release.h"
 #include "update_tree.h"
@@ -294,9 +295,21 @@ void Update_Start(const char *appPath)
         s_state = STATE_REPORTED;
 }
 
+// Where f goes on the card: the store's files in /achievements/store, a game's in its folder in
+// /achievements/games (achievements.h's ACHIEVEMENTS_GAMES), wherever the repository lists it.
+static void FileFolder(const UpdateFile *f, char *folder, size_t capacity)
+{
+    if (f->store)
+        snprintf(folder, capacity, DIRECTORY "/" UPDATE_STORE_FOLDER);
+    else
+        snprintf(folder, capacity, ACHIEVEMENTS_GAMES "/%.16s", f->titleId);
+}
+
 static void FilePath(const UpdateFile *f, const char *suffix, char *path, size_t capacity)
 {
-    snprintf(path, capacity, DIRECTORY "/%.16s/%.23s%s", f->titleId, f->name, suffix);
+    char folder[40];
+    FileFolder(f, folder, sizeof(folder));
+    snprintf(path, capacity, "%s/%.23s%s", folder, f->name, suffix);
 }
 
 static bool FileExists(const char *path)
@@ -403,7 +416,7 @@ bool Update_Poll(int *newGames, int *updatedGames, int *storeFiles, const char *
         }
 
         char path[64];
-        snprintf(path, sizeof(path), DIRECTORY "/%.16s/definitions.txt", s_files[i].titleId);
+        snprintf(path, sizeof(path), ACHIEVEMENTS_GAMES "/%.16s/definitions.txt", s_files[i].titleId);
         if (FileExists(path))
             (*updatedGames)++;
         else
@@ -444,7 +457,9 @@ static Result DownloadFile(const UpdateFile *f)
     u8 *data = f->size < BUFFER_SIZE ? s_buffer : malloc((size_t)f->size + 1);
     if (data == NULL)
         return ERROR_NO_MEMORY;
-    snprintf(url, sizeof(url), RAW_URL "/%.16s/%.23s", f->titleId, f->name);
+    // The repository's path: achievements/store/<name>, achievements/games/<TitleID>/<name>, or a
+    // game's folder as the repository had them before (achievements/<TitleID>/<name>).
+    snprintf(url, sizeof(url), RAW_URL "%s/%.16s/%.23s", f->store || f->legacy ? "" : "/games", f->titleId, f->name);
     Result res = HttpGetInto(url, data, data == s_buffer ? BUFFER_SIZE : f->size + 1, &size, &s_checkStatus, s_error);
     if (R_SUCCEEDED(res) && (size != f->size || !UpdateTree_Matches(data, size, f->sha)))
         res = ERROR_MISMATCH;
@@ -460,7 +475,9 @@ static Result SaveFile(const UpdateFile *f, const u8 *data, u32 size)
 {
     char path[80], temporary[88], folder[40];
 
-    snprintf(folder, sizeof(folder), DIRECTORY "/%.16s", f->titleId);
+    if (!f->store)
+        mkdir(ACHIEVEMENTS_GAMES, 0777);
+    FileFolder(f, folder, sizeof(folder));
     mkdir(folder, 0777);
     FilePath(f, "", path, sizeof(path));
     FilePath(f, ".tmp", temporary, sizeof(temporary));

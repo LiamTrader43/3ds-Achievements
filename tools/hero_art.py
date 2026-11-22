@@ -2,13 +2,13 @@
 
     python tools/hero_art.py <image> <TitleID> [game folder]
 
-Writes hero.bin in the game's folder (default: achievements/<TitleID>): the image cropped
+Writes hero.bin in the game's folder (default: achievements/games/<TitleID>): the image cropped
 from the center to fill the 400x240 top screen plus 16 more columns on each side, 432x240,
 as raw BGR8 in the 3DS framebuffer's order (column by column from the left, each column
 bottom row first). The extra columns come into view at the edge when the 3D slider is up
 (the background sits behind the screen, so one eye sees it moved sideways). Use an image at
 least 1.8 times as wide as it is tall, or it's cropped top and bottom to that. The file goes
-in /achievements/<TitleID>/ on the SD card. Needs Pillow.
+in /achievements/games/<TitleID>/ on the SD card. Needs Pillow.
 """
 import os
 import re
@@ -26,7 +26,7 @@ def main():
     source, title_id = sys.argv[1], sys.argv[2].upper()
     if not re.fullmatch(r"[0-9A-F]{16}", title_id):
         sys.exit("The title ID must be 16 hex digits, like 0004000000033500.")
-    directory = sys.argv[3] if len(sys.argv) > 3 else os.path.join("achievements", title_id)
+    directory = sys.argv[3] if len(sys.argv) > 3 else os.path.join("achievements", "games", title_id)
 
     image = Image.open(source).convert("RGB")
     scale = max(WIDTH / image.width, HEIGHT / image.height)

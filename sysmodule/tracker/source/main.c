@@ -440,16 +440,19 @@ static bool ReadSmdh(u32 pid, u64 titleId, u8 *smdh)
 // The game's short title from its SMDH: English, else Japanese, else the
 // process name. Characters outside ASCII become '?'. Returns false when it
 // fell back to the process name.
-// Saves a supported game's SMDH as /achievements/<TitleID>/title.smdh, once, for the
-// viewer app: a game card's title and icon can't be read when it isn't inserted.
-static void CacheSmdh(u64 titleId, const u8 *smdh)
+// Saves a supported game's SMDH as title.smdh in its folder (Achievements_Folder: the game's,
+// for another release too), once, for the viewer app: a game card's title and icon can't be
+// read when it isn't inserted.
+static void CacheSmdh(const u8 *smdh)
 {
     char    path[64];
     Handle  file;
     u64     size = 0;
     u32     written = 0;
 
-    snprintf(path, sizeof(path), "/achievements/%016llX/title.smdh", (unsigned long long)titleId);
+    if (Achievements_Folder()[0] == '\0')
+        return;
+    snprintf(path, sizeof(path), "%s/title.smdh", Achievements_Folder());
     if (R_FAILED(OpenSdFile(&file, path, FS_OPEN_READ | FS_OPEN_WRITE | FS_OPEN_CREATE)))
         return;
     Result res = FSFILE_GetSize(file, &size);
@@ -482,7 +485,7 @@ static bool ReadSmdhTitle(u32 pid, u64 titleId, char *out, size_t capacity)
     if (smdh != NULL && ReadSmdh(pid, titleId, smdh))
     {
         if (Achievements_Count() > 0)
-            CacheSmdh(Achievements_GameId(), smdh);     // another release: the game's folder
+            CacheSmdh(smdh);                            // another release: the game's folder
         for (int language = 1; language >= 0 && out[0] == '\0'; language--)
         {
             const u8 *title = smdh + 8 + language * 0x200;
@@ -788,6 +791,43 @@ static void SdDelete(const char *path, bool folder)
     FSUSER_CloseArchive(sd);
 }
 
+// A game whose files are still where cards kept them before 2026-11-21 (/achievements/<TitleID>):
+// moves its folder into /achievements/games, and for another release the release's own folder
+// (its version.txt) too. Called right after Achievements_Load, before anything is written there.
+// A folder the games folder already has is left for the app to merge (Games_MoveOldFolders).
+// Returns whether anything moved (the achievements then need loading again, from there).
+static bool MoveToGamesFolder(u64 titleId)
+{
+    FS_Archive  sd;
+    u64         ids[2] = { Achievements_GameId(), titleId };
+    bool        moved = false;
+
+    if (R_FAILED(FSUSER_OpenArchive(&sd, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, ""))))
+        return false;
+    for (int i = 0; i < (ids[1] == ids[0] ? 1 : 2); i++)
+    {
+        char    from[48], to[48];
+        Handle  dir;
+        snprintf(from, sizeof(from), ACHIEVEMENTS_OLD "/%016llX", (unsigned long long)ids[i]);
+        snprintf(to, sizeof(to), ACHIEVEMENTS_GAMES "/%016llX", (unsigned long long)ids[i]);
+        if (R_FAILED(FSUSER_OpenDirectory(&dir, sd, fsMakePath(PATH_ASCII, from))))
+            continue;                       // not in the old place
+        FSDIR_Close(dir);
+        if (R_SUCCEEDED(FSUSER_OpenDirectory(&dir, sd, fsMakePath(PATH_ASCII, to))))
+        {
+            FSDIR_Close(dir);
+            Log("games folder: %s is there too, the app merges them", to);
+            continue;
+        }
+        FSUSER_CreateDirectory(sd, fsMakePath(PATH_ASCII, ACHIEVEMENTS_GAMES), 0);   // (fails if it's there)
+        Result res = FSUSER_RenameDirectory(sd, fsMakePath(PATH_ASCII, from), sd, fsMakePath(PATH_ASCII, to));
+        Log("games folder: moved %s to %s: %08lX", from, to, res);
+        moved = moved || R_SUCCEEDED(res);
+    }
+    FSUSER_CloseArchive(sd);
+    return moved;
+}
+
 // The system is up: an application, a system application (System Settings...) or an applet
 // (the HOME Menu) is running. ErrDisp, an applet too, doesn't count.
 static bool SystemUp(void)
@@ -970,6 +1010,8 @@ int main(void)
             loadedTitle = titleId;
             Heap_TakeRefused();
             active = Achievements_Load(titleId);
+            if (active && MoveToGamesFolder(titleId))
+                active = Achievements_Load(titleId);    // its files are in the games folder now
             u32 refused = Heap_TakeRefused();
             noMemory = !active && refused > 0;    // it may have achievements: they couldn't be loaded
             haveTitle = ReadGameTitle(pid, titleId, g_gameTitle, sizeof(g_gameTitle));

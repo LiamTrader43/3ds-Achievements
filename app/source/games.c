@@ -5,12 +5,26 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "achievements.h"
 
-#define DIRECTORY   "/achievements"
 #define SMDH_SIZE   0x36C0
 #define SMDH_ICON   0x24C0      // 48x48 icon
+
+// One of a game's files: in its games folder (ACHIEVEMENTS_GAMES), or where cards kept it before
+// if it's only there (a folder Games_MoveOldFolders couldn't move).
+static void GamePath(u64 titleId, const char *name, char *path, size_t capacity)
+{
+    struct stat info;
+    char        old[64];
+
+    snprintf(path, capacity, ACHIEVEMENTS_GAMES "/%016llX/%s", (unsigned long long)titleId, name);
+    snprintf(old, sizeof(old), ACHIEVEMENTS_OLD "/%016llX/%s", (unsigned long long)titleId, name);
+    if (stat(path, &info) != 0 && stat(old, &info) == 0)
+        snprintf(path, capacity, "%s", old);
+}
 
 // Platform functions for the tracker's achievements.c. The app only reads the
 // files; it never checks conditions or writes progress.
@@ -121,17 +135,12 @@ static int CompareGames(const void *a, const void *b)
     return strcasecmp(x->title, y->title);
 }
 
-// The cached SMDH (/achievements/<TitleID>/title.smdh, written by the tracker while
-// the game runs, or by this app): a game card's icon when it isn't inserted.
-static void CachePath(u64 titleId, char *path, size_t capacity)
-{
-    snprintf(path, capacity, DIRECTORY "/%016llX/title.smdh", (unsigned long long)titleId);
-}
-
+// The cached SMDH (title.smdh in the game's folder, written by the tracker while the game
+// runs, or by this app): a game card's icon when it isn't inserted.
 static bool ReadCachedSmdh(u64 titleId, u8 *smdh)
 {
     char path[64];
-    CachePath(titleId, path, sizeof(path));
+    GamePath(titleId, "title.smdh", path, sizeof(path));
     FILE *f = fopen(path, "rb");
     if (f == NULL)
         return false;
@@ -148,7 +157,7 @@ static void WriteCachedSmdh(u64 titleId, const u8 *smdh)
         return;
 
     char path[64];
-    CachePath(titleId, path, sizeof(path));
+    GamePath(titleId, "title.smdh", path, sizeof(path));     // where it's read from (the games folder normally)
     FILE *f = fopen(path, "wb");
     if (f == NULL)
         return;
@@ -160,7 +169,7 @@ bool Games_LoadHero(u64 titleId, u8 *pixels)
 {
     char path[64];
 
-    snprintf(path, sizeof(path), DIRECTORY "/%016llX/hero.bin", (unsigned long long)titleId);
+    GamePath(titleId, "hero.bin", path, sizeof(path));
     FILE *f = fopen(path, "rb");
     if (f == NULL)
         return false;
@@ -192,7 +201,7 @@ bool Games_LoadTrophies(u64 titleId, u16 *unlocked, u16 *locked)
 {
     char path[64];
 
-    snprintf(path, sizeof(path), DIRECTORY "/%016llX/trophy.bin", (unsigned long long)titleId);
+    GamePath(titleId, "trophy.bin", path, sizeof(path));
     FILE *f = fopen(path, "rb");
     if (f == NULL)
         return false;
@@ -210,7 +219,7 @@ void Games_LoadIcons(u64 titleId, const char *const *ids, int count, GameIcons *
     memset(icons, 0, sizeof(*icons));
     if (count > ICONS_MOST)
         count = ICONS_MOST;
-    snprintf(path, sizeof(path), DIRECTORY "/%016llX/icons.bin", (unsigned long long)titleId);
+    GamePath(titleId, "icons.bin", path, sizeof(path));
     FILE *f = fopen(path, "rb");
     if (f == NULL)
         return;
@@ -274,34 +283,46 @@ int Games_Scan(Game *games, int capacity)
     static bool named[MAX_GAMES];               // the definitions' "@title" is in its title already
     int releases = 0;
 
-    DIR *dir = opendir(DIRECTORY);
-    if (dir == NULL)
-        return 0;
-
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL && count < capacity)
+    // The games folder, then the old place for any game still there (Games_MoveOldFolders
+    // couldn't move it); a title found in both counts once.
+    static const char *const roots[] = { ACHIEVEMENTS_GAMES, ACHIEVEMENTS_OLD };
+    for (int r = 0; r < 2; r++)
     {
-        Game *g = &games[count];
-        if (!ParseFolderName(entry->d_name, &g->titleId) || !Achievements_Load(g->titleId))
+        DIR *dir = opendir(roots[r]);
+        if (dir == NULL)
             continue;
-        if (Achievements_GameId() != g->titleId)    // another release (version.txt) of a game
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL && count < capacity)
         {
-            if (releases < MAX_GAMES)
+            Game *g = &games[count];
+            if (!ParseFolderName(entry->d_name, &g->titleId))
+                continue;
+            bool seen = false;
+            for (int i = 0; i < count && !seen; i++)
+                seen = games[i].titleId == g->titleId;
+            for (int i = 0; i < releases && !seen; i++)
+                seen = releaseIds[i] == g->titleId;
+            if (seen || !Achievements_Load(g->titleId))
+                continue;
+            if (Achievements_GameId() != g->titleId)    // another release (version.txt) of a game
             {
-                releaseIds[releases] = g->titleId;
-                releaseGames[releases++] = Achievements_GameId();
+                if (releases < MAX_GAMES)
+                {
+                    releaseIds[releases] = g->titleId;
+                    releaseGames[releases++] = Achievements_GameId();
+                }
+                continue;
             }
-            continue;
+            Achievements_Progress(&g->unlocked, &g->total);
+            Achievements_Score(&g->earned, &g->points);
+            g->releaseCount = 0;
+            named[count] = Achievements_Title()[0] != '\0';
+            if (named[count])
+                snprintf(g->title, sizeof(g->title), "%s", Achievements_Title());
+            count++;
         }
-        Achievements_Progress(&g->unlocked, &g->total);
-        Achievements_Score(&g->earned, &g->points);
-        g->releaseCount = 0;
-        named[count] = Achievements_Title()[0] != '\0';
-        if (named[count])
-            snprintf(g->title, sizeof(g->title), "%s", Achievements_Title());
-        count++;
+        closedir(dir);  // before writing any cache file into the folder
     }
-    closedir(dir);  // before writing any cache file into the folder
 
     for (int r = 0; r < releases; r++)
         for (int i = 0; i < count; i++)
@@ -336,4 +357,170 @@ int Games_Scan(Game *games, int capacity)
 
     qsort(games, count, sizeof(Game), CompareGames);
     return count;
+}
+
+// ---- Moving game folders into /achievements/games (cards from before 2026-11-21)
+
+#define FOLDERS_MOST    128
+#define FILES_MOST      32
+#define PROGRESS_MOST   0x10000     // achievements.c's FILE_CAPACITY
+
+// The files a game's folder can have that a newer copy replaces: an older one left in the old
+// place is deleted when the games folder has its own.
+static const char *const GAME_FILES[] = { "definitions.txt", "version.txt", "hero.bin", "trophy.bin", "icons.bin",
+                                          "title.smdh", "measured.txt" };
+
+static bool IsDirectory(const char *path)
+{
+    struct stat info;
+    return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
+}
+
+static bool Exists(const char *path)
+{
+    struct stat info;
+    return stat(path, &info) == 0;
+}
+
+static char *ReadWhole(const char *path, uint32_t *length)
+{
+    char *text = malloc(PROGRESS_MOST + 1);
+    if (text != NULL && !Platform_ReadFile(path, text, PROGRESS_MOST, length))
+    {
+        free(text);
+        return NULL;
+    }
+    return text;
+}
+
+// The line [start, end) without spaces around it.
+static void Trim(const char **start, const char **end)
+{
+    while (*start < *end && isspace((unsigned char)**start))
+        (*start)++;
+    while (*end > *start && isspace((unsigned char)(*end)[-1]))
+        (*end)--;
+}
+
+static bool HasLine(const char *text, uint32_t length, const char *line, size_t lineLength)
+{
+    for (const char *p = text, *end = text + length; p < end; )
+    {
+        const char *next = memchr(p, '\n', (size_t)(end - p));
+        const char *a = p, *b = next != NULL ? next : end;
+        Trim(&a, &b);
+        if ((size_t)(b - a) == lineLength && memcmp(a, line, lineLength) == 0)
+            return true;
+        p = next != NULL ? next + 1 : end;
+    }
+    return false;
+}
+
+// Adds to progress.txt at `to` every line of `from` it doesn't have. True if `from` can go.
+static bool MergeProgress(const char *from, const char *to)
+{
+    uint32_t fromLength = 0, toLength = 0;
+    char    *source = ReadWhole(from, &fromLength);
+    char    *target = source != NULL ? ReadWhole(to, &toLength) : NULL;
+    bool     ok = source != NULL;
+
+    if (ok && target == NULL)
+        ok = rename(from, to) == 0;         // the games folder has none: just move it
+    else if (ok)
+    {
+        FILE *out = fopen(to, "ab");
+        ok = out != NULL;
+        bool lineEnd = toLength == 0 || target[toLength - 1] == '\n';
+        for (const char *p = source, *end = source + fromLength; ok && p < end; )
+        {
+            const char *next = memchr(p, '\n', (size_t)(end - p));
+            const char *a = p, *b = next != NULL ? next : end;
+            Trim(&a, &b);
+            if (b > a && !HasLine(target, toLength, a, (size_t)(b - a)))
+            {
+                ok = (lineEnd || fputc('\n', out) != EOF) && fwrite(a, 1, (size_t)(b - a), out) == (size_t)(b - a)
+                     && fputc('\n', out) != EOF;
+                lineEnd = true;
+            }
+            p = next != NULL ? next + 1 : end;
+        }
+        if (out != NULL && fclose(out) != 0)
+            ok = false;
+        if (ok)
+            remove(from);
+    }
+    free(source);
+    free(target);
+    return ok;
+}
+
+// Moves what can be moved from one game's old folder into its games folder, which exists.
+static void MergeFolder(const char *from, const char *to)
+{
+    char  names[FILES_MOST][64];
+    int   count = 0;
+    DIR  *dir = opendir(from);
+    if (dir == NULL)
+        return;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL && count < FILES_MOST)
+        if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0 && strlen(entry->d_name) < 64)
+            snprintf(names[count++], sizeof(names[0]), "%s", entry->d_name);
+    closedir(dir);                          // before changing anything in it
+
+    for (int i = 0; i < count; i++)
+    {
+        char source[128], target[128];
+        snprintf(source, sizeof(source), "%.63s/%.63s", from, names[i]);
+        snprintf(target, sizeof(target), "%.63s/%.63s", to, names[i]);
+        if (strcmp(names[i], "progress.txt") == 0)
+            MergeProgress(source, target);
+        else if (!Exists(target))
+            rename(source, target);
+        else
+            for (size_t k = 0; k < sizeof(GAME_FILES) / sizeof(GAME_FILES[0]); k++)
+                if (strcmp(names[i], GAME_FILES[k]) == 0)
+                    remove(source);     // the games folder's is the newer copy
+    }
+    rmdir(from);                            // only if it's empty now
+}
+
+int Games_MoveOldFolders(void)
+{
+    char  names[FOLDERS_MOST][17];
+    int   count = 0, moved = 0;
+    u64   titleId;
+
+    DIR *dir = opendir(ACHIEVEMENTS_OLD);
+    if (dir == NULL)
+        return 0;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL && count < FOLDERS_MOST)
+    {
+        char path[64];
+        snprintf(path, sizeof(path), ACHIEVEMENTS_OLD "/%.16s", entry->d_name);
+        if (ParseFolderName(entry->d_name, &titleId) && IsDirectory(path))
+            snprintf(names[count++], sizeof(names[0]), "%.16s", entry->d_name);
+    }
+    closedir(dir);                          // before renaming anything in it
+    if (count == 0)
+        return 0;
+
+    mkdir(ACHIEVEMENTS_GAMES, 0777);
+    for (int i = 0; i < count; i++)
+    {
+        char from[64], to[64];
+        snprintf(from, sizeof(from), ACHIEVEMENTS_OLD "/%.16s", names[i]);
+        snprintf(to, sizeof(to), ACHIEVEMENTS_GAMES "/%.16s", names[i]);
+        if (!IsDirectory(to) && rename(from, to) == 0)
+        {
+            moved++;
+            continue;
+        }
+        mkdir(to, 0777);
+        MergeFolder(from, to);
+        if (!IsDirectory(from))
+            moved++;
+    }
+    return moved;
 }

@@ -467,6 +467,16 @@ static void FreePictures(void)
     s_placeCount = 0;
 }
 
+// One of the game's files: in the folder its definitions came from (Achievements_Folder), else
+// its folder in the games folder.
+static void GameFile(u64 titleId, const char *name, char *path, size_t size)
+{
+    if (Achievements_Folder()[0] != '\0')
+        snprintf(path, size, "%s/%s", Achievements_Folder(), name);
+    else
+        snprintf(path, size, ACHIEVEMENTS_GAMES "/%016llX/%s", (unsigned long long)titleId, name);
+}
+
 // Finds where the pictures of achievements ids[0..count) are in the game's icons.bin, if it has
 // one; they're read as they're shown (Picture).
 static void LoadPictures(u64 titleId, const char *const *ids, int count)
@@ -476,7 +486,7 @@ static void LoadPictures(u64 titleId, const char *const *ids, int count)
     u64     size = 0;
     u32     read = 0;
 
-    snprintf(path, sizeof(path), "/achievements/%016llX/icons.bin", (unsigned long long)titleId);
+    GameFile(titleId, "icons.bin", path, sizeof(path));
     if (count == 0 || R_FAILED(FSUSER_OpenFileDirectly(&s_iconsFile, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, ""),
                                                        fsMakePath(PATH_ASCII, path), FS_OPEN_READ, 0)))
     {
@@ -511,7 +521,7 @@ static void LoadGameIcons(u64 titleId, const char *const *ids, int count)
     // Room for one byte more than the file should have (a longer file is wrong), and
     // the '\0' the file reader ends with.
     s_gameIcons = malloc(ICON_FILE_BYTES + 2);
-    snprintf(path, sizeof(path), "/achievements/%016llX/trophy.bin", (unsigned long long)titleId);
+    GameFile(titleId, "trophy.bin", path, sizeof(path));
     s_hasGameIcons = s_gameIcons != NULL && Platform_ReadFile(path, (char *)s_gameIcons, ICON_FILE_BYTES + 1, &length)
                      && length == ICON_FILE_BYTES;
     LoadPictures(titleId, ids, count);

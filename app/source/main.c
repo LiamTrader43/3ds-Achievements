@@ -80,7 +80,7 @@ static int RecentUnlocks(const bool *unlocked, int count, int *recent)
     uint32_t    length = 0;
     int         n = 0;
 
-    snprintf(path, sizeof(path), "/achievements/%016llX/progress.txt", (unsigned long long)Achievements_GameId());
+    snprintf(path, sizeof(path), "%s/progress.txt", Achievements_Folder());
     if (Achievements_Ids(ids, MAX_ACHIEVEMENTS) != count || !Platform_ReadFile(path, text, sizeof(text) - 1, &length))
         return 0;
     for (int end = (int)length; end > 0 && n < RECENT_MAX; )
@@ -590,6 +590,7 @@ int main(int argc, char **argv)
         g_theme->drawLoading();
         Draw_End();
     }
+    Games_MoveOldFolders();         // game folders into /achievements/games (no game runs while the app does)
 #ifdef BENCH
     // The benchmark leaves the tracker, the updater and Play Coins alone (their popups would stop
     // the script).
