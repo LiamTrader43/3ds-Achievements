@@ -1,6 +1,7 @@
 CLAUDE.md
 # Super Mario 3D Land: not public until it's finished
 achievements/0004000000054000/
+achievements/games/0004000000054000/
 docs/sm3dl-live.md
 docs/sm3dl-spots.md
 tools/sm3dl_live.py
@@ -9,3 +10,4 @@ sysmodule/menu-preview.png
 sysmodule/overlay-preview.png
 # Each player's progress (a game's title.smdh is kept: the app shows its icon and title without the game)
 achievements/*/progress.txt
+achievements/games/*/progress.txt

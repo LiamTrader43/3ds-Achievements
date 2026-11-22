@@ -1,0 +1,2 @@
+# Mario Kart 7 (JPN, CTR-P-AMKJ): the USA game's achievements and progress (version 1.2 has the same addresses)
+game 0004000000030800

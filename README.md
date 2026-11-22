@@ -12,9 +12,10 @@ Questions, bug reports and news: join the [Discord server](https://discord.gg/MW
 
 ## Supported games
 
-- **The Legend of Zelda: Ocarina of Time 3D** (USA, EUR, JPN): 97 achievements, 690 points. All three versions share one achievement list and your progress.
+- **The Legend of Zelda: Ocarina of Time 3D** (USA, EUR, JPN): 97 achievements, 690 points. A port of the RetroAchievements set for the N64 original. Many of its conditions were tested with recordings and simulated play rather than a full playthrough, so some may need fixes.
+- **Mario Kart 7** (USA, EUR, JPN): 105 achievements, 814 points, each with its own picture. Every cup in every class, three-star rankings, characters and kart parts, all 32 Expert Staff Ghosts, battle tours won course by course, and challenges in races like winning without being hit or picking up an item. It needs the game's free 1.2 update: on an older version the start banner says so and achievements stay off. They're also off while the CTGP-7 plugin runs, since it keeps its own save.
 
-This set is a port of the RetroAchievements set for the N64 original. Many of its conditions were tested with recordings and simulated play rather than a full playthrough, so some may need fixes.
+Each game's versions share one achievement list and your progress.
 
 ## Installation
 
@@ -137,14 +138,14 @@ The store's files in `achievements/store/` are encrypted, and only builds made w
 
 **Fonts:** [Inter](https://rsms.me/inter/), Copyright 2016 The Inter Project Authors (SIL Open Font License 1.1, see [assets/fonts/OFL.txt](assets/fonts/OFL.txt)): the Modern theme, the banner, the in-game list and the share image. The 3DS theme uses the console's own system font, read from the 3DS; none of it comes with the app.
 
-**Achievements:** the Ocarina of Time 3D names, descriptions and points come from the community's [RetroAchievements set](https://retroachievements.org/game/10113). The conditions were rewritten for the 3DS version.
+**Achievements:** the Ocarina of Time 3D names, descriptions and points come from the community's [RetroAchievements set](https://retroachievements.org/game/10113). The conditions were rewritten for the 3DS version. The Mario Kart 7 set was made for this project, with RetroAchievements' Mario Kart Wii set as inspiration.
 
-**Research:** [zeldaret/oot](https://github.com/zeldaret/oot), the OoT3D Randomizer project, and [OcarinaCTRComposer](https://github.com/samaBR85/OcarinaCTRComposer).
+**Research:** [zeldaret/oot](https://github.com/zeldaret/oot), the OoT3D Randomizer project, and [OcarinaCTRComposer](https://github.com/samaBR85/OcarinaCTRComposer) for Ocarina of Time 3D; for Mario Kart 7, the CTGP-7 project's published source, [mk7re](https://github.com/mk7re/MK7-Memory)'s memory maps and scripts, the save editors by marcrobledo, CyberYoshi64 and hax0kartik, and SFC-hacker's Mario Kart 7 Plugin Deluxe.
 
-**Art and sound:** game icons, titles, character art and the Triforce belong to Nintendo. The logo and banner sound were made for this project.
+**Art and sound:** game icons, titles, character art, the Triforce and the Mario Kart 7 achievement pictures (made from the game's own art) belong to Nintendo. The logo and banner sound were made for this project.
 
 ## License
 
 GPLv3; see [LICENSE](LICENSE). Bundled third-party code keeps its own license.
 
-This is an unofficial fan project, not affiliated with or endorsed by Nintendo or RetroAchievements. Unlocks stay on your SD card and don't appear on a RetroAchievements profile. Nintendo 3DS, The Legend of Zelda and Ocarina of Time are trademarks of Nintendo.
+This is an unofficial fan project, not affiliated with or endorsed by Nintendo or RetroAchievements. Unlocks stay on your SD card and don't appear on a RetroAchievements profile. Nintendo 3DS, The Legend of Zelda, Ocarina of Time and Mario Kart are trademarks of Nintendo.
