@@ -12,10 +12,15 @@ Questions, bug reports and news: join the [Discord server](https://discord.gg/MW
 
 ## Supported games
 
-- **The Legend of Zelda: Ocarina of Time 3D** (USA, EUR, JPN): 97 achievements, 690 points. A port of the RetroAchievements set for the N64 original. Many of its conditions were tested with recordings and simulated play rather than a full playthrough, so some may need fixes.
-- **Mario Kart 7** (USA, EUR, JPN): 105 achievements, 814 points, each with its own picture. Every cup in every class including Mirror, three-star rankings, characters and kart parts, coin totals, all 32 Expert Staff Ghosts, Balloon Battle and Coin Runners won on every battle course, and challenges in races like winning without spinning out, without picking up an item, or from 8th place on the final lap. It needs the game's free 1.2 update: on an older version the start banner says so and achievements stay off. They're also off while the CTGP-7 plugin runs, since it keeps its own save.
+| Game | Regions | Achievements |
+|---|---|---|
+| The Legend of Zelda: Ocarina of Time 3D | USA, Europe, Japan | 97 (690 points) |
+| Mario Kart 7 | USA, Europe, Japan (version 1.2) | 105 (814 points) |
 
-Each game's versions share one achievement list and your progress.
+A game's regions share one achievement list and your progress, and every achievement has its own picture.
+
+- **Ocarina of Time 3D:** a port of the RetroAchievements set for the N64 original. Many of its conditions were tested with recordings and simulated play rather than a full playthrough, so some may need fixes.
+- **Mario Kart 7:** every cup in every class including Mirror, three-star rankings, characters and kart parts, coin totals, all 32 Expert Staff Ghosts, Balloon Battle and Coin Runners won on every battle course, and challenges in races like winning without spinning out, without picking up an item, or from 8th place on the final lap. It needs the game's free 1.2 update: on an older version the start banner says so and achievements stay off. They're also off while the CTGP-7 plugin runs, since it keeps its own save.
 
 ## Installation
 
@@ -146,7 +151,7 @@ The store's files in `achievements/store/` are encrypted, and only builds made w
 
 **Research:** [zeldaret/oot](https://github.com/zeldaret/oot), the OoT3D Randomizer project, and [OcarinaCTRComposer](https://github.com/samaBR85/OcarinaCTRComposer) for Ocarina of Time 3D; for Mario Kart 7, the CTGP-7 project's published source, [mk7re](https://github.com/mk7re/MK7-Memory)'s memory maps and scripts, the save editors by marcrobledo, CyberYoshi64 and hax0kartik, and SFC-hacker's Mario Kart 7 Plugin Deluxe.
 
-**Art and sound:** game icons, titles, character art, the Triforce and the Mario Kart 7 achievement pictures (made from the game's own art) belong to Nintendo. The logo and banner sound were made for this project.
+**Art and sound:** game icons, titles, character art, the Triforce and the achievement pictures (made from each game's own art) belong to Nintendo. The logo and banner sound were made for this project.
 
 ## License
 
