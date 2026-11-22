@@ -8,12 +8,12 @@ Questions, bug reports and news: join the [Discord server](https://discord.gg/MW
 
 | Choosing a game | Its achievements (A) |
 |---|---|
-| <img src="assets/screenshots/app.png" alt="The app with Ocarina of Time 3D chosen in the row of games, the store's tile at the end of the row, and on the bottom screen its progress: 21 of 97 achievements, 105 of 690 points, the three latest unlocks and totals for all games" width="400"> | <img src="assets/screenshots/achievements.png" alt="Ocarina of Time 3D opened: 21 of 97 unlocked and 105 of 690 points along the top of the bottom screen, then its achievements, unlocked ones in green with a gold Triforce, the first one selected" width="400"> |
+| <img src="assets/screenshots/app.png" alt="The app with Mario Kart 7 chosen in the row of games over the game's art, next to Ocarina of Time 3D and the store's tile at the end of the row, and on the bottom screen its progress: 19 of 105 achievements, 107 of 814 points, the three latest unlocks with their pictures, and totals for all games" width="400"> | <img src="assets/screenshots/achievements.png" alt="Mario Kart 7 opened: 19 of 105 unlocked and 107 of 814 points along the top of the bottom screen, then its achievements with their pictures: the 50cc Mushroom and Flower Cups unlocked in green, the Star Cup locked in grey, the first one selected" width="400"> |
 
 ## Supported games
 
 - **The Legend of Zelda: Ocarina of Time 3D** (USA, EUR, JPN): 97 achievements, 690 points. A port of the RetroAchievements set for the N64 original. Many of its conditions were tested with recordings and simulated play rather than a full playthrough, so some may need fixes.
-- **Mario Kart 7** (USA, EUR, JPN): 105 achievements, 814 points, each with its own picture. Every cup in every class, three-star rankings, characters and kart parts, all 32 Expert Staff Ghosts, battle tours won course by course, and challenges in races like winning without being hit or picking up an item. It needs the game's free 1.2 update: on an older version the start banner says so and achievements stay off. They're also off while the CTGP-7 plugin runs, since it keeps its own save.
+- **Mario Kart 7** (USA, EUR, JPN): 105 achievements, 814 points, each with its own picture. Every cup in every class including Mirror, three-star rankings, characters and kart parts, coin totals, all 32 Expert Staff Ghosts, Balloon Battle and Coin Runners won on every battle course, and challenges in races like winning without spinning out, without picking up an item, or from 8th place on the final lap. It needs the game's free 1.2 update: on an older version the start banner says so and achievements stay off. They're also off while the CTGP-7 plugin runs, since it keeps its own save.
 
 Each game's versions share one achievement list and your progress.
 
@@ -37,7 +37,7 @@ Since version 1.4.0, the app updates itself. When a new release is out, it offer
 | B | Go back |
 | Up / Down | Select an achievement (the list scrolls to keep it on screen) |
 | Drag the touch screen | Scroll achievements |
-| A, or tap an achievement | Show it in full: the whole name and description (B or a tap goes back, Up/Down show the next ones) |
+| A, or tap an achievement | Show it in full: the whole name and description, and for one done in parts, which parts are done (B or a tap goes back, Up/Down show the next ones) |
 | L / R | Jump a page |
 | X | Settings: the tracker, starting it with the console, patched games, the in-game menu buttons and the theme |
 | Y | Share the open game's progress (A saves the image to the SD card, B goes back) |
@@ -46,7 +46,7 @@ Since version 1.4.0, the app updates itself. When a new release is out, it offer
 
 The prompts in the bottom corners of the touch screen, like **B: Back** and **A: Open**, can be tapped too. While you choose a game, the bottom screen shows how far you are in it: achievements, points, your three latest unlocks, and totals for all your games.
 
-<img src="assets/screenshots/details-app.png" alt="One achievement in full: Twins of Evil, locked, 10 points, 85 of 97, with its whole name and its long description, and B: Back in the corner" width="400">
+<img src="assets/screenshots/details-app.png" alt="One achievement in full: Pop Tour, locked, 10 points, 103 of 105, with its description and its parts: 3 of 6 battle courses won, the done ones in green, and B: Back in the corner" width="400">
 
 In a game, press **R + A + Left** to pause and see your achievements (you can pick other buttons in the settings, under **Menu buttons**). It works like the app's list: Up/Down select an achievement, L/R (or Left/Right) jump a page, and A or a tap shows the selected one in full (B or a tap goes back). B or SELECT closes the list.
 
@@ -54,7 +54,7 @@ In a game, press **R + A + Left** to pause and see your achievements (you can pi
 
 | The share screen (Y) | The image you get |
 |---|---|
-| <img src="assets/screenshots/share.png" alt="The share screen: the image on the top screen, and on the bottom a QR code to scan with a phone, the link it opens, and A: Save to SD, B: Back" width="400"> | <img src="assets/screenshots/share-image.png" alt="The shared image: 3DS Achievements, the Ocarina of Time 3D icon in a gold frame over the game's art, its name, and a progress bar with 21/97" width="400"> |
+| <img src="assets/screenshots/share.png" alt="The share screen: the image on the top screen, and on the bottom a QR code to scan with a phone, the link it opens, and A: Save to SD, B: Back" width="400"> | <img src="assets/screenshots/share-image.png" alt="The shared image: 3DS Achievements, the Mario Kart 7 icon in a gold frame over the game's art, its name, and a progress bar with 19/105" width="400"> |
 
 When you open the app on Wi-Fi, it checks this repository's `main` branch and asks before downloading new games, achievements or things for the store.
 
@@ -62,11 +62,15 @@ Patches and mods can change how a game behaves, so while Luma's game patching is
 
 ## Settings and themes
 
-Press X for the settings. **Tracker** turns the tracker on or off, **Patched games** is explained above, **Menu buttons** changes the buttons that open the list in a game (press A, then hold 2 to 4 buttons until the bar fills; B alone cancels). Buttons that Luma's Rosalina menu uses can't be chosen, and if the ones you hold could get in the way while playing, such as only 2 buttons or L + R + Start, the app says why and asks before using them, and **Theme** opens the list of themes: pick one with A and the app changes at once. Two come with the app: **Modern**, shown on this page, and **3DS**, which looks like the console's own System Settings and uses its system font. More are in the store.
+Press X for the settings. **Tracker** turns the tracker on or off, **Start with the console** is explained below and **Patched games** above.
+
+**Menu buttons** changes the buttons that open the list in a game: press A, then hold 2 to 4 buttons until the bar fills (B alone cancels). Buttons that Luma's Rosalina menu uses can't be chosen, and if the ones you hold could get in the way while playing, such as only 2 buttons or L + R + Start, the app says why and asks before using them.
+
+**Theme** opens the list of themes: pick one with A and the app changes at once. Two come with the app: **Modern**, shown on this page, and **3DS**, which looks like the console's own System Settings and uses its system font. More are in the store.
 
 | Settings (X) | Choosing a theme |
 |---|---|
-| <img src="assets/screenshots/settings.png" alt="The settings: Tracker on, Start with the console off and Patched games off, each with a line about what it does" width="400"> | <img src="assets/screenshots/themes.png" alt="The theme list: Modern, in use, and 3DS, each with a line about how it looks" width="400"> |
+| <img src="assets/screenshots/settings.png" alt="The settings: Start with the console off, Patched games off, and Menu buttons selected, set to R+A+Left, each with a line about what it does" width="400"> | <img src="assets/screenshots/themes.png" alt="The theme list: Modern, in use, and 3DS, each with a line about how it looks" width="400"> |
 
 **Start with the console** starts the tracker whenever you turn on your 3DS, so you don't have to open the app first. It needs Luma3DS 13.0 or newer with a second Luma option on, **Enable game patching** (hold SELECT while turning on your 3DS); the app tells you if it's off. Be careful with game mods: with game patching on, Luma also applies any mods in `/luma/titles`. A game with mods isn't tracked while **Patched games** is off, but with it on, a mod could unlock achievements you didn't earn. The app reminds you of this before turning the setting on.
 
