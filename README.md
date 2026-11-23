@@ -71,6 +71,8 @@ Press X for the settings. **Tracker** turns the tracker on or off, **Start with 
 
 **Menu buttons** changes the buttons that open the list in a game: press A, then hold 2 to 4 buttons until the bar fills (B alone cancels). Buttons that Luma's Rosalina menu uses can't be chosen, and if the ones you hold could get in the way while playing, such as only 2 buttons or L + R + Start, the app says why and asks before using them.
 
+**Sounds** chooses how the app sounds as you move around and open things: **Air** (the default: soft pops and airy whooshes), **Felt** (muted wooden taps), **Glass** (soft bell tones), **String** (plucked guitar strings) or **Chip** (square waves like an old handheld), or **Off**. Press A on it, pick one and you hear it straight away. Sounds need the 3DS's DSP firmware, `/3ds/dspfirm.cdc` on the SD card, which most setups already have (the DSP1 app makes it). Without it the app stays silent and the setting tells you the file is missing.
+
 **Theme** opens the list of themes: pick one with A and the app changes at once. Two come with the app: **Modern**, shown on this page, and **3DS**, which looks like the console's own System Settings and uses its system font. More are in the store.
 
 | Settings (X) | Choosing a theme |
@@ -130,6 +132,8 @@ cp app/achievements-viewer.3dsx sysmodule/dist/3ds/achievements-viewer.3dsx
 python tools/make_versions.py
 ```
 
+The app's sound effects are generated from code: `tools/sound_synth.js` makes them and `app/sounds.json` lists the sound sets the settings offer. The results, `app/data/sounds.bin` and `app/source/sounds.h`, are in the repository, so you only need [Node.js](https://nodejs.org/) to change them: edit `app/sounds.json`, then run `node tools/app_sounds.js`.
+
 The store's files in `achievements/store/` are encrypted, and only builds made with the project's private key can open them, so the store is empty in your own builds.
 
 ## Credits
@@ -151,7 +155,7 @@ The store's files in `achievements/store/` are encrypted, and only builds made w
 
 **Research:** [zeldaret/oot](https://github.com/zeldaret/oot), the OoT3D Randomizer project, and [OcarinaCTRComposer](https://github.com/samaBR85/OcarinaCTRComposer) for Ocarina of Time 3D; for Mario Kart 7, the CTGP-7 project's published source, [mk7re](https://github.com/mk7re/MK7-Memory)'s memory maps and scripts, the save editors by marcrobledo, CyberYoshi64 and hax0kartik, and SFC-hacker's Mario Kart 7 Plugin Deluxe.
 
-**Art and sound:** game icons, titles, character art, the Triforce and the achievement pictures (made from each game's own art) belong to Nintendo. The logo and banner sound were made for this project.
+**Art and sound:** game icons, titles, character art, the Triforce and the achievement pictures (made from each game's own art) belong to Nintendo. The logo, the banner sound and the app's sound effects were made for this project.
 
 ## License
 

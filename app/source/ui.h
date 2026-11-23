@@ -172,7 +172,7 @@ void    Ui_Totals(UiTotals *t);
 // The settings menu (X): each line's name, its value now, and what it does. Theme opens a list
 // of the themes (MENU_THEMES), drawn like the settings: g_menu says which list is showing,
 // g_menuScroll its first line shown.
-enum { SETTING_TRACKER, SETTING_AUTOSTART, SETTING_PATCHED, SETTING_HOTKEY, SETTING_THEME, SETTING_COUNT };
+enum { SETTING_TRACKER, SETTING_AUTOSTART, SETTING_PATCHED, SETTING_HOTKEY, SETTING_SOUNDS, SETTING_THEME, SETTING_COUNT };
 extern u32          g_hotkey;               // the buttons that open the in-game list (hotkey.h)
 extern u32          g_hotkeyHeld;           // POPUP_HOTKEY: the buttons held now
 extern int          g_hotkeyProgress;       // POPUP_HOTKEY: how long they've been held, 0..HOTKEY_HOLD_MS
@@ -184,7 +184,7 @@ extern int          g_rosalinaCount;
 
 // Whether keys overlap a combination of Rosalina's menu (hotkey.h Hotkey_Overlaps).
 bool    Ui_HotkeyRosalina(u32 keys);
-enum { MENU_SETTINGS, MENU_THEMES };
+enum { MENU_SETTINGS, MENU_THEMES, MENU_SOUNDS };     // MENU_SOUNDS: the sound sets, then Off
 extern int          g_menu;
 extern int          g_menuScroll;
 typedef struct

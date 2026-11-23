@@ -1,0 +1,17 @@
+{
+  "app": "3DS Achievements sounds",
+  "version": 2,
+  "default": "air",
+  "sets": [
+    { "id": "air", "name": "Air", "take": "air",
+      "description": "Soft pops and airy whooshes, like a modern console's TV mode." },
+    { "id": "felt", "name": "Felt", "take": "felt",
+      "description": "Muted wooden taps and rounded chimes. Warm and quiet." },
+    { "id": "glass", "name": "Glass", "take": "glass",
+      "description": "Soft bell tones, clean and quiet." },
+    { "id": "string", "name": "String", "take": "string",
+      "description": "Plucked guitar strings, like the app's banner jingle." },
+    { "id": "chip", "name": "Chip", "take": "chip",
+      "description": "Square waves like an old handheld. Suits the DS theme." }
+  ]
+}

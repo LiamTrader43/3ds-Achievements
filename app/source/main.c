@@ -22,6 +22,7 @@
 #include "games.h"
 #include "hotkey.h"
 #include "share.h"
+#include "sound.h"
 #include "theme.h"
 #include "tracker.h"
 #include "ui.h"
@@ -40,6 +41,53 @@ static bool         s_coinsWaiting;         // the Play Coins earned, once the p
 static Result       s_autostartOff;         // why "Start with the console" was turned off, to tell once the popup showing closes
 static Result       s_coinsResult;          // of reading them, if they couldn't be (g_coins -1)
 static u64          s_restartAt;            // after an app update: when the app closes for it
+
+// The sound for what was pressed this frame (SoundId, or -1), played once the frame's input is
+// handled; a popup that comes up has its own sound, which wins.
+static int          s_sound = -1;
+static char         s_shareStatus[48];      // the share screen's news last heard
+
+static void PlayLater(SoundId id)
+{
+    s_sound = id;
+}
+
+// The sound a popup makes as it comes up (g_popup): -1 for none (the progress bars).
+static int PopupSound(void)
+{
+    switch (g_popup)
+    {
+        case POPUP_NONE:
+        case POPUP_DOWNLOADING:
+        case POPUP_APP_DOWNLOADING:
+            return -1;
+        case POPUP_COINS:
+            return SOUND_COINS;
+        case POPUP_BOUGHT:
+            return SOUND_BOUGHT;
+        case POPUP_NOT_ENOUGH:
+            return SOUND_ERROR;
+        default:
+            break;
+    }
+    PopupText t;
+    Ui_PopupText(&t);
+    return t.problem ? SOUND_ERROR : SOUND_NOTICE;
+}
+
+// The share screen's latest news, once: the image saved (or sent to a phone), or a problem.
+static void ShareSounds(void)
+{
+    ShareView v;
+    Share_View(&v);
+    if (v.status == NULL || strcmp(v.status, s_shareStatus) == 0)
+        return;
+    snprintf(s_shareStatus, sizeof(s_shareStatus), "%s", v.status);
+    if (v.tone == SHARE_GOOD)
+        PlayLater(SOUND_SAVED);
+    else if (v.tone == SHARE_BAD)
+        PlayLater(SOUND_ERROR);
+}
 
 // A game's achievements, trophies and background, read on a thread of their own so the
 // screens keep moving meanwhile (reading and parsing them takes a while on an Old 3DS).
@@ -264,7 +312,7 @@ static void SetTabs(bool settings, bool sharing, bool details, int game, bool lo
     if (settings)
     {
         g_tabs[TAB_LEFT] = BACK;
-        g_tabs[TAB_RIGHT] = g_menu == MENU_THEMES ? USE : CHANGE;
+        g_tabs[TAB_RIGHT] = g_menu == MENU_SETTINGS ? CHANGE : USE;
     }
     else if (sharing)
     {
@@ -457,11 +505,15 @@ static void ChangeSetting(int i)
             g_popup = on ? POPUP_START_FAILED : POPUP_STOP_FAILED;
             g_popupResult = res;
         }
+        PlayLater(g_trackerRunning ? SOUND_TOGGLE_ON : SOUND_TOGGLE_OFF);
     }
     else if (i == SETTING_AUTOSTART)
     {
         if (g_autostart)
+        {
             SetAutostart(false);
+            PlayLater(SOUND_TOGGLE_OFF);
+        }
         else
             g_popup = POPUP_AUTOSTART_CONFIRM;      // what game patching also does first; A turns it on
     }
@@ -469,9 +521,27 @@ static void ChangeSetting(int i)
     {
         Tracker_SetPatchedAllowed(!g_patchedAllowed);
         g_patchedAllowed = Tracker_PatchedAllowed();    // what was actually saved
+        PlayLater(g_patchedAllowed ? SOUND_TOGGLE_ON : SOUND_TOGGLE_OFF);
     }
     else if (i == SETTING_HOTKEY)
         OpenHotkey();
+}
+
+// Line i of the sound list (MENU_SOUNDS): a set (heard at once), or Off.
+static void UseSounds(int i)
+{
+    int set = i < Sound_SetCount() ? i : -1;
+    if (set < 0)
+        Sound_Play(SOUND_TOGGLE_OFF);           // the last one heard
+    Sound_Use(set);
+    if (set >= 0)
+        PlayLater(SOUND_SELECT);
+}
+
+// The sound list's line for the set in use (Off is the last).
+static int SoundsLine(void)
+{
+    return Sound_Current() >= 0 ? Sound_Current() : Sound_SetCount();
 }
 
 // POPUP_HOTKEY: hold the new buttons (ChooseHotkey).
@@ -522,6 +592,7 @@ static bool ChooseHotkey(u32 down, u32 held, u32 up)
     if ((up & KEY_B) && keys == 0 && s_hotkeyCancel)
     {
         ClosePopup();
+        PlayLater(SOUND_BACK);
         return true;
     }
 
@@ -636,6 +707,7 @@ int main(int argc, char **argv)
 
     // (The Homebrew Launcher passes the .3dsx's path. Store files that aren't here yet are fetched.)
     Update_Start(argc > 0 ? argv[0] : NULL);
+    Sound_Init();                   // (not in the benchmark: it stays silent)
 #endif
 
     g_theme->reset();
@@ -663,6 +735,7 @@ int main(int argc, char **argv)
     bool    restart = false;        // the app was updated: its new version starts once it closes
     int     tabTouch = -1;          // the tab a touch began on, or -1
     bool    tabInside = false;      // and the touch is still on it
+    Popup   shownPopup = POPUP_NONE;    // the popup whose sound was played (one up at the start plays too)
     u64     lastFrame = osGetTime();
 
     while (aptMainLoop())
@@ -740,6 +813,7 @@ int main(int argc, char **argv)
                 Share_Close();
                 sharing = false;
                 redraw = 2;
+                PlayLater(SOUND_BACK);
             }
             else
             {
@@ -750,6 +824,7 @@ int main(int argc, char **argv)
                 }
                 if (Share_Poll())
                     redraw = 2;
+                ShareSounds();              // saved, or sent to a phone
             }
         }
         else if (g_popup == POPUP_UPDATE)
@@ -757,6 +832,7 @@ int main(int argc, char **argv)
             if (down & KEY_A)
             {
                 // The files are about to change, and the games are read again after.
+                Sound_Play(SOUND_SELECT);   // now: the download takes a while
                 LoadingDone(true);
                 loading = false;
                 Result res = Update_Download(ShowDownloadProgress);
@@ -788,12 +864,14 @@ int main(int argc, char **argv)
             {
                 ClosePopup();
                 redrawTop = 2;
+                PlayLater(SOUND_BACK);
             }
         }
         else if (g_popup == POPUP_APP_UPDATE || g_popup == POPUP_APP_FAILED)
         {
             if (down & KEY_A)                   // update, or try again
             {
+                Sound_Play(SOUND_SELECT);       // now: the download takes a while
                 LoadingDone(true);
                 loading = false;
                 InstallAppUpdate();
@@ -803,6 +881,7 @@ int main(int argc, char **argv)
             {
                 ClosePopup();
                 redrawTop = 2;
+                PlayLater(SOUND_BACK);
             }
         }
         else if (g_popup == POPUP_APP_UPDATED)
@@ -825,6 +904,7 @@ int main(int argc, char **argv)
             {
                 ClosePopup();
                 redrawTop = 2;
+                PlayLater(SOUND_BACK);
             }
         }
         else if (g_popup == POPUP_AUTOSTART_CONFIRM)
@@ -838,6 +918,7 @@ int main(int argc, char **argv)
             {
                 ClosePopup();
                 redrawTop = 2;
+                PlayLater(SOUND_BACK);
             }
         }
         else if (g_popup == POPUP_HOTKEY)
@@ -869,6 +950,7 @@ int main(int argc, char **argv)
             {
                 ClosePopup();
                 redrawTop = 2;
+                PlayLater(SOUND_BACK);
             }
         }
         else if (settings)
@@ -904,12 +986,26 @@ int main(int argc, char **argv)
                     settingItem = i, change = true;
             }
             settingItem = Clamp(settingItem, 0, count - 1);
+            if (settingItem != was)
+                PlayLater(SOUND_TICK);
+            else if (down & (KEY_UP | KEY_DOWN))
+                PlayLater(SOUND_BUMP);          // already on the first or last line
             if (change && g_menu == MENU_SETTINGS && settingItem == SETTING_THEME)
             {
                 g_menu = MENU_THEMES;
                 settingItem = Theme_Current();
                 g_menuScroll = 0;
+                PlayLater(SOUND_SELECT);
             }
+            else if (change && g_menu == MENU_SETTINGS && settingItem == SETTING_SOUNDS)
+            {
+                g_menu = MENU_SOUNDS;
+                settingItem = SoundsLine();
+                g_menuScroll = 0;
+                PlayLater(SOUND_SELECT);
+            }
+            else if (change && g_menu == MENU_SOUNDS)
+                UseSounds(settingItem);
             else if (change && g_menu == MENU_THEMES)
             {
                 if (settingItem != Theme_Current() && !Theme_Use(settingItem))
@@ -917,6 +1013,8 @@ int main(int argc, char **argv)
                     g_popup = POPUP_THEME_FAILED;
                     g_popupResult = 0;
                 }
+                else
+                    PlayLater(SOUND_SELECT);
                 g_theme->reset();
                 if (game >= g_gameCount)
                 {
@@ -935,17 +1033,21 @@ int main(int argc, char **argv)
             {
                 settings = false;
                 touchActive = false;
+                PlayLater(SOUND_BACK);
             }
-            else if ((down & KEY_B) && g_menu == MENU_THEMES)
+            else if ((down & KEY_B) && g_menu != MENU_SETTINGS)
             {
-                g_menu = MENU_SETTINGS;                 // back to the settings, on Theme
-                settingItem = SETTING_THEME;
+                // Back to the settings, on the line the list came from.
+                settingItem = g_menu == MENU_THEMES ? SETTING_THEME : SETTING_SOUNDS;
+                g_menu = MENU_SETTINGS;
                 g_menuScroll = 0;
+                PlayLater(SOUND_BACK);
             }
             else if (down & KEY_B)
             {
                 settings = false;
                 touchActive = false;
+                PlayLater(SOUND_BACK);
             }
 
             // The highlighted line stays shown (the list, or the theme drawing it, may have changed).
@@ -969,11 +1071,14 @@ int main(int argc, char **argv)
                 g_menuScroll = 0;
                 touchActive = false;
                 redraw = 2;
+                PlayLater(SOUND_SELECT);
             }
 
             // Share: only once the selected game's achievements have loaded.
             if ((down & KEY_Y) && game < g_gameCount && heroFor == game)
             {
+                Sound_Play(SOUND_SELECT);       // now: the image takes a moment to make
+                s_shareStatus[0] = '\0';
                 Draw_Begin(true, true);
                 DrawTopScreen(game, heroLevel);
                 g_theme->drawShareBottom();     // not open yet: the image is being made
@@ -992,6 +1097,8 @@ int main(int argc, char **argv)
                     details = false;
                     bottomFade = 0;
                     redraw = 2;
+                    const Game *g = game < g_gameCount ? &g_games[game] : NULL;
+                    PlayLater(g != NULL && g->total > 0 && g->unlocked == g->total ? SOUND_COMPLETE : SOUND_SELECT);
                 }
                 int step = ((dir & KEY_RIGHT) ? 1 : 0) - ((dir & KEY_LEFT) ? 1 : 0);
                 if (g_theme->pickColumns > 1)
@@ -1007,7 +1114,10 @@ int main(int argc, char **argv)
                     scroll = 0;
                     g_selected = 0;
                     redraw = 2;
+                    PlayLater(SOUND_MOVE);
                 }
+                else if (step != 0 && (down & (KEY_LEFT | KEY_RIGHT | KEY_UP | KEY_DOWN)))
+                    PlayLater(SOUND_BUMP);      // at the first or last (not while held: it would repeat)
             }
             else if (g_gameCount > 0 && details)
             {
@@ -1023,12 +1133,16 @@ int main(int argc, char **argv)
                 {
                     scroll = Clamp(ScrollToShow(scroll), 0, MaxScroll());
                     redrawBottom = 2;
+                    PlayLater(SOUND_TICK);
                 }
+                else if (down & (KEY_UP | KEY_DOWN))
+                    PlayLater(SOUND_BUMP);
                 if (down & (KEY_B | KEY_TOUCH))
                 {
                     details = false;
                     bottomFade = 0;
                     redrawBottom = 2;
+                    PlayLater(SOUND_BACK);
                 }
             }
             else if (g_gameCount > 0 && g_theme->gameList && (down & KEY_B))
@@ -1038,6 +1152,7 @@ int main(int argc, char **argv)
                 touchActive = false;
                 bottomFade = 0;
                 redraw = 2;
+                PlayLater(SOUND_BACK);
             }
             else if (g_gameCount > 0)
             {
@@ -1048,6 +1163,8 @@ int main(int argc, char **argv)
                     {
                         OpenBuy(g_selected);
                         redrawTop = 2;
+                        if (g_popup == POPUP_NONE)
+                            PlayLater(SOUND_BUMP);      // already bought
                     }
                     else
                     {
@@ -1055,10 +1172,12 @@ int main(int argc, char **argv)
                         bottomFade = 0;
                         touchActive = false;
                         redrawBottom = 2;
+                        PlayLater(SOUND_SELECT);
                     }
                 }
 
-                int next = Clamp(game + ((dir & KEY_RIGHT) ? 1 : 0) - ((dir & KEY_LEFT) ? 1 : 0), 0, Ui_RowPositions() - 1);
+                int side = ((dir & KEY_RIGHT) ? 1 : 0) - ((dir & KEY_LEFT) ? 1 : 0);
+                int next = Clamp(game + side, 0, Ui_RowPositions() - 1);
                 if (next != game)
                 {
                     game = next;
@@ -1069,7 +1188,10 @@ int main(int argc, char **argv)
                     scroll = 0;
                     g_selected = 0;
                     redraw = 2;
+                    PlayLater(SOUND_MOVE);
                 }
+                else if (side != 0 && (down & (KEY_LEFT | KEY_RIGHT)))
+                    PlayLater(SOUND_BUMP);
 
                 // Up/Down move the selection one box, L/R a page. The list scrolls (by whole
                 // boxes) only to keep the selected box on the screen.
@@ -1096,7 +1218,12 @@ int main(int argc, char **argv)
                     g_selected = Clamp(g_selected, 0, g_count - 1);
                     top = ScrollToShow(top);
                     if (g_selected != was)
+                    {
                         redrawBottom = 2;
+                        PlayLater(SOUND_TICK);
+                    }
+                    else if (down & (KEY_UP | KEY_DOWN | KEY_L | KEY_R))
+                        PlayLater(SOUND_BUMP);
                 }
 
                 // Dragging on the touch screen moves the list with the stylus; a tap (a touch
@@ -1128,12 +1255,15 @@ int main(int argc, char **argv)
                         {
                             OpenBuy(i);
                             redraw = 2;
+                            if (g_popup == POPUP_NONE)
+                                PlayLater(SOUND_BUMP);  // already bought
                         }
                         else
                         {
                             details = true;
                             bottomFade = 0;
                             redrawBottom = 2;
+                            PlayLater(SOUND_SELECT);
                         }
                     }
                 }
@@ -1145,6 +1275,20 @@ int main(int argc, char **argv)
                     redrawBottom = 2;
                 }
             }
+        }
+
+        // This frame's sound: a popup that just came up has its own, else what was pressed.
+        if (g_popup != shownPopup)
+        {
+            int popupSound = PopupSound();
+            if (popupSound >= 0)
+                s_sound = popupSound;
+            shownPopup = g_popup;
+        }
+        if (s_sound >= 0)
+        {
+            Sound_Play((SoundId)s_sound);
+            s_sound = -1;
         }
 
         // The old background finishes fading out before the next game is loaded over it.
@@ -1343,6 +1487,7 @@ int main(int argc, char **argv)
     if (sharing)
         Share_Close();
     LoadingDone(true);
+    Sound_Exit();
 #ifdef BENCH
     (void)restart;
     Bench_Report();

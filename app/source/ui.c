@@ -7,6 +7,7 @@
 #include "achievements.h"
 #include "autostart.h"
 #include "hotkey.h"
+#include "sound.h"
 #include "store_file.h"
 #include "store_icon.h"
 #include "theme.h"
@@ -581,16 +582,26 @@ void Ui_Totals(UiTotals *t)
 
 int Ui_MenuCount(void)
 {
-    return g_menu == MENU_THEMES ? Theme_Count() : SETTING_COUNT;
+    return g_menu == MENU_THEMES ? Theme_Count() : g_menu == MENU_SOUNDS ? Sound_SetCount() + 1 : SETTING_COUNT;
 }
 
 const char *Ui_MenuTitle(void)
 {
-    return g_menu == MENU_THEMES ? "Theme" : "Settings";
+    return g_menu == MENU_THEMES ? "Theme" : g_menu == MENU_SOUNDS ? "Sounds" : "Settings";
 }
 
 void Ui_Setting(int i, UiSetting *s)
 {
+    if (g_menu == MENU_SOUNDS)
+    {
+        // A sound set, or Off (the last line); the one in use says so.
+        int set = i < Sound_SetCount() ? i : -1;
+        s->name = Sound_SetName(set);
+        s->on = true;
+        s->value = set == Sound_Current() ? "In use" : "";
+        s->description = set >= 0 ? Sound_SetDescription(set) : "The app makes no sounds.";
+        return;
+    }
     if (g_menu == MENU_THEMES)
     {
         // A theme: the one in use says so.
@@ -633,6 +644,14 @@ void Ui_Setting(int i, UiSetting *s)
                 "Hold these in a game to pause it and see its achievements. A changes them.";
             return;
         }
+        case SETTING_SOUNDS:
+            s->name = "Sounds";
+            s->on = Sound_Current() >= 0;
+            s->value = Sound_SetName(Sound_Current());
+            s->description = Sound_Broken() ?
+                "Your 3DS can't play them: /3ds/dspfirm.cdc is missing. The DSP1 app makes it." :
+                "The sounds the app makes as you move around and open things. A shows the choices.";
+            return;
         default:
         {
             static char text[96];
