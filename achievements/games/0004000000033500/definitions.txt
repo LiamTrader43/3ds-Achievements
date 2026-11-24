@@ -47,6 +47,9 @@
 #
 # rcheevos bit sizes: 0xM = bit 0 ... 0xT = bit 7 of a byte.
 #
+# The game's name in the app and on the banner, also without the game on the console.
+@title Ocarina of Time 3D
+#
 # Missable: these can be missed for good in a playthrough (a boss can't be fought again,
 # a scene or a character doesn't come back): the 27 the RetroAchievements set marks Missable.
 @missable CASTLE_BRIBE CAUGHT_BY_GUARDS SHIELD_GRAVE WALKING_TIGHTROPE NUT_SCRUB NUT_THEATER

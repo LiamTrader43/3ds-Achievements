@@ -5,8 +5,9 @@
 # updated) gets "achievements off: needs version 1.2" instead (needs a tracker that reads "@version").
 @version 1.2 0x0064E4FC 4 0xD899E1C9
 
-# The Japanese release's own title is in Japanese, which the banner's font can't show.
-@title MARIO KART 7
+# The game's name in the app and on the banner, also without the game on the console (the Japanese
+# release's own title is in Japanese, which the banner's font can't show).
+@title Mario Kart 7
 
 # CTGP-7 runs Mario Kart 7 with its own save: its progress isn't the game's.
 @block-plugin CTGP-7

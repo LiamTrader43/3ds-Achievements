@@ -37,7 +37,7 @@ APP_DESCRIPTION	:=	Starts the tracker and shows your achievements
 APP_AUTHOR	:=	LiamTrader43
 # The app's version: the release tag without its "v" (v1.4.0 -> 1.4.0). The app offers to
 # update itself when GitHub's latest release is newer than this, so raise it for every release.
-VERSION		:=	2.2.0
+VERSION		:=	2.3.0
 BUILD		:=	build
 # Themes (source/theme.h): modern is in source/, every other theme is a folder themes/<id>/.
 # The ones listed here are preinstalled: compiled into the app (each also needs its Theme in

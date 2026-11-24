@@ -377,7 +377,7 @@ ORDER = [
 ]
 
 
-HEADER_LINES = 9                    # main()'s first entries: the file's header, "@version", "@title" and "@block-plugin"
+HEADER_LINES = 10                   # main()'s first entries: the file's header, "@version", "@title" and "@block-plugin"
 
 
 def in_order(lines):
@@ -412,8 +412,9 @@ def main():
              "\n# Version 1.2 only: a read-only word that only 1.2 has. Any other version (1.0, a cartridge never\n",
              "# updated) gets \"achievements off: needs version 1.2\" instead (needs a tracker that reads \"@version\").\n",
              "@version 1.2 0x%08X 4 0x%08X\n" % (VERSION_ADDR, VERSION_12),
-             "\n# The Japanese release's own title is in Japanese, which the banner's font can't show.\n",
-             "@title MARIO KART 7\n",
+             "\n# The game's name in the app and on the banner, also without the game on the console (the Japanese\n",
+             "# release's own title is in Japanese, which the banner's font can't show).\n",
+             "@title Mario Kart 7\n",
              "\n# CTGP-7 runs Mario Kart 7 with its own save: its progress isn't the game's.\n",
              "@block-plugin CTGP-7\n"]
 
