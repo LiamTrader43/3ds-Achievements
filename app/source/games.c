@@ -333,10 +333,12 @@ int Games_Scan(Game *games, int capacity)
     {
         Game *g = &games[i];
 
-        // The installed or inserted release, the game's own first.
+        // The installed or inserted release, the game's own first. Every release counts here, also
+        // past the MAX_RELEASES that Game.releases keeps.
         g->hasIcon = ReadSmdh(g->titleId, smdh);
-        for (int r = 0; r < g->releaseCount && !g->hasIcon; r++)
-            g->hasIcon = ReadSmdh(g->releases[r], smdh);
+        for (int r = 0; r < releases && !g->hasIcon; r++)
+            if (releaseGames[r] == g->titleId)
+                g->hasIcon = ReadSmdh(releaseIds[r], smdh);
         if (g->hasIcon)
             WriteCachedSmdh(g->titleId, smdh);
         else
