@@ -10,3 +10,4 @@
 # lists items in this order.
 
 THEME_DS  100  theme  ds  DS theme | The app in the style of the original DS menu: graph paper, silver buttons and a clock.
+THEME_GAMECUBE  100  theme  gamecube  GameCube theme | The app in the style of the GameCube's menu: deep indigo glass, small cubes, and your games as blocks on a memory card.

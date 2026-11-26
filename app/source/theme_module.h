@@ -133,6 +133,11 @@ extern const ThemeApi *theme_api;
 #if THEME_MODULE_API >= 6
 #define Ui_Measured             (theme_api->Ui_Measured)
 #endif
+#if THEME_MODULE_API >= 7
+#define Theme_PickTaps          (theme_api->Theme_PickTaps)
+#define Theme_SetFlags          (theme_api->Theme_SetFlags)
+#define Draw_Pixels             (theme_api->Draw_Pixels)
+#endif
 
 // The theme's description (read without running it), the api it was handed, and its entry
 // point, which refuses an app older than the theme.

@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "theme_loader.h"
+#include "ui.h"
 
 #ifndef THEME_PATH
 #define THEME_PATH  "sdmc:/achievements/theme.txt"
@@ -243,4 +244,37 @@ bool Theme_Use(int i)
 const char *Theme_Error(void)
 {
     return s_error;
+}
+
+// Taps on the games while choosing: what the theme in use said (theme API 7).
+static const Theme *s_pickTheme;
+static int (*s_pickAt)(int game, int x, int y);
+
+void Theme_PickTaps(const Theme *theme, int (*at)(int game, int x, int y))
+{
+    s_pickTheme = theme;
+    s_pickAt = at;
+}
+
+int Theme_PickAt(int game, int x, int y)
+{
+    if (s_pickAt == NULL || s_pickTheme != g_theme)
+        return -1;
+    int i = s_pickAt(game, x, y);
+    return i >= 0 && i < Ui_RowPositions() ? i : -1;
+}
+
+// What the theme in use said about itself (theme API 7).
+static const Theme *s_flagsTheme;
+static u32          s_flags;
+
+void Theme_SetFlags(const Theme *theme, u32 flags)
+{
+    s_flagsTheme = theme;
+    s_flags = flags;
+}
+
+u32 Theme_Flags(void)
+{
+    return s_flagsTheme == g_theme ? s_flags : 0;
 }

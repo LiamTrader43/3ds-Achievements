@@ -105,4 +105,20 @@ bool            Theme_Use(int i);
 // Why the last theme that failed to load couldn't be: "<name>: <reason>".
 const char     *Theme_Error(void);
 
+// Taps on the games while choosing one (g_picking), for a theme that lays them out on the bottom
+// screen: the theme says (theme API 7, e.g. each time it draws them) which position is at x, y
+// with position game highlighted, or -1 for none. Kept only while that theme is in use.
+void            Theme_PickTaps(const Theme *theme, int (*at)(int game, int x, int y));
+// The position at x, y on the bottom screen while choosing, or -1 (none, or the theme in use
+// didn't say).
+int             Theme_PickAt(int game, int x, int y);
+
+// What a theme says about itself (theme API 7, e.g. in its reset): THEME_FLAG_* for theme, kept only
+// while that theme is in use. Theme_Flags: the theme in use's (0 if it didn't say).
+#define THEME_FLAG_NO_BACKGROUND    1       // its top screen doesn't show the game's background:
+                                            // heroLevel isn't faded (no redrawing for it), and the
+                                            // store's isn't made (g_heroReady stays false there)
+void            Theme_SetFlags(const Theme *theme, u32 flags);
+u32             Theme_Flags(void);
+
 #endif

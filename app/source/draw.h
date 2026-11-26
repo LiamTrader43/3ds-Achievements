@@ -107,8 +107,14 @@ void    Draw_DimHero(const u8 *pixels, u8 *dimmed);
 // (invisible) to 256 (fully faded in). Draw it first: it sets every pixel.
 void    Draw_Hero(const u8 *dimmed, int fade, int depth);
 
-// A w x h RGB image (rows top to bottom) at (x, y).
+// A w x h RGB image (rows top to bottom) at (x, y). Since theme API 7 it also shows in a frame that
+// keeps the rest of the screen (a theme's drawIdle); before that, only where the screen is redrawn.
 void    Draw_Image(gfxScreen_t screen, int x, int y, int w, int h, const u8 *rgb);
+
+// A w x h picture already in the framebuffer's own order at (x, y): w columns, columnBytes apart,
+// each from its bottom row up, BGR (like a hero.bin's columns). Copied a column at a time, so much
+// quicker than Draw_Image; shows in drawIdle's frames too. Theme API 7.
+void    Draw_Pixels(gfxScreen_t screen, int x, int y, int w, int h, const u8 *pixels, int columnBytes);
 
 // A light running around a rounded frame that's already drawn (a w x h box with corner
 // radius, the frame thickness pixels wide inside its edge, in colour base): a lighter

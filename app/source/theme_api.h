@@ -40,11 +40,13 @@
 #include "ui.h"
 #include "update.h"
 
-#define THEME_API_VERSION   6       // 2: ThemeInfo.description, Theme.description/pickColumns, the menu (g_menu)
+#define THEME_API_VERSION   7       // 2: ThemeInfo.description, Theme.description/pickColumns, the menu (g_menu)
                                     // 3: g_missable
                                     // 4: achievements done in parts (g_partsDone ... g_partDone)
                                     // 5: each achievement's own picture (Ui_AchievementIcon)
                                     // 6: measured progress (Ui_Measured)
+                                    // 7: taps on the games while choosing (Theme_PickTaps); Draw_Image
+                                    //    also shows in drawIdle's frames; Theme_SetFlags; Draw_Pixels
 #define THEME_API_OLDEST    2
 
 // What a theme says about itself (its THEME_MODULE_DEFINE), read before any of its code runs.
@@ -116,7 +118,7 @@ typedef struct
     X(g_partsDone) X(g_partsTotal) X(g_partFirst) X(g_partNames) X(g_partDone)
 
 // Added since (functions or globals), after everything above so it stays where it was.
-#define THEME_API_ADDED(X)     X(Ui_AchievementIcon) X(Ui_Measured)
+#define THEME_API_ADDED(X)     X(Ui_AchievementIcon) X(Ui_Measured) X(Theme_PickTaps) X(Theme_SetFlags) X(Draw_Pixels)
 
 // A pointer to each of them, in the lists' order.
 typedef struct ThemeApi
@@ -136,7 +138,8 @@ typedef struct ThemeApi
 #define THEME_API_SIZE_3    offsetof(ThemeApi, g_partsDone)
 #define THEME_API_SIZE_4    offsetof(ThemeApi, Ui_AchievementIcon)
 #define THEME_API_SIZE_5    offsetof(ThemeApi, Ui_Measured)
-#define THEME_API_SIZE_6    sizeof(ThemeApi)
+#define THEME_API_SIZE_6    offsetof(ThemeApi, Theme_PickTaps)
+#define THEME_API_SIZE_7    sizeof(ThemeApi)
 
 // A theme's entry point (the .theme file's ELF entry): keeps api and returns its Theme, or
 // NULL if it can't run with this app.

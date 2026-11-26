@@ -443,9 +443,7 @@ static void OpenBuy(int i)
     if (item == NULL || Store_Owned(i))
         return;
     g_buyItem = i;
-    if (g_coins < 0)
-        s_coinsResult = Rewards_Coins(&g_coins);    // once more, in case it works now
-    if (g_coins < 0)
+    if (g_coins < 0)                                // (they couldn't be read while the app loaded)
     {
         g_popupResult = s_coinsResult;
         g_popup = POPUP_BUY_FAILED;
@@ -703,7 +701,7 @@ int main(int argc, char **argv)
         else
             s_coinsWaiting = true;
     }
-    s_coinsResult = Rewards_Coins(&g_coins);    // for the store's name in the row (read again there)
+    s_coinsResult = Rewards_Coins(&g_coins);    // while loading: the store shows these (purchases update them)
 
     // (The Homebrew Launcher passes the .3dsx's path. Store files that aren't here yet are fetched.)
     Update_Start(argc > 0 ? argv[0] : NULL);
@@ -1091,11 +1089,39 @@ int main(int argc, char **argv)
             {
                 // Choosing a game: Left/Right go along the games (Up/Down a row, if the theme shows
                 // them in rows), the highlighted one's stats are shown, A opens it (or the store).
-                if ((down & KEY_A) && (game < g_gameCount || Ui_IsStore(game)))
+                // A theme that shows the games on the bottom screen says where they are
+                // (Theme_PickAt), and the touch screen works like the HOME Menu's: touching a game
+                // highlights it at once; touching the highlighted one and letting go on it opens it.
+                int tapped = -1;
+                bool tapOpens = false;
+                if (down & KEY_TOUCH)
+                {
+                    touchPosition touch;
+                    hidTouchRead(&touch);
+                    int at = Theme_PickAt(game, touch.px, touch.py);
+                    touchActive = at >= 0 && at == game;    // may open it when let go
+                    touchMoved = false;
+                    if (at >= 0 && at != game)
+                        tapped = at;
+                }
+                else if ((held & KEY_TOUCH) && touchActive)
+                {
+                    touchPosition touch;
+                    hidTouchRead(&touch);
+                    if (Theme_PickAt(game, touch.px, touch.py) != game)
+                        touchMoved = true;                  // slid off it
+                }
+                if ((up & KEY_TOUCH) && touchActive)
+                {
+                    touchActive = false;
+                    tapOpens = !touchMoved;
+                }
+                if (((down & KEY_A) || tapOpens) && (game < g_gameCount || Ui_IsStore(game)))
                 {
                     g_picking = false;
                     details = false;
                     bottomFade = 0;
+                    touchActive = false;
                     redraw = 2;
                     const Game *g = game < g_gameCount ? &g_games[game] : NULL;
                     PlayLater(g != NULL && g->total > 0 && g->unlocked == g->total ? SOUND_COMPLETE : SOUND_SELECT);
@@ -1103,7 +1129,7 @@ int main(int argc, char **argv)
                 int step = ((dir & KEY_RIGHT) ? 1 : 0) - ((dir & KEY_LEFT) ? 1 : 0);
                 if (g_theme->pickColumns > 1)
                     step += (((dir & KEY_DOWN) ? 1 : 0) - ((dir & KEY_UP) ? 1 : 0)) * g_theme->pickColumns;
-                int next = Clamp(game + step, 0, Ui_RowPositions() - 1);
+                int next = tapped >= 0 && g_picking ? tapped : Clamp(game + step, 0, Ui_RowPositions() - 1);
                 if (next != game)
                 {
                     game = next;
@@ -1301,13 +1327,17 @@ int main(int argc, char **argv)
             }
             else if (Ui_IsStore(game))
             {
-                // The store: what's for sale, the Play Coins there are now, its own background.
+                // The store: what's for sale (its Play Coins are read only while the app loads and
+                // after it gives some: g_coins), and its own background (made on the spot, so not for
+                // a theme that doesn't show it: that takes a while).
                 heroFor = game;
-                s_coinsResult = Rewards_Coins(&g_coins);
                 g_count = Store_Count();
-                Ui_StoreBackground(g_hero);
-                Draw_DimHero(g_hero, g_heroDim);
-                g_heroReady = true;
+                g_heroReady = !(Theme_Flags() & THEME_FLAG_NO_BACKGROUND);
+                if (g_heroReady)
+                {
+                    Ui_StoreBackground(g_hero);
+                    Draw_DimHero(g_hero, g_heroDim);
+                }
                 if (!g_picking)
                 {
                     bottomFade = 0;
@@ -1351,7 +1381,9 @@ int main(int argc, char **argv)
                 redrawTop = 2;
 
             int target = g_heroReady && heroFor == game ? 256 : 0;
-            if (heroLevel != target)
+            if (heroLevel != target && (Theme_Flags() & THEME_FLAG_NO_BACKGROUND))
+                heroLevel = target;         // the theme doesn't show it: nothing to fade, or redraw
+            else if (heroLevel != target)
             {
                 int step = milliseconds * 256 / (target != 0 ? HERO_FADE_MS : HERO_OUT_MS);
                 heroLevel = Ui_Approach(heroLevel, target, step > 0 ? step : 1);

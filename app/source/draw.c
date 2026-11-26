@@ -1041,12 +1041,34 @@ void Draw_IconScaled(gfxScreen_t screen, int x, int y, int size, int radius, con
 
 void Draw_Image(gfxScreen_t screen, int x, int y, int w, int h, const u8 *rgb)
 {
-    for (int row = 0; row < h; row++)
-        for (int col = 0; col < w; col++, rgb += 3)
-        {
-            Color c = { rgb[0], rgb[1], rgb[2] };
-            Plot(screen, x + col, y + row, c);
-        }
+    // Clipped once, then a column at a time (the framebuffer keeps each column's pixels together).
+    // Its columns are flushed even in a frame that keeps the rest of the screen (a theme's
+    // drawIdle can move a picture with it; theme API 7 on).
+    int dx0, dx1, dy0, dy1;
+    x = Shifted(screen, x);
+    if (!Clip(screen, x, y, w, h, &dx0, &dx1, &dy0, &dy1))
+        return;
+    Dirty(screen == GFX_TOP ? s_eye : 2, x + dx0, x + dx1);
+    for (int col = dx0; col < dx1; col++)
+    {
+        const u8 *from = rgb + ((size_t)dy0 * w + col) * 3;
+        u8 *p = At(screen, x + col, y + dy0);
+        for (int row = dy0; row < dy1; row++, from += (size_t)w * 3, p -= 3)
+            p[0] = from[2], p[1] = from[1], p[2] = from[0];
+    }
+}
+
+void Draw_Pixels(gfxScreen_t screen, int x, int y, int w, int h, const u8 *pixels, int columnBytes)
+{
+    int dx0, dx1, dy0, dy1;
+    x = Shifted(screen, x);
+    if (!Clip(screen, x, y, w, h, &dx0, &dx1, &dy0, &dy1))
+        return;
+    Dirty(screen == GFX_TOP ? s_eye : 2, x + dx0, x + dx1);
+    // Rows dy0 to dy1 of each column: in memory from the lowest of them (row dy1 - 1) up.
+    for (int col = dx0; col < dx1; col++)
+        memcpy(At(screen, x + col, y + dy1 - 1), pixels + (size_t)col * columnBytes + (size_t)(h - dy1) * 3,
+               (size_t)(dy1 - dy0) * 3);
 }
 
 // ---- The light running around the selected game's frame: a lighter stretch of the frame's
